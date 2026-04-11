@@ -1,0 +1,13 @@
+{
+  "login_invalid_password": {
+    "module": "login",
+    "scenario": "invalid_password",
+    "steps": [
+      { "action": "navigate", "value": "http://localhost:3000" },
+      { "action": "type", "selector": "#username", "value": "admin" },
+      { "action": "type", "selector": "#password", "value": "wrong" },
+      { "action": "click", "selector": "#login-btn" },
+      { "action": "expect", "selector": "#error" }
+    ]
+  }
+}

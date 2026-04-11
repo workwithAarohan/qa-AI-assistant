@@ -36,7 +36,7 @@ export async function generateSteps(userInput) {
   try {
     return extractJSON(text);
   } catch (err) {
-    console.error("❌ Raw output from model:\n", text);
+    console.error("Raw output from model:\n", text);
     throw new Error("Invalid JSON from Gemini: " + err.message);
   }
 }
