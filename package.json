@@ -1,0 +1,16 @@
+{
+  "name": "hackathon-playwright",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test-login": "node scripts/test-login.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.40.0"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "dotenv": "^16.1.4"
+  }
+}
