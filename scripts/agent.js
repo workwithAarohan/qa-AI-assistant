@@ -40,3 +40,33 @@ export async function generateSteps(userInput) {
     throw new Error("Invalid JSON from Gemini: " + err.message);
   }
 }
+
+export async function fixSteps(originalPlan, error) {
+  const systemPrompt = fs.readFileSync("./prompt.md", "utf-8");
+
+  const fixPrompt = `
+${systemPrompt}
+
+The previous test plan failed.
+
+Original Plan:
+${JSON.stringify(originalPlan, null, 2)}
+
+Error:
+${error}
+
+Fix the steps so that the test passes.
+
+STRICT:
+- Return ONLY JSON
+- Keep same format
+`;
+
+  const result = await model.generateContent(fixPrompt);
+  const response = await result.response;
+  let text = response.text();
+
+  text = text.replace(/```json|```/g, "").trim();
+
+  return extractJSON(text);
+}

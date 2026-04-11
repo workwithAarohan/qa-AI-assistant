@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-import { generateSteps, validatePlan, runSteps } from './index.js';
+import { generateSteps, validatePlan, runSteps, fixSteps } from './index.js';
 import { getFromMemory, saveToMemory } from "./memory.js";
 
 function generateKey(input) {
@@ -31,11 +31,28 @@ function generateKey(input) {
     console.log("Executing...");
     const result = await runSteps(plan.steps);
 
-    if (result.status === "success") {
-      console.log("Execution success → saving/updating memory");
-      saveToMemory(key, plan);
+    if (result.status === "failed") {
+      console.log("Execution failed → attempting auto-heal...");
+
+      const fixedPlan = await fixSteps(plan, result.error);
+
+      console.log("🛠️ Fixed Plan:", JSON.stringify(fixedPlan, null, 2));
+
+      validatePlan(fixedPlan);
+
+      console.log("🔁 Retrying with fixed plan...");
+      result = await runSteps(fixedPlan.steps);
+
+      if (result.status === "success") {
+        console.log("Heal successful → updating memory");
+        saveToMemory(key, fixedPlan);
+      } else {
+        console.log("Heal failed");
+      }
+
     } else {
-      console.log("Execution failed → do not save");
+      console.log("Execution success");
+      saveToMemory(key, plan);
     }
 
     console.log("FINAL RESULT:");
