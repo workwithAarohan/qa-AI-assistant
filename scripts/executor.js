@@ -11,7 +11,7 @@ async function smartClick(page, selector) {
   }
 }
 
-export async function runSteps(steps) {
+export async function runSteps(steps, onStep = () => {}) {
   const browser = await chromium.launch({ headless: false });
   const page = await browser.newPage();
 
@@ -20,6 +20,7 @@ export async function runSteps(steps) {
   for (const step of steps) {
     try {
       console.log("Executing:", step);
+      onStep(step, "running");
 
       let methodUsed = "primary";
 
@@ -51,6 +52,11 @@ export async function runSteps(steps) {
           throw new Error("Unknown action");
       }
 
+      onStep(step, "success");
+
+      const screenshot = await page.screenshot({ encoding: 'base64' });
+      onStep(step, 'success', screenshot);
+
       results.push({
         step,
         status: "success",
@@ -59,6 +65,7 @@ export async function runSteps(steps) {
 
     } catch (err) {
       console.log("Step failed:", step);
+      onStep(step, "failed");
 
       await browser.close();
 

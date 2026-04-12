@@ -17,10 +17,10 @@ npm run test-login
 ```
 ```
 
-Optional: serve the folder on http://localhost:3000 (or any URL) and run the script against it by setting the URL env var:
+Optional: serve the folder on http://localhost:4000 (or any URL) and run the script against it by setting the URL env var:
 
 ```bash
-URL=http://localhost:3000 npm run test-login
+URL=http://localhost:4000 npm run test-login
 ```
 
 Notes:

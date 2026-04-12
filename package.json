@@ -11,6 +11,8 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
-    "dotenv": "^16.1.4"
+    "dotenv": "^16.1.4",
+    "express": "^5.2.1",
+    "ws": "^8.20.0"
   }
 }

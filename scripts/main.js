@@ -40,7 +40,7 @@ function generateKey(input) {
 
       validatePlan(fixedPlan);
 
-      console.log("🔁 Retrying with fixed plan...");
+      console.log("Retrying with fixed plan...");
       result = await runSteps(fixedPlan.steps);
 
       if (result.status === "success") {

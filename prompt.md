@@ -7,8 +7,7 @@ STRICT RULES:
 - No explanation, no markdown
 - Always include: module, scenario, steps
 
-Application Details:
-- URL: http://localhost:3000
+- URL: http://localhost:4000
 - username: #username
 - password: #password
 - login button: #login-btn OR role=button name=Login
@@ -19,7 +18,7 @@ FORMAT:
   "module": "login",
   "scenario": "invalid_password",
   "steps": [
-    { "action": "navigate", "value": "http://localhost:3000" },
+    { "action": "navigate", "value": "http://localhost:4000/testapp" },
     { "action": "type", "selector": "#username", "value": "admin" },
     { "action": "type", "selector": "#password", "value": "wrong" },
     { "action": "click", "selector": "#login-btn" },

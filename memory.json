@@ -5,7 +5,7 @@
     "steps": [
       {
         "action": "navigate",
-        "value": "http://localhost:3000"
+        "value": "http://localhost:4000/testapp"
       },
       {
         "action": "type",
@@ -33,7 +33,7 @@
     "steps": [
       {
         "action": "navigate",
-        "value": "http://localhost:3000"
+        "value": "http://localhost:4000/testapp"
       },
       {
         "action": "type",
@@ -54,5 +54,146 @@
         "selector": "#error"
       }
     ]
+  },
+  "test_the_login_with_valid_password": {
+    "module": "login",
+    "scenario": "valid_password",
+    "steps": [
+      {
+        "action": "navigate",
+        "value": "http://localhost:4000"
+      },
+      {
+        "action": "type",
+        "selector": "#username",
+        "value": "#username"
+      },
+      {
+        "action": "type",
+        "selector": "#password",
+        "value": "#password"
+      },
+      {
+        "action": "click",
+        "selector": "#login-btn"
+      }
+    ]
+  },
+  "test_login_with_invalid_input": {
+    "module": "login",
+    "scenario": "invalid_input",
+    "steps": [
+      {
+        "action": "navigate",
+        "value": "http://localhost:4000"
+      },
+      {
+        "action": "type",
+        "selector": "#username",
+        "value": "testuser"
+      },
+      {
+        "action": "type",
+        "selector": "#password",
+        "value": "invalidpass"
+      },
+      {
+        "action": "click",
+        "selector": "#login-btn"
+      },
+      {
+        "action": "expect",
+        "selector": "#error"
+      }
+    ]
+  },
+  "test_login_module": {
+    "module": "login",
+    "scenario": "invalid_password",
+    "steps": [
+      {
+        "action": "navigate",
+        "value": "http://localhost:4000/testapp"
+      },
+      {
+        "action": "type",
+        "selector": "#username",
+        "value": "admin"
+      },
+      {
+        "action": "type",
+        "selector": "#password",
+        "value": "wrong"
+      },
+      {
+        "action": "click",
+        "selector": "#login-btn"
+      },
+      {
+        "action": "expect",
+        "selector": "#error"
+      }
+    ]
+  },
+  "test_again": {
+    "module": "login",
+    "scenario": "invalid_password",
+    "steps": [
+      {
+        "action": "navigate",
+        "value": "http://localhost:4000/testapp"
+      },
+      {
+        "action": "type",
+        "selector": "#username",
+        "value": "admin"
+      },
+      {
+        "action": "type",
+        "selector": "#password",
+        "value": "wrong"
+      },
+      {
+        "action": "click",
+        "selector": "#login-btn"
+      },
+      {
+        "action": "expect",
+        "selector": "#error"
+      }
+    ]
+  },
+  "test_the_login_module_with_invalid_password": {
+    "module": "login",
+    "scenario": "invalid_password",
+    "steps": [
+      {
+        "action": "navigate",
+        "value": "http://localhost:4000/testapp"
+      },
+      {
+        "action": "type",
+        "selector": "#username",
+        "value": "admin"
+      },
+      {
+        "action": "type",
+        "selector": "#password",
+        "value": "wrong"
+      },
+      {
+        "action": "click",
+        "selector": "#login-btn"
+      },
+      {
+        "action": "expect",
+        "selector": "#error"
+      }
+    ]
+  },
+  "test_query_engine": {
+    "module": "query_engine",
+    "scenario": "verification",
+    "steps": []
   }
 }

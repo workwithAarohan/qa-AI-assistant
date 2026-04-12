@@ -1,31 +1,326 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>Login Test App</title>
-</head>
-<body>
-
-  <h2>Login Page</h2>
-
-  <input id="username" placeholder="Username" />
-  <input id="password" type="password" placeholder="Password" />
-
-  <button id="login-btn" onclick="login()">Login</button>
-
-  <p id="error" style="color:red; display:none;">Invalid credentials</p>
-
-  <script>
-    function login() {
-      const user = document.getElementById('username').value;
-      const pass = document.getElementById('password').value;
-
-      if (user === "admin" && pass === "admin") {
-        document.body.innerHTML = "<h2>Dashboard</h2>";
-      } else {
-        document.getElementById('error').style.display = "block";
-      }
+  <meta charset="UTF-8" />
+  <title>AI QA Agent</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @keyframes bounce {
+      0%, 80%, 100% { transform: translateY(0); }
+      40% { transform: translateY(-5px); }
     }
-  </script>
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+    .typing span { animation: bounce 1s infinite; }
+    .typing span:nth-child(2) { animation-delay: 0.18s; }
+    .typing span:nth-child(3) { animation-delay: 0.36s; }
+    .dot-busy { animation: pulse 1s infinite; }
+    .sdot-run { animation: pulse 0.8s infinite; }
+    textarea { resize: none; }
+  </style>
+</head>
+<body class="bg-gray-100 h-screen flex items-center justify-center p-4">
+
+<div class="w-full max-w-6xl h-[92vh] grid grid-cols-2 border border-gray-200 rounded-2xl overflow-hidden bg-white">
+
+  <!-- LEFT: Chat panel -->
+  <div class="flex flex-col border-r border-gray-100">
+
+    <!-- Header -->
+    <div class="flex items-center gap-3 px-4 py-3 border-b border-gray-100">
+      <div class="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center text-xs font-medium text-blue-600 flex-shrink-0">QA</div>
+      <div>
+        <div class="text-sm font-medium text-gray-700">QA Agent</div>
+      </div>
+      <div id="statusDot" class="w-2 h-2 rounded-full bg-green-500 ml-auto flex-shrink-0"></div>
+      <div id="agentState" class="text-xs text-gray-400">Ready</div>
+    </div>
+
+    <!-- Messages -->
+    <div id="chatMessages" class="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-3">
+      <div class="flex flex-col gap-1 max-w-[85%]">
+        <div class="bg-gray-100 text-gray-700 text-sm px-3 py-2 rounded-xl rounded-bl-sm leading-relaxed">
+          Hi! Describe a test you want to run and I will generate the steps, execute it in the browser, and report back.
+        </div>
+        <div class="text-xs text-gray-300">now</div>
+      </div>
+    </div>
+
+    <!-- Input -->
+    <div class="px-4 py-3 border-t border-gray-100 flex gap-2 items-end">
+      <div id="inputWrap" class="flex-1 border border-gray-200 rounded-xl overflow-hidden focus-within:border-gray-400 transition">
+        <textarea id="chatInput" rows="1"
+          class="w-full px-3 py-2 text-sm bg-transparent outline-none text-gray-700"
+          placeholder="Describe a test to run..."></textarea>
+      </div>
+      <button id="sendBtn" onclick="handleSend()"
+        class="w-8 h-8 flex-shrink-0 border border-gray-200 rounded-lg flex items-center justify-center hover:bg-gray-50 transition">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <path d="M7 1L13 7L7 13M1 7H13" stroke="#888" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+    </div>
+
+  </div>
+
+  <!-- RIGHT: Execution panel -->
+  <div class="flex flex-col bg-gray-50">
+
+    <!-- Header -->
+    <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-white">
+      <span class="text-sm font-medium text-gray-700">Execution</span>
+      <span id="execBadge" class="text-xs px-2 py-0.5 rounded-md bg-gray-100 text-gray-400 font-medium">idle</span>
+    </div>
+
+    <!-- Collapsible test plan -->
+    <div class="bg-white border-b border-gray-100">
+      <button onclick="togglePlan()"
+        class="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-medium text-gray-500 hover:bg-gray-50 transition text-left">
+        <div id="planChevron" class="w-3 h-3 border-r-2 border-b-2 border-gray-400 transform rotate-45 transition-transform duration-200"></div>
+        Test plan
+        <span id="planCount" class="ml-auto text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-400">0 steps</span>
+      </button>
+      <div id="planBody" class="overflow-hidden transition-all duration-200" style="max-height: 200px;">
+        <div id="planInner" class="px-4 pb-3 flex flex-col gap-1.5 max-h-48 overflow-y-auto">
+          <p class="text-xs text-gray-300 py-2">Plan will appear here</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Live log -->
+    <div class="flex-1 overflow-hidden flex flex-col px-4 py-3">
+      <p class="text-xs font-medium text-gray-400 uppercase tracking-widest mb-2">Live log</p>
+      <div id="logStream" class="flex-1 overflow-y-auto flex flex-col gap-0.5 font-mono text-xs">
+        <p class="text-gray-300 text-center py-8">Waiting for test...</p>
+      </div>
+    </div>
+
+    <!-- Report -->
+    <div id="reportBar" class="hidden grid grid-cols-4 gap-2 px-4 py-3 border-t border-gray-100 bg-white">
+      <div class="bg-gray-50 rounded-lg p-2 text-center">
+        <div id="mTotal" class="text-base font-medium text-gray-700">0</div>
+        <div class="text-xs text-gray-400">total</div>
+      </div>
+      <div class="bg-green-50 rounded-lg p-2 text-center">
+        <div id="mPass" class="text-base font-medium text-green-700">0</div>
+        <div class="text-xs text-green-500">passed</div>
+      </div>
+      <div class="bg-red-50 rounded-lg p-2 text-center">
+        <div id="mFail" class="text-base font-medium text-red-600">0</div>
+        <div class="text-xs text-red-400">failed</div>
+      </div>
+      <div class="bg-amber-50 rounded-lg p-2 text-center">
+        <div id="mHeal" class="text-base font-medium text-amber-600">0</div>
+        <div class="text-xs text-amber-500">healed</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  const ws = new WebSocket('ws://localhost:4000');
+  let mode = 'prompt';
+  let stepElements = [];
+  let planOpen = true;
+
+  // Auto-resize textarea
+  const ta = document.getElementById('chatInput');
+  ta.addEventListener('input', () => {
+    ta.style.height = 'auto';
+    ta.style.height = Math.min(ta.scrollHeight, 80) + 'px';
+  });
+  ta.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
+  });
+
+  ws.onmessage = (event) => {
+    const { type, data } = JSON.parse(event.data);
+    if      (type === 'plan')           renderSteps(data.steps);
+    else if (type === 'step')           updateStep(data.step, data.status);
+    else if (type === 'log')            addLog(data.text, data.level);
+    else if (type === 'question')       enterAnswerMode(data);
+    else if (type === 'answer_received'){ addLog('You: ' + data, 'user'); }
+    else if (type === 'report')         showReport(data);
+    else if (type === 'error')          { addLog('Error: ' + data, 'error'); resetInput(); }
+  };
+
+  function now() {
+    const d = new Date();
+    return d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0');
+  }
+
+  function handleSend() {
+    const val = ta.value.trim();
+    if (!val) return;
+    ta.value = '';
+    ta.style.height = 'auto';
+
+    if (mode === 'answer') {
+      addChatMessage(val, 'user');
+      addLog('You: ' + val, 'user');
+      ws.send(JSON.stringify({ type: 'answer', data: val }));
+      mode = 'running';
+      document.getElementById('sendBtn').disabled = true;
+      setAgent('resuming...', true);
+    } else {
+      addChatMessage(val, 'user');
+      document.getElementById('sendBtn').disabled = true;
+      document.getElementById('reportBar').classList.add('hidden');
+      document.getElementById('logStream').innerHTML = '';
+      document.getElementById('planInner').innerHTML = '<p class="text-xs text-gray-300 py-2">Generating plan...</p>';
+      document.getElementById('planCount').textContent = '0 steps';
+      setBadge('running', 'running');
+      setAgent('thinking', true);
+      showTyping();
+      ws.send(JSON.stringify({ type: 'prompt', data: val }));
+    }
+  }
+
+  function addChatMessage(text, who, isQuestion = false) {
+    const msgs = document.getElementById('chatMessages');
+    const typing = document.getElementById('typingIndicator');
+    if (typing) typing.remove();
+
+    const isUser = who === 'user';
+    const wrap = document.createElement('div');
+    wrap.className = 'flex flex-col gap-1 ' + (isUser ? 'items-end self-end max-w-[85%] ml-auto' : 'items-start max-w-[85%]');
+
+    const bubble = document.createElement('div');
+    bubble.className = 'text-sm px-3 py-2 rounded-xl leading-relaxed ' + (
+      isUser
+        ? 'bg-blue-50 text-blue-800 rounded-br-sm'
+        : isQuestion
+          ? 'bg-amber-50 text-amber-900 border border-amber-200 rounded-bl-sm'
+          : 'bg-gray-100 text-gray-700 rounded-bl-sm'
+    );
+    bubble.textContent = text;
+
+    const time = document.createElement('div');
+    time.className = 'text-xs text-gray-300';
+    time.textContent = now();
+
+    wrap.appendChild(bubble);
+    wrap.appendChild(time);
+    msgs.appendChild(wrap);
+    msgs.scrollTop = msgs.scrollHeight;
+  }
+
+  function showTyping() {
+    const msgs = document.getElementById('chatMessages');
+    const el = document.createElement('div');
+    el.id = 'typingIndicator';
+    el.className = 'flex gap-1 items-center px-3 py-2 bg-gray-100 rounded-xl rounded-bl-sm w-fit';
+    el.innerHTML = `
+      <span class="typing w-1.5 h-1.5 rounded-full bg-gray-400 inline-block"></span>
+      <span class="typing w-1.5 h-1.5 rounded-full bg-gray-400 inline-block" style="animation-delay:0.18s"></span>
+      <span class="typing w-1.5 h-1.5 rounded-full bg-gray-400 inline-block" style="animation-delay:0.36s"></span>`;
+    msgs.appendChild(el);
+    msgs.scrollTop = msgs.scrollHeight;
+  }
+
+  function addLog(text, level = 'info') {
+    const stream = document.getElementById('logStream');
+    const empty = stream.querySelector('p');
+    if (empty) empty.remove();
+    const colors = { info: 'text-gray-400', success: 'text-green-600', error: 'text-red-500', warn: 'text-amber-500', user: 'text-blue-500' };
+    const el = document.createElement('div');
+    el.className = 'flex gap-2 py-0.5 border-b border-gray-50';
+    el.innerHTML = `<span class="text-gray-300 flex-shrink-0">${now()}</span><span class="${colors[level] || 'text-gray-400'}">${text}</span>`;
+    stream.appendChild(el);
+    stream.scrollTop = stream.scrollHeight;
+  }
+
+  function togglePlan() {
+    planOpen = !planOpen;
+    const body = document.getElementById('planBody');
+    const chev = document.getElementById('planChevron');
+    body.style.maxHeight = planOpen ? '200px' : '0px';
+    chev.style.transform = planOpen ? 'rotate(45deg)' : 'rotate(-135deg)';
+  }
+
+  function renderSteps(steps) {
+    const inner = document.getElementById('planInner');
+    inner.innerHTML = '';
+    stepElements = [];
+    steps.forEach((step, i) => {
+      const el = document.createElement('div');
+      el.id = 'sr-' + i;
+      el.className = 'flex items-center gap-2 text-xs py-0.5';
+      el.innerHTML = `
+        <div id="sd-${i}" class="w-1.5 h-1.5 rounded-full bg-gray-300 flex-shrink-0"></div>
+        <span class="font-mono font-medium text-gray-500 w-16">${step.action}</span>
+        <span class="font-mono text-gray-400 truncate flex-1">${step.selector || step.value || ''}</span>
+        <span id="ss-${i}" class="text-gray-300 flex-shrink-0">—</span>`;
+      inner.appendChild(el);
+      stepElements.push({ step, index: i });
+    });
+    const count = document.getElementById('planCount');
+    count.textContent = steps.length + ' steps';
+    count.className = 'ml-auto text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-500';
+    if (!planOpen) togglePlan();
+  }
+
+  function updateStep(step, status) {
+    const match = stepElements.find(s => s.step.action === step.action);
+    if (!match) return;
+    const i = match.index;
+    const dot = document.getElementById('sd-' + i);
+    const lbl = document.getElementById('ss-' + i);
+    const dotColors = { running: 'bg-blue-400 sdot-run', success: 'bg-green-500', failed: 'bg-red-500', healed: 'bg-amber-500' };
+    const lblMap = { running: '...', success: 'pass', failed: 'fail', healed: 'healed' };
+    const lblColors = { running: 'text-gray-400', success: 'text-green-600', failed: 'text-red-500', healed: 'text-amber-500' };
+    if (dot) dot.className = `w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotColors[status] || 'bg-gray-300'}`;
+    if (lbl) { lbl.textContent = lblMap[status] || '—'; lbl.className = lblColors[status] || 'text-gray-300'; }
+  }
+
+  function setBadge(text, type) {
+    const b = document.getElementById('execBadge');
+    const cls = { idle: 'bg-gray-100 text-gray-400', running: 'bg-blue-50 text-blue-600', passed: 'bg-green-50 text-green-700', failed: 'bg-red-50 text-red-600' };
+    b.className = `text-xs px-2 py-0.5 rounded-md font-medium ${cls[type] || cls.idle}`;
+    b.textContent = text;
+  }
+
+  function setAgent(state, busy = false) {
+    document.getElementById('agentState').textContent = state;
+    document.getElementById('statusDot').className = 'w-2 h-2 rounded-full flex-shrink-0 ' + (busy ? 'bg-amber-400 dot-busy' : 'bg-green-500');
+  }
+
+  function enterAnswerMode(question) {
+    mode = 'answer';
+    addChatMessage(question, 'agent', true);
+    document.getElementById('sendBtn').disabled = false;
+    ta.placeholder = 'Type your answer...';
+    setAgent('waiting for you', true);
+  }
+
+  function showReport(result) {
+    const passed = result.results?.filter(r => r.status === 'success').length || 0;
+    const failed = result.results?.filter(r => r.status === 'failed').length || 0;
+    const total  = result.results?.length || 0;
+    document.getElementById('mTotal').textContent = total;
+    document.getElementById('mPass').textContent  = passed;
+    document.getElementById('mFail').textContent  = failed;
+    document.getElementById('mHeal').textContent  = result.healCount || 0;
+    document.getElementById('reportBar').classList.remove('hidden');
+    setBadge(result.status === 'success' ? 'passed' : 'failed', result.status === 'success' ? 'passed' : 'failed');
+    setAgent('done');
+
+    const msg = result.status === 'success'
+      ? `All ${total} steps passed.${result.healCount ? ' One step was auto-healed.' : ''} Saved to memory.`
+      : `Finished with ${failed} failure(s). Check the log for details.`;
+    addChatMessage(msg, 'agent');
+    resetInput();
+  }
+
+  function resetInput() {
+    mode = 'prompt';
+    document.getElementById('sendBtn').disabled = false;
+    ta.placeholder = 'Describe a test to run...';
+  }
+</script>
 
 </body>
 </html>
