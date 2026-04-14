@@ -7,7 +7,7 @@ STRICT RULES:
 - No explanation, no markdown
 - Always include: module, scenario, steps
 
-- URL: http://localhost:4000
+- URL: http://localhost:4000/testapp
 - username: #username
 - password: #password
 - login button: #login-btn OR role=button name=Login

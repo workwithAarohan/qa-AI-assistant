@@ -1,5 +1,5 @@
 {
-  "login_invalid_password": {
+  "login__invalid_password": {
     "module": "login",
     "scenario": "invalid_password",
     "steps": [
@@ -27,35 +27,7 @@
       }
     ]
   },
-  "test_login_with_invalid_password": {
-    "module": "login",
-    "scenario": "invalid_password",
-    "steps": [
-      {
-        "action": "navigate",
-        "value": "http://localhost:4000/testapp"
-      },
-      {
-        "action": "type",
-        "selector": "#username",
-        "value": "admin"
-      },
-      {
-        "action": "type",
-        "selector": "#password",
-        "value": "invalidpassword"
-      },
-      {
-        "action": "click",
-        "selector": "#login-btn"
-      },
-      {
-        "action": "expect",
-        "selector": "#error"
-      }
-    ]
-  },
-  "test_the_login_with_valid_password": {
+  "login__valid_password": {
     "module": "login",
     "scenario": "valid_password",
     "steps": [
@@ -79,7 +51,7 @@
       }
     ]
   },
-  "test_login_with_invalid_input": {
+  "login__invalid_input": {
     "module": "login",
     "scenario": "invalid_input",
     "steps": [
@@ -107,93 +79,112 @@
       }
     ]
   },
-  "test_login_module": {
-    "module": "login",
-    "scenario": "invalid_password",
-    "steps": [
-      {
-        "action": "navigate",
-        "value": "http://localhost:4000/testapp"
-      },
-      {
-        "action": "type",
-        "selector": "#username",
-        "value": "admin"
-      },
-      {
-        "action": "type",
-        "selector": "#password",
-        "value": "wrong"
-      },
-      {
-        "action": "click",
-        "selector": "#login-btn"
-      },
-      {
-        "action": "expect",
-        "selector": "#error"
-      }
-    ]
-  },
-  "test_again": {
-    "module": "login",
-    "scenario": "invalid_password",
-    "steps": [
-      {
-        "action": "navigate",
-        "value": "http://localhost:4000/testapp"
-      },
-      {
-        "action": "type",
-        "selector": "#username",
-        "value": "admin"
-      },
-      {
-        "action": "type",
-        "selector": "#password",
-        "value": "wrong"
-      },
-      {
-        "action": "click",
-        "selector": "#login-btn"
-      },
-      {
-        "action": "expect",
-        "selector": "#error"
-      }
-    ]
-  },
-  "test_the_login_module_with_invalid_password": {
-    "module": "login",
-    "scenario": "invalid_password",
-    "steps": [
-      {
-        "action": "navigate",
-        "value": "http://localhost:4000/testapp"
-      },
-      {
-        "action": "type",
-        "selector": "#username",
-        "value": "admin"
-      },
-      {
-        "action": "type",
-        "selector": "#password",
-        "value": "wrong"
-      },
-      {
-        "action": "click",
-        "selector": "#login-btn"
-      },
-      {
-        "action": "expect",
-        "selector": "#error"
-      }
-    ]
-  },
-  "test_query_engine": {
+  "query_engine__verification": {
     "module": "query_engine",
     "scenario": "verification",
     "steps": []
+  },
+  "login__valid_login": {
+    "module": "login",
+    "scenario": "valid_login",
+    "steps": [
+      {
+        "action": "navigate",
+        "value": "http://localhost:4000/testapp"
+      },
+      {
+        "action": "type",
+        "selector": "#username",
+        "value": "admin"
+      },
+      {
+        "action": "type",
+        "selector": "#password",
+        "value": "admin"
+      },
+      {
+        "action": "click",
+        "selector": "#login-btn"
+      },
+      {
+        "action": "expect",
+        "selector": "h2:has-text('Dashboard')"
+      }
+    ]
+  },
+  "login__invalid_credentials": {
+    "module": "login",
+    "scenario": "invalid_credentials",
+    "steps": [
+      {
+        "action": "navigate",
+        "value": "http://localhost:4000/testapp"
+      },
+      {
+        "action": "type",
+        "selector": "#username",
+        "value": "invaliduser"
+      },
+      {
+        "action": "type",
+        "selector": "#password",
+        "value": "wrongpassword"
+      },
+      {
+        "action": "click",
+        "selector": "#login-btn"
+      },
+      {
+        "action": "expect",
+        "selector": "#error"
+      }
+    ]
+  },
+  "login__valid_credentials": {
+    "module": "login",
+    "scenario": "valid_credentials",
+    "steps": [
+      {
+        "action": "navigate",
+        "value": "http://localhost:4000/testapp"
+      },
+      {
+        "action": "type",
+        "selector": "#username",
+        "value": "admin"
+      },
+      {
+        "action": "type",
+        "selector": "#password",
+        "value": "admin"
+      },
+      {
+        "action": "click",
+        "selector": "#login-btn"
+      },
+      {
+        "action": "expect",
+        "selector": "h2",
+        "value": "Dashboard"
+      }
+    ]
+  },
+  "login__empty_fields": {
+    "module": "login",
+    "scenario": "empty_fields",
+    "steps": [
+      {
+        "action": "navigate",
+        "value": "http://localhost:4000/testapp"
+      },
+      {
+        "action": "click",
+        "selector": "#login-btn"
+      },
+      {
+        "action": "expect",
+        "selector": "#error"
+      }
+    ]
   }
 }

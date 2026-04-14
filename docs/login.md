@@ -1,6 +1,6 @@
 # Login Feature
 
-Page URL: http://localhost:4000/testapp
+Page URL: http://localhost:4000/testapp or http://localhost:4000/testapp/index.html
 Test app file: index.html (served statically)
 
 ## Elements

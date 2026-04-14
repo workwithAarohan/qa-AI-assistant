@@ -1,11 +1,8 @@
 # Dashboard
 
-## How to reach it
-- Navigate to http://localhost:4000/testapp and log in with admin/admin
-- The page DOM is replaced with <h2>Dashboard</h2> — no URL change
-
-## Elements
-- Dashboard heading: h2 containing "Dashboard"
+URL: /testapp/dashboard.html
+Elements: #page-title, #stat-projects, #new-project-btn, #view-projects-btn
+Nav links: Dashboard, Projects, Profile, Logout (#logout-link)
 
 ## Notes
 - Since login replaces the DOM rather than navigating, use expect with a selector

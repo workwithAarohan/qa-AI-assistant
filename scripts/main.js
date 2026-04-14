@@ -36,7 +36,7 @@ function generateKey(input) {
 
       const fixedPlan = await fixSteps(plan, result.error);
 
-      console.log("🛠️ Fixed Plan:", JSON.stringify(fixedPlan, null, 2));
+      console.log("Fixed Plan:", JSON.stringify(fixedPlan, null, 2));
 
       validatePlan(fixedPlan);
 
