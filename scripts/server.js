@@ -10,11 +10,10 @@ import { analyzeRequest, generateAllScenarioSteps, generateSteps, fixSteps } fro
 import { runSteps } from './executor.js';
 import { validatePlan } from './validator.js';
 import { saveToMemory, findSimilarPlan, deduplicateMemory } from './memory.js';
-import { getRelevantContext } from './context.js';
+import { getRelevantContext, extractBaseUrl, extractDocScenarios } from './context.js';
 import { captureBrowserContext } from './browser-context.js';
 import { guardCheck } from './guard.js';
 import { STATE, outOfScopeResponse } from './classifier.js';
-import { gatherContext } from './context-gatherer.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -48,11 +47,11 @@ app.get(/^\/testapp\/?.*$/, (req, res) => {
   res.sendFile(path.join(ROOT, 'public', 'testapp.html'));
 });
 
-// clean duplicates on startup
+
 const dr = deduplicateMemory();
 if (dr.removed > 0) console.log(`Memory: ${dr.before} → ${dr.after} entries (${dr.removed} dupes removed)`);
 
-// ── Comms helpers ─────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function send(ws, type, data) {
   if (ws.readyState === 1) ws.send(JSON.stringify({ type, data }));
@@ -63,9 +62,7 @@ function log(ws, text, level = 'info') {
   send(ws, 'log', { text, level });
 }
 
-function sendState(ws, state) {
-  send(ws, 'agent_state', state);
-}
+function sendState(ws, state) { send(ws, 'agent_state', state); }
 
 function waitForAnswer(ws, timeoutMs = 120000) {
   return new Promise((resolve, reject) => {
@@ -88,13 +85,38 @@ async function askUser(ws, question) {
   return answer;
 }
 
+// ── Inject URL into plan steps from docs ─────────────────────────────────────
+// Replaces any placeholder or wrong URL in navigate steps
+// with the authoritative URL extracted from the markdown doc.
+
+function injectDocUrl(plan, baseUrl) {
+  if (!baseUrl || !plan?.steps) return plan;
+  return {
+    ...plan,
+    steps: plan.steps.map(step => {
+      if (step.action === 'navigate' && step.value) {
+        // Only replace if it looks like a relative path or wrong base
+        const isRelative = !step.value.startsWith('http');
+        const isWrongBase = step.value.startsWith('http') && !step.value.includes(baseUrl.split('/testapp')[0]);
+        if (isRelative) {
+          return { ...step, value: baseUrl + (step.value.startsWith('/') ? step.value : '/' + step.value) };
+        }
+        // If step.value is just the base or a sub-path, keep it
+        return step;
+      }
+      return step;
+    }),
+  };
+}
+
 // ── Execute one plan ──────────────────────────────────────────────────────────
 
-async function executePlan(ws, plan, scenarioId, userInput) {
-  send(ws, 'plan', { ...plan, scenarioId });
+async function executePlan(ws, plan, scenarioId, userInput, baseUrl) {
+  const finalPlan = injectDocUrl(plan, baseUrl);
+  send(ws, 'plan', { ...finalPlan, scenarioId });
   sendState(ws, STATE.EXECUTING);
 
-  let result = await runSteps(plan.steps, (index, step, status) => {
+  let result = await runSteps(finalPlan.steps, (index, step, status) => {
     send(ws, 'step', { index, step, status, scenarioId });
   });
 
@@ -106,12 +128,13 @@ async function executePlan(ws, plan, scenarioId, userInput) {
 
     if (/yes|heal|try|fix|retry/i.test(choice)) {
       log(ws, 'Auto-healing — refreshing DOM...', 'warn');
-      const freshCtx = await captureBrowserContext();
-      const fixedPlan = await fixSteps(plan, result.error, userInput, freshCtx);
+      const freshCtx = await captureBrowserContext(baseUrl);
+      const fixedPlan = await fixSteps(finalPlan, result.error, userInput, freshCtx);
       validatePlan(fixedPlan);
-      send(ws, 'plan', { ...fixedPlan, scenarioId });
+      const fixedWithUrl = injectDocUrl(fixedPlan, baseUrl);
+      send(ws, 'plan', { ...fixedWithUrl, scenarioId });
 
-      result = await runSteps(fixedPlan.steps, (index, step, status) => {
+      result = await runSteps(fixedWithUrl.steps, (index, step, status) => {
         send(ws, 'step', { index, step, status, scenarioId });
       });
 
@@ -126,8 +149,8 @@ async function executePlan(ws, plan, scenarioId, userInput) {
       log(ws, 'Stopped by user', 'warn');
     }
   } else {
-    saveToMemory(plan);
-    log(ws, `Passed`, 'success');
+    saveToMemory(finalPlan);
+    log(ws, 'Passed', 'success');
   }
 
   return { result, healCount };
@@ -148,119 +171,140 @@ async function orchestrate(ws, userInput) {
 
     sendState(ws, STATE.GATHERING_CONTEXT);
 
-    // ── Layers 3+4+5: ONE merged LLM call ────────────────────────────────────
-    // Replaces: classifyIntent + checkReadiness + identifyScenarios
-    // Cost: 1 LLM call instead of 3
+    // ── Load doc context + extract URL from docs (no LLM) ───────────────────
+    log(ws, 'Loading document context...');
+    const docContext = getRelevantContext(userInput);
+    const baseUrl    = extractBaseUrl(userInput);        // URL comes from docs
+    const docScenarios = extractDocScenarios(userInput); // scenarios from docs
 
-    log(ws, 'Loading context...');
-    const docContext     = getRelevantContext(userInput);
-    const browserContext = await captureBrowserContext();
     if (docContext) log(ws, 'Docs loaded', 'success');
+    if (baseUrl)    log(ws, `Base URL: ${baseUrl}`, 'success');
+
+    // ── Check memory using doc-declared scenarios ────────────────────────────
+    // If ALL doc scenarios are in memory → skip LLM entirely
+    const module = docScenarios[0]?.module || userInput.toLowerCase().match(/(login|dashboard|project|profile)/)?.[0] || 'unknown';
+
+    const memoryCheck = docScenarios.map(s => ({
+      scenario: s,
+      cached: findSimilarPlan(module, s.id),
+    }));
+
+    const allCached   = memoryCheck.length > 0 && memoryCheck.every(r => r.cached);
+    const noneCached  = memoryCheck.every(r => !r.cached);
+
+    if (allCached) {
+      // ── ZERO LLM CALLS — everything from memory ──────────────────────────
+      log(ws, `Full memory hit — all ${memoryCheck.length} scenarios cached`, 'success');
+      send(ws, 'scenarios', { scenarios: docScenarios, module: userInput });
+
+      const choice = await waitForAnswer(ws);
+      send(ws, 'answer_received', choice);
+
+      const scenariosToRun = choice.toLowerCase().includes('all')
+        ? docScenarios
+        : (() => {
+            const indices = [...choice.matchAll(/\d+/g)].map(m => parseInt(m[0]) - 1);
+            return indices.length > 0
+              ? indices.filter(i => i >= 0 && i < docScenarios.length).map(i => docScenarios[i])
+              : docScenarios;
+          })();
+
+      sendState(ws, STATE.EXECUTING);
+      const scenarioResults = [];
+      let totalHealed = 0;
+
+      for (let i = 0; i < scenariosToRun.length; i++) {
+        const s = scenariosToRun[i];
+        const plan = memoryCheck.find(r => r.scenario.id === s.id)?.cached;
+        if (!plan) continue;
+
+        send(ws, 'scenario_start', s);
+        log(ws, `Running (cached): ${s.name}`);
+
+        const { result, healCount } = await executePlan(ws, plan, s.id, userInput, baseUrl);
+        scenarioResults.push({ scenario: s, result, healCount });
+        totalHealed += healCount;
+
+        if (i < scenariosToRun.length - 1) {
+          await new Promise(r => setTimeout(r, 600));
+          log(ws, '─────────────────────');
+        }
+      }
+
+      const passed = scenarioResults.filter(r => r.result.status === 'success').length;
+      const failed = scenarioResults.filter(r => r.result.status === 'failed').length;
+      send(ws, 'report', {
+        status: failed === 0 ? 'success' : 'failed',
+        healCount: totalHealed,
+        scenarios: scenarioResults,
+        summary: { total: scenariosToRun.length, passed, failed, healed: totalHealed }
+      });
+      sendState(ws, STATE.IDLE);
+      return;
+    }
+
+    // ── Need LLM — capture browser context now ───────────────────────────────
+    log(ws, 'Capturing browser DOM state...');
+    const browserContext = await captureBrowserContext(baseUrl || undefined);
     log(ws, 'DOM captured', 'success');
 
+    // ── MERGED CALL 1: analyze + scenarios (1 LLM call) ─────────────────────
     log(ws, 'Analyzing request...');
     const analysis = await analyzeRequest(userInput, docContext, browserContext);
-    // analysis = { intent, ready, clarifying_question, scenarios }
-
     log(ws, `Intent: ${analysis.intent}`, 'info');
     send(ws, 'intent', { intent: analysis.intent, confidence: 'high' });
 
-    // ── Out of scope ─────────────────────────────────────────────────────────
     if (analysis.intent === 'OUT_OF_SCOPE') {
       send(ws, 'agent_message', outOfScopeResponse(userInput));
       send(ws, 'report', { status: 'out_of_scope', results: [], healCount: 0, summary: { total: 0, passed: 0, failed: 0, healed: 0 } });
       return;
     }
 
-    // ── Explore / Understand — no execution ──────────────────────────────────
     if (analysis.intent === 'EXPLORE' || analysis.intent === 'UNDERSTAND') {
-      send(ws, 'agent_message', `I can help with that. Try: "what scenarios should I cover for [feature]?" or "test [feature name]" to run automation.`);
+      send(ws, 'agent_message', `I can help with that. Try: "test [feature name]" to run automation.`);
       send(ws, 'report', { status: 'success', results: [], healCount: 0, summary: { total: 0, passed: 0, failed: 0, healed: 0 } });
       return;
     }
 
-    // ── Clarifying question if not ready ─────────────────────────────────────
+    // Clarify if needed
     let enrichedInput = userInput;
     if (!analysis.ready && analysis.clarifying_question) {
-      log(ws, 'Asking clarifying question...');
       const answer = await askUser(ws, analysis.clarifying_question);
       enrichedInput = `${userInput}. Additional context: ${answer}`;
-      log(ws, `Clarified: ${answer}`, 'user');
     }
 
     sendState(ws, STATE.PLANNING);
 
-    const scenarios = analysis.scenarios || [];
+    // Prefer doc scenarios over LLM-discovered ones — they are authoritative
+    const scenarios = docScenarios.length > 0 ? docScenarios : (analysis.scenarios || []);
 
-    // ── Check memory for ALL scenarios before calling LLM ────────────────────
-    // Extracts module from the first scenario or from user input
-    const guessedModule = scenarios[0]?.id?.split('_')[0]
-      || userInput.toLowerCase().match(/(login|dashboard|project|profile)/)?.[0]
-      || 'unknown';
-
-    const memoryResults = scenarios.map(s => ({
-      scenario: s,
-      cached: findSimilarPlan(guessedModule, s.id),
-    }));
-
-    const uncachedScenarios = memoryResults.filter(r => !r.cached).map(r => r.scenario);
-    const cachedCount = memoryResults.length - uncachedScenarios.length;
-
-    if (cachedCount > 0) log(ws, `Memory hit: ${cachedCount} scenario(s) reused`, 'success');
-
-    // ── Merged Call 2: generate steps for ALL uncached scenarios at once ──────
-    // Cost: 1 LLM call instead of N calls
-    let freshPlans = [];
-    if (uncachedScenarios.length > 0) {
-      log(ws, `Generating steps for ${uncachedScenarios.length} scenario(s)...`);
-      const batchResult = await generateAllScenarioSteps(uncachedScenarios, docContext, browserContext);
-      freshPlans = batchResult;
-      log(ws, 'All plans generated', 'success');
-    }
-
-    // Build final plan map: scenarioId → plan
+    // ── Check which scenarios still need plans ───────────────────────────────
     const planMap = {};
 
-    for (const { scenario, cached } of memoryResults) {
-      if (cached) {
-        planMap[scenario.id] = cached;
-      } else {
-        const fresh = freshPlans.find(p => p.id === scenario.id);
-        if (fresh) {
-          validatePlan(fresh);
-          saveToMemory(fresh);
-          planMap[scenario.id] = fresh;
-        }
-      }
+    const stillUncached = scenarios.filter(s => {
+      const cached = findSimilarPlan(module, s.id);
+      if (cached) { planMap[s.id] = cached; return false; }
+      return true;
+    });
+
+    if (Object.keys(planMap).length > 0) {
+      log(ws, `${Object.keys(planMap).length} scenario(s) from memory`, 'success');
     }
 
-    // ── No scenarios — single specific request ────────────────────────────────
-    if (scenarios.length === 0) {
-      const cached = findSimilarPlan(guessedModule, userInput.toLowerCase().replace(/\s+/g, '_'));
-      let plan = cached;
+    // ── MERGED CALL 2: all uncached scenarios in one batch ───────────────────
+    if (stillUncached.length > 0) {
+      log(ws, `Generating steps for ${stillUncached.length} scenario(s)...`);
+      const batchPlans = await generateAllScenarioSteps(stillUncached, docContext, browserContext);
 
-      if (!plan) {
-        log(ws, 'Generating plan...');
-        plan = await generateSteps(enrichedInput, docContext, browserContext);
+      for (const plan of batchPlans) {
         validatePlan(plan);
         saveToMemory(plan);
-      } else {
-        log(ws, 'Memory hit', 'success');
+        planMap[plan.id] = plan;
       }
-
-      send(ws, 'scenario_start', { id: 'single', name: userInput, description: userInput });
-      const { result, healCount } = await executePlan(ws, plan, 'single', enrichedInput);
-
-      send(ws, 'report', {
-        ...result, healCount,
-        scenarios: [{ scenario: { id: 'single', name: userInput }, result, healCount }],
-        summary: { total: 1, passed: result.status === 'success' ? 1 : 0, failed: result.status === 'failed' ? 1 : 0, healed: healCount }
-      });
-      sendState(ws, STATE.IDLE);
-      return;
+      log(ws, 'All plans generated and cached', 'success');
     }
 
-    // ── Let user pick which scenarios to run ──────────────────────────────────
+    // ── Show scenarios to user ───────────────────────────────────────────────
     send(ws, 'scenarios', { scenarios, module: userInput });
     const choice = await waitForAnswer(ws);
     send(ws, 'answer_received', choice);
@@ -274,27 +318,25 @@ async function orchestrate(ws, userInput) {
             : scenarios;
         })();
 
-    log(ws, `Running ${scenariosToRun.length} scenario(s)`);
-
-    // ── Execute each scenario ─────────────────────────────────────────────────
+    // ── Execute ──────────────────────────────────────────────────────────────
     sendState(ws, STATE.EXECUTING);
     const scenarioResults = [];
     let totalHealed = 0;
 
     for (let i = 0; i < scenariosToRun.length; i++) {
-      const scenario = scenariosToRun[i];
-      const plan = planMap[scenario.id];
+      const s = scenariosToRun[i];
+      const plan = planMap[s.id];
 
       if (!plan) {
-        log(ws, `No plan found for "${scenario.name}" — skipping`, 'warn');
+        log(ws, `No plan for "${s.name}" — skipping`, 'warn');
         continue;
       }
 
-      send(ws, 'scenario_start', scenario);
-      log(ws, `Running: ${scenario.name}`);
+      send(ws, 'scenario_start', s);
+      log(ws, `Running: ${s.name}`);
 
-      const { result, healCount } = await executePlan(ws, plan, scenario.id, enrichedInput);
-      scenarioResults.push({ scenario, result, healCount });
+      const { result, healCount } = await executePlan(ws, plan, s.id, enrichedInput, baseUrl);
+      scenarioResults.push({ scenario: s, result, healCount });
       totalHealed += healCount;
 
       if (i < scenariosToRun.length - 1) {

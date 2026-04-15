@@ -110,7 +110,8 @@
         "action": "expect",
         "selector": "h2:has-text('Dashboard')"
       }
-    ]
+    ],
+    "savedAt": "2026-04-15T05:29:34.058Z"
   },
   "login__invalid_credentials": {
     "module": "login",
@@ -186,5 +187,152 @@
         "selector": "#error"
       }
     ]
+  },
+  "dashboard__dashboard_loads": {
+    "module": "dashboard",
+    "scenario": "dashboard_loads",
+    "steps": [
+      {
+        "action": "navigate",
+        "value": "http://localhost:4000/testapp"
+      },
+      {
+        "action": "type",
+        "selector": "#username",
+        "value": "admin"
+      },
+      {
+        "action": "type",
+        "selector": "#password",
+        "value": "admin"
+      },
+      {
+        "action": "click",
+        "selector": "#login-btn"
+      },
+      {
+        "action": "waitForNavigation"
+      },
+      {
+        "action": "expectUrl",
+        "value": "http://localhost:4000/testapp/dashboard.html"
+      },
+      {
+        "action": "expect",
+        "selector": "#page-title"
+      },
+      {
+        "action": "assertText",
+        "selector": "#page-title",
+        "value": "Dashboard"
+      },
+      {
+        "action": "expect",
+        "selector": "#welcome-msg"
+      }
+    ],
+    "savedAt": "2026-04-15T05:29:19.584Z"
+  },
+  "dashboard__navigate_to_projects": {
+    "module": "dashboard",
+    "scenario": "navigate_to_projects",
+    "steps": [
+      {
+        "action": "navigate",
+        "value": "http://localhost:4000/testapp"
+      },
+      {
+        "action": "type",
+        "selector": "#username",
+        "value": "admin"
+      },
+      {
+        "action": "type",
+        "selector": "#password",
+        "value": "admin"
+      },
+      {
+        "action": "click",
+        "selector": "#login-btn"
+      },
+      {
+        "action": "waitForNavigation"
+      },
+      {
+        "action": "expectUrl",
+        "value": "http://localhost:4000/testapp/dashboard.html"
+      },
+      {
+        "action": "click",
+        "selector": "#view-projects-btn"
+      },
+      {
+        "action": "waitForNavigation"
+      },
+      {
+        "action": "expectUrl",
+        "value": "http://localhost:4000/testapp/projects.html"
+      },
+      {
+        "action": "expect",
+        "selector": "#projects-heading"
+      }
+    ],
+    "savedAt": "2026-04-15T05:29:19.586Z"
+  },
+  "dashboard__new_project_shortcut": {
+    "module": "dashboard",
+    "scenario": "new_project_shortcut",
+    "steps": [
+      {
+        "action": "navigate",
+        "value": "http://localhost:4000/testapp"
+      },
+      {
+        "action": "type",
+        "selector": "#username",
+        "value": "admin"
+      },
+      {
+        "action": "type",
+        "selector": "#password",
+        "value": "admin"
+      },
+      {
+        "action": "click",
+        "selector": "#login-btn"
+      },
+      {
+        "action": "waitForNavigation"
+      },
+      {
+        "action": "expectUrl",
+        "value": "http://localhost:4000/testapp/dashboard.html"
+      },
+      {
+        "action": "click",
+        "selector": "#new-project-btn"
+      },
+      {
+        "action": "waitForNavigation"
+      },
+      {
+        "action": "expectUrl",
+        "value": "http://localhost:4000/testapp/projects.html?new=1"
+      },
+      {
+        "action": "expect",
+        "selector": "#project-name-input"
+      },
+      {
+        "action": "expect",
+        "selector": "#project-type-select"
+      },
+      {
+        "action": "expect",
+        "selector": "#create-project-btn"
+      }
+    ],
+    "savedAt": "2026-04-15T05:29:19.587Z"
   }
 }

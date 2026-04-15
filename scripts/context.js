@@ -3,47 +3,108 @@ import path from 'path';
 
 const DOCS_DIR = './docs';
 
-// Load all markdown docs from the docs folder
+// ── Load all docs ─────────────────────────────────────────────────────────────
+
 function loadAllDocs() {
   if (!fs.existsSync(DOCS_DIR)) return [];
-
   return fs.readdirSync(DOCS_DIR)
     .filter(f => f.endsWith('.md'))
     .map(f => ({
       name: f.replace('.md', ''),
-      content: fs.readFileSync(path.join(DOCS_DIR, f), 'utf-8')
+      content: fs.readFileSync(path.join(DOCS_DIR, f), 'utf-8'),
     }));
 }
 
-// Score how relevant a doc is to the user's prompt
+// ── Relevance scoring ─────────────────────────────────────────────────────────
+
 function score(doc, prompt) {
   const p = prompt.toLowerCase();
   const name = doc.name.toLowerCase();
   const content = doc.content.toLowerCase();
-
   let hits = 0;
-  if (p.includes(name)) hits += 3;         // doc name mentioned directly
-  const words = p.split(/\s+/);
+  if (p.includes(name)) hits += 4;
+  const words = p.split(/\s+/).filter(w => w.length > 3);
   for (const word of words) {
-    if (word.length > 3 && content.includes(word)) hits++;
+    if (content.includes(word)) hits++;
   }
   return hits;
 }
 
-// Return only the docs relevant to this prompt
+// ── Get relevant doc context (text) ──────────────────────────────────────────
+
 export function getRelevantContext(prompt) {
   const docs = loadAllDocs();
-  if (docs.length === 0) return '';
+  if (!docs.length) return '';
 
   const scored = docs
     .map(doc => ({ ...doc, score: score(doc, prompt) }))
     .filter(doc => doc.score > 0)
     .sort((a, b) => b.score - a.score)
-    .slice(0, 3); // top 3 most relevant docs
+    .slice(0, 3);
 
-  if (scored.length === 0) return '';
+  if (!scored.length) return '';
 
   return scored
     .map(doc => `--- ${doc.name}.md ---\n${doc.content}`)
     .join('\n\n');
+}
+
+// ── Extract base URL from doc context ─────────────────────────────────────────
+// Reads the ## URL section from the most relevant doc.
+// This prevents the LLM from guessing or hallucinating URLs.
+
+export function extractBaseUrl(prompt) {
+  const docs = loadAllDocs();
+  if (!docs.length) return null;
+
+  const scored = docs
+    .map(doc => ({ ...doc, score: score(doc, prompt) }))
+    .filter(doc => doc.score > 0)
+    .sort((a, b) => b.score - a.score);
+
+  for (const doc of scored) {
+    // Match "## URL\nhttp://..." or "URL: http://..."
+    const match = doc.content.match(/##\s*URL\s*\n(https?:\/\/[^\s]+)/i)
+      || doc.content.match(/URL:\s*(https?:\/\/[^\s]+)/i);
+    if (match) return match[1].trim();
+  }
+
+  return null;
+}
+
+// ── Extract all scenario ids declared in docs ─────────────────────────────────
+// Reads "## Test Scenarios" sections so we know what is documented
+// without needing an LLM call.
+
+export function extractDocScenarios(prompt) {
+  const docs = loadAllDocs();
+  if (!docs.length) return [];
+
+  const scored = docs
+    .map(doc => ({ ...doc, score: score(doc, prompt) }))
+    .filter(doc => doc.score > 0)
+    .sort((a, b) => b.score - a.score);
+
+  const scenarios = [];
+
+  for (const doc of scored.slice(0, 2)) {
+    const section = doc.content.match(/##\s*Test Scenarios\s*\n([\s\S]*?)(?=\n##|$)/i);
+    if (!section) continue;
+
+    const lines = section[1].trim().split('\n');
+    for (const line of lines) {
+      // Format: "- scenario_id: description"
+      const match = line.match(/[-*]\s*([a-z_]+):\s*(.+)/i);
+      if (match) {
+        scenarios.push({
+          id: match[1].trim().toLowerCase(),
+          name: match[1].trim().replace(/_/g, ' '),
+          description: match[2].trim(),
+          module: doc.name,
+        });
+      }
+    }
+  }
+
+  return scenarios;
 }

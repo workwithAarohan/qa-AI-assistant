@@ -1,7 +1,11 @@
-# Login Feature
+# Login Module
 
-Page URL: http://localhost:4000/testapp or http://localhost:4000/testapp/index.html
-Test app file: index.html (served statically)
+## URL
+http://localhost:4000/testapp
+
+## Description
+The login page is the entry point of the application.
+Users authenticate with a username and password.
 
 ## Elements
 - Username input: #username
@@ -9,13 +13,16 @@ Test app file: index.html (served statically)
 - Login button: #login-btn
 - Error message: #error (visible on failed login)
 
-## Business rules
-- Valid credentials: username=admin, password=admin
-- Any other combination shows #error in red
-- Successful login replaces the page with a dashboard view showing <h2>Dashboard</h2>
-- There is no redirect — the DOM is replaced in place
+## Credentials
+- Valid: username=admin, password=admin
+- Invalid: any other combination
 
-## Test scenarios
-- Valid login: should reach dashboard
-- Invalid password: should show #error
-- Empty fields: should show #error
+## Behaviour
+- Valid login → navigates to /testapp/dashboard.html
+- Invalid login → #error becomes visible, page stays on login
+- Empty fields → #error becomes visible
+
+## Test Scenarios
+- valid_login: Login with admin/admin — should reach dashboard
+- invalid_password: Login with admin/wrongpassword — should show #error
+- empty_fields: Click login without filling fields — should show #error
