@@ -1,38 +1,55 @@
 import { chromium } from 'playwright';
 
+/**
+ * Helper: Smart Click
+ * Tries the primary selector, then falls back to text or roles 
+ * if the primary selector fails.
+ */
 async function smartClick(page, step) {
   try {
-    await page.click(step.selector, { timeout: 5000 });
+    // Primary attempt
+    await page.click(step.selector, { timeout: 3000 });
     return 'primary';
   } catch {
-    // fallback: try by visible text if step has a label hint
-    if (step.label) {
+    // Fallback 1: Try by visible text
+    if (step.label || step.value) {
       try {
-        await page.getByText(step.label, { exact: false }).click();
+        const textToFind = step.label || step.value;
+        await page.getByText(textToFind, { exact: false }).click({ timeout: 2000 });
         return 'text-fallback';
       } catch {}
     }
-    // fallback: try by role
-    if (step.role) {
-      try {
-        await page.getByRole(step.role, { name: step.label || step.selector }).click();
-        return 'role-fallback';
-      } catch {}
-    }
-    throw new Error(`Could not click: ${step.selector}`);
+    // Fallback 2: Try by role (Button, Link, etc.)
+    try {
+      await page.locator(`role=button[name="${step.selector}"]`).click({ timeout: 2000 });
+      return 'role-fallback';
+    } catch {}
+    
+    throw new Error(`Selector not found or not clickable: ${step.selector}`);
   }
 }
 
+/**
+ * Main Execution Engine
+ */
 export async function runSteps(steps, { browser, baseUrl, onStep, onLog }) {
-  const context = await browser.newContext({
+  let internalBrowser = browser;
+  let ownsBrowser = false;
+
+  // 1. HYBRID CHECK: If no browser provided, launch one locally
+  if (!internalBrowser) {
+    if (onLog) onLog('Executor: No browser provided, launching internal instance...', 'info');
+    internalBrowser = await chromium.launch({ headless: false });
+    ownsBrowser = true;
+  }
+
+  // 2. Setup Context & Page
+  const context = await internalBrowser.newContext({
     viewport: { width: 1280, height: 720 },
     userAgent: 'QA-Agent-Bot/1.0'
   });
   
   const page = await context.newPage();
-  
-  // Optimization: Lower timeouts for a snappier "Live" feel
-  // Default is 30s; 10s is plenty for a healthy local/dev app.
   page.setDefaultTimeout(10000); 
 
   const results = [];
@@ -43,9 +60,8 @@ export async function runSteps(steps, { browser, baseUrl, onStep, onLog }) {
     for (let i = 0; i < steps.length; i++) {
       const step = steps[i];
       
-      // Notify UI that this specific step is now running
       if (onStep) onStep(i, step, 'running');
-      if (onLog) onLog(`Executing: ${step.action} ${step.selector || step.value || ''}`, 'info');
+      if (onLog) onLog(`Step ${i + 1}: ${step.action} ${step.selector || step.value || ''}`, 'info');
 
       try {
         switch (step.action.toLowerCase()) {
@@ -55,11 +71,16 @@ export async function runSteps(steps, { browser, baseUrl, onStep, onLog }) {
             break;
 
           case 'click':
-            await page.click(step.selector);
+            // Using the smartClick helper for better reliability
+            const clickType = await smartClick(page, step);
+            if (clickType !== 'primary' && onLog) {
+              onLog(`Used ${clickType} for: ${step.selector}`, 'warn');
+            }
             break;
 
           case 'type':
           case 'fill':
+            await page.waitForSelector(step.selector, { state: 'visible' });
             await page.fill(step.selector, step.value);
             break;
 
@@ -68,7 +89,6 @@ export async function runSteps(steps, { browser, baseUrl, onStep, onLog }) {
             break;
 
           case 'wait':
-            // If value is a number, wait for ms; otherwise wait for selector
             if (!isNaN(step.value)) {
               await page.waitForTimeout(parseInt(step.value));
             } else {
@@ -78,12 +98,10 @@ export async function runSteps(steps, { browser, baseUrl, onStep, onLog }) {
 
           case 'verify':
           case 'assert':
-            // Check if element contains text or simply exists
+          case 'expect':
             if (step.value) {
-              const content = await page.textContent(step.selector);
-              if (!content.includes(step.value)) {
-                throw new Error(`Expected text "${step.value}" not found in ${step.selector}`);
-              }
+              // Wait for text to appear in the element
+              await page.waitForSelector(`${step.selector}:has-text("${step.value}")`, { state: 'visible' });
             } else {
               await page.waitForSelector(step.selector, { state: 'visible' });
             }
@@ -93,30 +111,29 @@ export async function runSteps(steps, { browser, baseUrl, onStep, onLog }) {
             throw new Error(`Unknown action: ${step.action}`);
         }
 
-        // Mark step as passed
         results.push({ index: i, step, status: 'success' });
         if (onStep) onStep(i, step, 'success');
 
       } catch (stepError) {
-        // --- STEP FAILURE LOGIC ---
         status = 'failed';
         error = stepError.message;
-        
-        // Detailed error for the Auto-heal engine
         const failureDetail = `Step ${i} (${step.action}) failed: ${stepError.message}`;
         
         results.push({ index: i, step, status: 'failed', error: failureDetail });
         if (onStep) onStep(i, step, 'failed');
         if (onLog) onLog(failureDetail, 'error');
-
-        // Stop execution on first failure
         break; 
       }
     }
   } finally {
-    // Keep the browser open for a second so the user sees the final state
-    await page.waitForTimeout(1000);
+    // Keep visible for a moment for the user
+    await page.waitForTimeout(1500);
     await context.close();
+    
+    // 3. ONLY close the browser if we launched it here
+    if (ownsBrowser) {
+      await internalBrowser.close();
+    }
   }
 
   return { status, results, error };

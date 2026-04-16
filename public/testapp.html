@@ -20,7 +20,7 @@
       const pass = document.getElementById('password').value;
 
       if (user === "admin" && pass === "admin") {
-        document.body.innerHTML = "<h2>Dashboard</h2>";
+        window.location.href = "/dashboard.html";
       } else {
         document.getElementById('error').style.display = "block";
       }

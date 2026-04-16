@@ -119,7 +119,7 @@
     </div>
 
     <!-- Collapsible test plan -->
-    <div class="bg-white border-b border-gray-100 flex-shrink-0">
+    <div id="planSection" class="bg-white border-b border-gray-100 flex-shrink-0 hidden">
       <button onclick="togglePlan()"
         class="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-medium text-gray-500 hover:bg-gray-50 transition text-left select-none">
         <svg id="planChevron" width="10" height="10" viewBox="0 0 10 10" style="transition:transform 0.2s;transform:rotate(90deg)">
@@ -139,7 +139,6 @@
     <div class="flex-1 overflow-hidden flex flex-col px-4 py-3 min-h-0">
       <p class="text-xs font-medium text-gray-400 uppercase tracking-widest mb-2 flex-shrink-0">Live log</p>
       <div id="logStream" class="flex-1 overflow-y-auto flex flex-col gap-0 font-mono text-xs min-h-0">
-        <p class="text-gray-300 text-center py-8">Waiting for test...</p>
       </div>
     </div>
 
@@ -369,35 +368,42 @@
   // ── Log ────────────────────────────────────────────────────────────────────
   const levelColor={info:'text-gray-400',success:'text-green-600',error:'text-red-500',warn:'text-amber-500',user:'text-indigo-500'};
   function addLog(text, level = 'info') {
-  // 1. THE GAP FIX: Ignore empty or whitespace-only logs
-  if (!text || text.trim() === '') return; 
+    // 1. THE GAP FIX: Ignore empty or whitespace-only logs
+    if (!text || text.trim() === '') return; 
 
-  const stream = document.getElementById('logStream'); // Or 'liveLogContent', whichever you use
-  
-  const placeholder = document.getElementById('logPlaceholder');
-  if (placeholder) placeholder.remove();
+    const stream = document.getElementById('logStream'); // Or 'liveLogContent', whichever you use
 
-  const el = document.createElement('div');
-  // 2. Reduced padding (py-1 instead of py-1.5) to make it tighter
-  el.className = 'flex gap-2 py-1 border-b border-gray-50 last:border-0';
-  
-  el.innerHTML = `
-    <span class="text-gray-300 font-mono text-[10px] flex-shrink-0 mt-0.5 select-none">${now()}</span>
-    <span class="text-xs break-words ${levelColor[level] || levelColor.info}">${esc(text)}</span>
-  `;
+    // Remove idle state on first real log
+    const idle = document.getElementById('logIdle');
+    if (idle) idle.remove();
+    
+    const placeholder = document.getElementById('logPlaceholder');
+    if (placeholder) placeholder.remove();
 
-  stream.appendChild(el);
-  
-  // Smooth scroll
-  stream.scrollTo({
-    top: stream.scrollHeight,
-    behavior: 'smooth'
-  });
-}
+    const el = document.createElement('div');
+    // 2. Reduced padding (py-1 instead of py-1.5) to make it tighter
+    el.className = 'flex gap-2 py-1 border-b border-gray-50 last:border-0';
+    
+    el.innerHTML = `
+      <span class="text-gray-300 font-mono text-[10px] flex-shrink-0 mt-0.5 select-none">${now()}</span>
+      <span class="text-xs break-words ${levelColor[level] || levelColor.info}">${esc(text)}</span>
+    `;
+
+    stream.appendChild(el);
+    
+    // Smooth scroll
+    stream.scrollTo({
+      top: stream.scrollHeight,
+      behavior: 'smooth'
+    });
+  }
 
   // ── Plan ───────────────────────────────────────────────────────────────────
   function renderSteps(steps) {
-    if (!steps) return;
+    if (!steps || steps.length === 0) return;
+
+    // Reveal the plan section now that we have steps
+    document.getElementById('planSection').classList.remove('hidden');
     const inner=document.getElementById('planInner');
     inner.innerHTML=''; stepCount=steps.length;
     steps.forEach((step,i)=>{
@@ -545,8 +551,11 @@
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   function resetExecPanel(){
-    document.getElementById('logStream').innerHTML='';
-    document.getElementById('planInner').innerHTML='<p class="text-xs text-gray-300 py-2">Generating plan...</p>';
+    document.getElementById('logStream').innerHTML=
+      '<div id="logIdle" class="text-gray-300 text-xs font-mono py-2 text-center">— ready —</div>';
+
+    document.getElementById('planSection').classList.add('hidden');
+    document.getElementById('planInner').innerHTML='';
     document.getElementById('planCount').textContent='0 steps';
     document.getElementById('planCount').className='ml-auto text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-400';
     document.getElementById('reportBar').classList.add('hidden');

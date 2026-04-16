@@ -28,32 +28,42 @@ export function findSimilarPlan(module, scenarioId, userPrompt = "") {
     return null;
   }
 
-  // 1. FAST PATH: Instant Exact Match (O(1) lookup)
+  // 1. PRIMARY: Exact ID Match (Most Reliable)
+  // We check if the unique key exists in our object
   const exactKey = `${module}__${scenarioId}`;
   if (memory[exactKey]) {
     return memory[exactKey];
   }
 
-  // 2. SMART PATH: Semantic Search over Object values
-  let bestMatch = null;
-  let highestScore = 0;
-  const promptTokens = tokenize(userPrompt);
-  
-  // Convert object values to an array just for searching
-  const allPlans = Object.values(memory); 
+  // 2. SECONDARY: Slug Match
+  // If the user said "Test Login", look for any key ending in "__login"
+  if (scenarioId) {
+    const allKeys = Object.keys(memory);
+    const slugMatch = allKeys.find(k => k.endsWith(`__${scenarioId}`));
+    if (slugMatch) return memory[slugMatch];
+  }
 
-  for (const cached of allPlans) {
-    if (userPrompt && promptTokens.length > 0) {
-      const cachedTokens = tokenize(`${cached.scenario} ${cached.description || ''}`);
+  // 3. TERTIARY: Fuzzy Semantic (Only if prompt is provided and ID match failed)
+  if (userPrompt && userPrompt.length > 5) {
+    const promptTokens = tokenize(userPrompt);
+    let bestMatch = null;
+    let highestScore = 0;
+
+    for (const key in memory) {
+      const cached = memory[key];
+      // Match against the scenario name stored inside the plan
+      const cachedTokens = tokenize(`${cached.scenario || ''} ${key.replace(/__/g, ' ')}`);
       const score = calculateSimilarity(promptTokens, cachedTokens);
-      if (score > 0.4 && score > highestScore) {
+      
+      if (score > 0.7 && score > highestScore) { // Increased threshold to 0.7 to avoid "ridiculous" matches
         highestScore = score;
         bestMatch = cached;
       }
     }
+    return bestMatch;
   }
 
-  return highestScore > 0.4 ? bestMatch : null;
+  return null;
 }
 
 // ── Export 2: Save Plan (Object Standard) ──
