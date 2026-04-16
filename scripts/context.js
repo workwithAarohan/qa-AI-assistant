@@ -5,7 +5,7 @@ const DOCS_DIR = './docs';
 
 // ── Load all docs ─────────────────────────────────────────────────────────────
 
-function loadAllDocs() {
+export function loadAllDocs() {
   if (!fs.existsSync(DOCS_DIR)) return [];
   return fs.readdirSync(DOCS_DIR)
     .filter(f => f.endsWith('.md'))
@@ -40,12 +40,16 @@ export function getRelevantContext(prompt) {
     .map(doc => ({ ...doc, score: score(doc, prompt) }))
     .filter(doc => doc.score > 0)
     .sort((a, b) => b.score - a.score)
-    .slice(0, 3);
-
-  if (!scored.length) return '';
+    .slice(0, 2);
 
   return scored
-    .map(doc => `--- ${doc.name}.md ---\n${doc.content}`)
+    .map(doc => {
+      // Priority extraction: URL and Scenarios
+      const urlPart = doc.content.match(/## URL[\s\S]*?(?=\n##|$)/i)?.[0] || '';
+      const behaviorPart = doc.content.match(/## (Behaviour|Logic)[\s\S]*?(?=\n##|$)/i)?.[0] || '';
+      
+      return `### MODULE: ${doc.name}\n${urlPart}\n${behaviorPart}\n${doc.content}`;
+    })
     .join('\n\n');
 }
 

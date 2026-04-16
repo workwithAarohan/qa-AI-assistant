@@ -1,139 +1,75 @@
 import fs from 'fs';
+import path from 'path';
 
-const MEMORY_FILE = './memory.json';
-
-// ── Storage ───────────────────────────────────────────────────────────────────
-
-function load() {
-  if (!fs.existsSync(MEMORY_FILE)) return {};
-  try { return JSON.parse(fs.readFileSync(MEMORY_FILE, 'utf-8')); } catch { return {}; }
+// ── Helper: Tokenize ──
+function tokenize(text) {
+  if (!text) return [];
+  return text.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(w => w.length > 2);
 }
 
-function save(memory) {
-  fs.writeFileSync(MEMORY_FILE, JSON.stringify(memory, null, 2));
+// ── Helper: Similarity ──
+function calculateSimilarity(tokensA, tokensB) {
+  const setA = new Set(tokensA);
+  const setB = new Set(tokensB);
+  const intersection = new Set([...setA].filter(x => setB.has(x)));
+  const union = new Set([...setA, ...setB]);
+  return union.size === 0 ? 0 : intersection.size / union.size;
 }
 
-// ── Key generation ────────────────────────────────────────────────────────────
-// Canonical key = module__scenario, both normalized.
-// This is the single source of truth for how plans are identified.
+// ── Export 1: Find Plan (Object Standard) ──
+export function findSimilarPlan(module, scenarioId, userPrompt = "") {
+  const memoryPath = path.join(process.cwd(), 'memory.json');
+  if (!fs.existsSync(memoryPath)) return null;
 
-function normalize(str) {
-  return (str || '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '');
-}
+  let memory = {};
+  try {
+    memory = JSON.parse(fs.readFileSync(memoryPath, 'utf8'));
+  } catch (e) {
+    return null;
+  }
 
-export function canonicalKey(plan) {
-  const m = normalize(plan?.module);
-  const s = normalize(plan?.scenario);
-  if (!m || !s) return null;
-  return `${m}__${s}`;
-}
+  // 1. FAST PATH: Instant Exact Match (O(1) lookup)
+  const exactKey = `${module}__${scenarioId}`;
+  if (memory[exactKey]) {
+    return memory[exactKey];
+  }
 
-// ── Write ─────────────────────────────────────────────────────────────────────
-// Always saves under canonical key.
-// If a duplicate (same module+scenario, different steps) exists, it overwrites.
-
-export function saveToMemory(plan) {
-  const key = canonicalKey(plan);
-  if (!key || !plan?.steps?.length) return null;
-
-  const memory = load();
-  memory[key] = {
-    module:   normalize(plan.module),
-    scenario: normalize(plan.scenario),
-    steps:    plan.steps,
-    savedAt:  new Date().toISOString(),
-  };
-  save(memory);
-  return key;
-}
-
-// ── Read — exact ──────────────────────────────────────────────────────────────
-// Fast O(1) lookup by canonical key.
-
-export function getFromMemory(plan) {
-  const key = canonicalKey(plan);
-  if (!key) return null;
-  return load()[key] || null;
-}
-
-// ── Read — fuzzy ──────────────────────────────────────────────────────────────
-// Tries exact first, then falls back to partial matching.
-// Handles cases like "invalid_password" matching "invalid_credentials"
-// when both share the same module and a common keyword.
-
-export function findSimilarPlan(module, scenario) {
-  const normModule   = normalize(module);
-  const normScenario = normalize(scenario);
-
-  if (!normModule || !normScenario) return null;
-
-  const memory = load();
-
-  // 1. Exact match
-  const exactKey = `${normModule}__${normScenario}`;
-  if (memory[exactKey]) return memory[exactKey];
-
-  // 2. Module matches + scenario shares a meaningful keyword
-  const scenarioWords = normScenario.split('_').filter(w => w.length > 3);
-
+  // 2. SMART PATH: Semantic Search over Object values
   let bestMatch = null;
-  let bestScore = 0;
+  let highestScore = 0;
+  const promptTokens = tokenize(userPrompt);
+  
+  // Convert object values to an array just for searching
+  const allPlans = Object.values(memory); 
 
-  for (const [, plan] of Object.entries(memory)) {
-    if (normalize(plan.module) !== normModule) continue;
-
-    const planScenarioWords = normalize(plan.scenario).split('_');
-    const sharedWords = scenarioWords.filter(w => planScenarioWords.includes(w));
-    const score = sharedWords.length;
-
-    if (score > bestScore) {
-      bestScore = score;
-      bestMatch = plan;
+  for (const cached of allPlans) {
+    if (userPrompt && promptTokens.length > 0) {
+      const cachedTokens = tokenize(`${cached.scenario} ${cached.description || ''}`);
+      const score = calculateSimilarity(promptTokens, cachedTokens);
+      if (score > 0.4 && score > highestScore) {
+        highestScore = score;
+        bestMatch = cached;
+      }
     }
   }
 
-  // Only return fuzzy match if at least one meaningful word overlaps
-  return bestScore > 0 ? bestMatch : null;
+  return highestScore > 0.4 ? bestMatch : null;
 }
 
-// ── Deduplicate ───────────────────────────────────────────────────────────────
-// Migrates any old-format entries (keyed by user input) to canonical keys.
-// Removes duplicates — keeps the most recently saved entry per module+scenario.
+// ── Export 2: Save Plan (Object Standard) ──
+export function saveToMemory(plan) {
+  const memoryPath = path.join(process.cwd(), 'memory.json');
+  let memory = {};
 
-export function deduplicateMemory() {
-  const memory = load();
-  const canonical = {};
-
-  for (const [, plan] of Object.entries(memory)) {
-    const key = canonicalKey(plan);
-    if (!key) continue;
-
-    const existing = canonical[key];
-    if (!existing || (plan.savedAt && (!existing.savedAt || plan.savedAt > existing.savedAt))) {
-      canonical[key] = plan;
-    }
+  if (fs.existsSync(memoryPath)) {
+    try {
+      memory = JSON.parse(fs.readFileSync(memoryPath, 'utf8'));
+    } catch (e) { memory = {}; }
   }
 
-  const before = Object.keys(memory).length;
-  const after  = Object.keys(canonical).length;
-  save(canonical);
+  // EVOLVING MEMORY: Save or overwrite using the specific key
+  const key = `${plan.module}__${plan.scenario}`;
+  memory[key] = { ...plan, savedAt: new Date().toISOString() };
 
-  return { before, after, removed: before - after };
-}
-
-// ── List ──────────────────────────────────────────────────────────────────────
-// Returns all stored plans as a flat array with their keys.
-
-export function listMemory() {
-  const memory = load();
-  return Object.entries(memory).map(([key, plan]) => ({
-    key,
-    module:   plan.module,
-    scenario: plan.scenario,
-    steps:    plan.steps?.length || 0,
-    savedAt:  plan.savedAt || null,
-  }));
+  fs.writeFileSync(memoryPath, JSON.stringify(memory, null, 2));
 }

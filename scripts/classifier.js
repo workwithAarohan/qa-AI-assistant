@@ -30,6 +30,8 @@ export async function classifyIntent(userInput) {
     /^(verify|check|validate) (the |that |)?(login|form|page|button|nav)/i,
     /with (valid|invalid|empty|wrong|correct)/i,
     /test.*scenario/i,
+    /^(test|run|verify|check|validate|execute|start|do)\b/i, // Action starts
+    /login|dashboard|signup|checkout|project/i
   ];
 
   for (const p of executePatterns) {

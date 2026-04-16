@@ -23,110 +23,101 @@ async function smartClick(page, step) {
   }
 }
 
-export async function runSteps(steps, onStep = () => {}) {
-  const browser = await chromium.launch({ headless: false });
-  const context = await browser.newContext();
+export async function runSteps(steps, { browser, baseUrl, onStep, onLog }) {
+  const context = await browser.newContext({
+    viewport: { width: 1280, height: 720 },
+    userAgent: 'QA-Agent-Bot/1.0'
+  });
+  
   const page = await context.newPage();
+  
+  // Optimization: Lower timeouts for a snappier "Live" feel
+  // Default is 30s; 10s is plenty for a healthy local/dev app.
+  page.setDefaultTimeout(10000); 
 
   const results = [];
+  let status = 'success';
+  let error = null;
 
   try {
     for (let i = 0; i < steps.length; i++) {
       const step = steps[i];
-      let methodUsed = 'primary';
+      
+      // Notify UI that this specific step is now running
+      if (onStep) onStep(i, step, 'running');
+      if (onLog) onLog(`Executing: ${step.action} ${step.selector || step.value || ''}`, 'info');
 
       try {
-        // notify running, no screenshot yet
-        onStep(i, step, 'running', null);
-        console.log(`[Step ${i + 1}] ${step.action}`, step.selector || step.value || '');
-
-        switch (step.action) {
-
+        switch (step.action.toLowerCase()) {
           case 'navigate':
-            await page.goto(step.value, { waitUntil: 'domcontentloaded', timeout: 10000 });
-            break;
-
-          case 'type':
-            await page.waitForSelector(step.selector, { timeout: 5000 });
-            await page.fill(step.selector, step.value);
+            const targetUrl = step.value.startsWith('http') ? step.value : `${baseUrl}${step.value}`;
+            await page.goto(targetUrl, { waitUntil: 'networkidle' });
             break;
 
           case 'click':
-            methodUsed = await smartClick(page, step);
+            await page.click(step.selector);
             break;
 
-          case 'expect':
-            await page.waitForSelector(step.selector, { state: 'visible', timeout: 5000 });
+          case 'type':
+          case 'fill':
+            await page.fill(step.selector, step.value);
             break;
 
-          case 'expectUrl':
-            await page.waitForURL(`**${step.value}**`, { timeout: 8000 });
-            break;
-
-          case 'waitForNavigation':
-            await page.waitForLoadState('domcontentloaded', { timeout: 10000 });
+          case 'press':
+            await page.press(step.selector, step.value);
             break;
 
           case 'wait':
-            await page.waitForTimeout(Number(step.value) || 1000);
-            break;
-
-          case 'assertText':
-            await page.waitForSelector(step.selector, { timeout: 5000 });
-            const text = await page.textContent(step.selector);
-            if (!text?.includes(step.value)) {
-              throw new Error(`Expected text "${step.value}" not found in "${step.selector}"`);
+            // If value is a number, wait for ms; otherwise wait for selector
+            if (!isNaN(step.value)) {
+              await page.waitForTimeout(parseInt(step.value));
+            } else {
+              await page.waitForSelector(step.value);
             }
             break;
 
-          case 'screenshot':
-            await page.screenshot({ path: step.value || `screenshot-${Date.now()}.png` });
+          case 'verify':
+          case 'assert':
+            // Check if element contains text or simply exists
+            if (step.value) {
+              const content = await page.textContent(step.selector);
+              if (!content.includes(step.value)) {
+                throw new Error(`Expected text "${step.value}" not found in ${step.selector}`);
+              }
+            } else {
+              await page.waitForSelector(step.selector, { state: 'visible' });
+            }
             break;
 
           default:
             throw new Error(`Unknown action: ${step.action}`);
         }
 
-        // capture screenshot for UI/LLM context
-        let screenshotB64 = null;
-        try {
-          const buf = await page.screenshot({ type: 'png' });
-          screenshotB64 = buf.toString('base64');
-        } catch (err) {}
+        // Mark step as passed
+        results.push({ index: i, step, status: 'success' });
+        if (onStep) onStep(i, step, 'success');
 
-        results.push({ index: i, step, status: 'success', methodUsed });
-        onStep(i, step, 'success', screenshotB64);
+      } catch (stepError) {
+        // --- STEP FAILURE LOGIC ---
+        status = 'failed';
+        error = stepError.message;
+        
+        // Detailed error for the Auto-heal engine
+        const failureDetail = `Step ${i} (${step.action}) failed: ${stepError.message}`;
+        
+        results.push({ index: i, step, status: 'failed', error: failureDetail });
+        if (onStep) onStep(i, step, 'failed');
+        if (onLog) onLog(failureDetail, 'error');
 
-        // small pause so the UI dot visibly turns green before the next step
-        await new Promise(r => setTimeout(r, 500));
-
-      } catch (err) {
-        // try to capture a screenshot on failure
-        let failB64 = null;
-        try {
-          const buf = await page.screenshot({ type: 'png' });
-          failB64 = buf.toString('base64');
-        } catch (e) {}
-
-        results.push({ index: i, step, status: 'failed', error: err.message });
-        onStep(i, step, 'failed', failB64);
-
-        await browser.close();
-        return {
-          status: 'failed',
-          failedStep: step,
-          failedIndex: i,
-          error: err.message,
-          results,
-        };
+        // Stop execution on first failure
+        break; 
       }
     }
-
-    await browser.close();
-    return { status: 'success', results };
-
-  } catch (err) {
-    try { await browser.close(); } catch {}
-    return { status: 'failed', error: err.message, results };
+  } finally {
+    // Keep the browser open for a second so the user sees the final state
+    await page.waitForTimeout(1000);
+    await context.close();
   }
+
+  return { status, results, error };
 }

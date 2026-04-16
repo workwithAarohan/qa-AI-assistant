@@ -18,6 +18,51 @@
     .sdot-healed  { background:#f59e0b }
     textarea { resize:none }
     .detail-row:hover { background:#f9fafb }
+
+    /* --- Optimized Chat Bubble Styles --- */
+
+    /* The log container inside a chat bubble */
+    .chat-log-pre {
+      max-height: 150px;
+      overflow-y: auto;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.75rem;
+      line-height: 1.25;
+      background: rgba(0, 0, 0, 0.03);
+      padding: 8px;
+      border-radius: 6px;
+      margin-top: 4px;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    /* Custom scrollbar for log bubbles to keep them sleek */
+    .chat-log-pre::-webkit-scrollbar {
+      width: 4px;
+    }
+    .chat-log-pre::-webkit-scrollbar-thumb {
+      background: #d1d5db;
+      border-radius: 10px;
+    }
+
+    /* Ensure the main chat container always keeps the input at the bottom */
+    #chatMessages {
+      scroll-behavior: smooth;
+    }
+
+        /* index.html */
+    #rightPanelContainer {
+      opacity: 0;
+      transform: translateX(20px); /* Slight slide-in effect */
+      transition: all 0.5s ease-in-out;
+      display: none; /* Fully hidden from layout */
+    }
+
+    #rightPanelContainer.visible {
+      display: flex; /* Or 'block' depending on your layout */
+      opacity: 1;
+      transform: translateX(0);
+    }
   </style>
 </head>
 <body class="bg-gray-100 h-screen flex items-center justify-center p-4 overflow-hidden">
@@ -40,6 +85,12 @@
         </div>
         <div class="text-xs text-gray-300">now</div>
       </div>
+    </div>
+
+    <div id="starterChips" class="px-4 py-2 flex gap-2 overflow-x-auto no-scrollbar flex-shrink-0">
+      <button onclick="fillPrompt('Test the login flow')" class="whitespace-nowrap px-3 py-1.5 rounded-full border border-indigo-100 bg-indigo-50 text-indigo-600 text-xs hover:bg-indigo-100 transition">Test Login</button>
+      <button onclick="fillPrompt('What can I test on the dashboard?')" class="whitespace-nowrap px-3 py-1.5 rounded-full border border-gray-100 bg-gray-50 text-gray-600 text-xs hover:bg-gray-100 transition">Explore Dashboard</button>
+      <button onclick="fillPrompt('Run all project scenarios')" class="whitespace-nowrap px-3 py-1.5 rounded-full border border-gray-100 bg-gray-50 text-gray-600 text-xs hover:bg-gray-100 transition">Run All Projects</button>
     </div>
 
     <div class="px-4 py-3 border-t border-gray-100 flex gap-2 items-end flex-shrink-0">
@@ -161,6 +212,15 @@
     else if (type==='agent_state')     setAgentStateBadge(data);
     else if (type==='intent')          onIntentClassified(data);
     else if (type==='error')           { addLog('Error: '+data,'error'); resetInput(); }
+    else if (type === 'suggestions') {
+      const container = document.getElementById('starterChips');
+      // data.payload is the array of strings from the server
+      container.innerHTML = data.payload.map(text => `
+        <button onclick="fillPrompt('${text}')" class="px-3 py-1.5 rounded-full border border-gray-100 bg-gray-50 text-gray-600 text-xs hover:bg-indigo-50 hover:text-indigo-600 transition">
+          ${text}
+        </button>
+      `).join('');
+    }
   };
 
   // ── Send handler ───────────────────────────────────────────────────────────
@@ -271,7 +331,26 @@
       isUser?'bg-indigo-50 text-indigo-800 rounded-br-sm':
       isQuestion?'bg-amber-50 text-amber-900 border border-amber-200 rounded-bl-sm':
       'bg-gray-100 text-gray-700 rounded-bl-sm');
-    bubble.textContent=text;
+
+    // LOG OPTIMIZATION: Check if the message is a technical log
+    const isLog = text.includes('failed') || text.includes('Error:') || text.includes('==== logs ====');
+
+    if (!isUser && isLog) {
+      // If it's a log, we split the "Human" part from the "Technical" part
+      const parts = text.split('\n');
+      const intro = parts[0]; // Usually the error summary
+      const details = parts.slice(1).join('\n'); // The heavy logs
+      
+      bubble.innerHTML = `<div>${esc(intro)}</div>`;
+      if (details) {
+        const logPre = document.createElement('div');
+        logPre.className = 'chat-log-pre';
+        logPre.textContent = details;
+        bubble.appendChild(logPre);
+      }
+    } else {
+      bubble.textContent = text;
+    }
     const time=document.createElement('div');
     time.className='text-xs text-gray-300'; time.textContent=now();
     wrap.appendChild(bubble); wrap.appendChild(time);
@@ -289,14 +368,32 @@
 
   // ── Log ────────────────────────────────────────────────────────────────────
   const levelColor={info:'text-gray-400',success:'text-green-600',error:'text-red-500',warn:'text-amber-500',user:'text-indigo-500'};
-  function addLog(text,level='info'){
-    const stream=document.getElementById('logStream');
-    const empty=stream.querySelector('p'); if(empty) empty.remove();
-    const el=document.createElement('div');
-    el.className='flex gap-2 py-1 border-b border-gray-50 last:border-0';
-    el.innerHTML=`<span class="text-gray-300 flex-shrink-0 select-none">${now()}</span><span class="${levelColor[level]||levelColor.info}">${esc(text)}</span>`;
-    stream.appendChild(el); stream.scrollTop=stream.scrollHeight;
-  }
+  function addLog(text, level = 'info') {
+  // 1. THE GAP FIX: Ignore empty or whitespace-only logs
+  if (!text || text.trim() === '') return; 
+
+  const stream = document.getElementById('logStream'); // Or 'liveLogContent', whichever you use
+  
+  const placeholder = document.getElementById('logPlaceholder');
+  if (placeholder) placeholder.remove();
+
+  const el = document.createElement('div');
+  // 2. Reduced padding (py-1 instead of py-1.5) to make it tighter
+  el.className = 'flex gap-2 py-1 border-b border-gray-50 last:border-0';
+  
+  el.innerHTML = `
+    <span class="text-gray-300 font-mono text-[10px] flex-shrink-0 mt-0.5 select-none">${now()}</span>
+    <span class="text-xs break-words ${levelColor[level] || levelColor.info}">${esc(text)}</span>
+  `;
+
+  stream.appendChild(el);
+  
+  // Smooth scroll
+  stream.scrollTo({
+    top: stream.scrollHeight,
+    behavior: 'smooth'
+  });
+}
 
   // ── Plan ───────────────────────────────────────────────────────────────────
   function renderSteps(steps) {
@@ -477,15 +574,33 @@
   // ── Agent state badge ──────────────────────────────────────────────────────
   const STATE_LABELS = {
     IDLE:              { label: 'ready',    color: 'bg-green-500' },
-    GATHERING_CONTEXT: { label: 'thinking', color: 'bg-amber-400 dot-busy' },
-    PLANNING:          { label: 'planning', color: 'bg-indigo-400 dot-busy' },
+    GATHERING_CONTEXT: { label: 'scanning', color: 'bg-amber-400 dot-busy' },
+    PLANNING:          { label: 'writing', color: 'bg-indigo-400 dot-busy' },
     EXECUTING:         { label: 'running',  color: 'bg-blue-400 dot-busy' },
   };
 
   function setAgentStateBadge(state) {
+    // 1. Get the label and color from your config
     const s = STATE_LABELS[state] || STATE_LABELS.IDLE;
+    
+    // 2. Update the badge text and dot (Your existing logic)
     document.getElementById('agentState').textContent = s.label;
     document.getElementById('statusDot').className = `w-2 h-2 rounded-full flex-shrink-0 ${s.color}`;
+
+    // 3. THE ADDITION: Handle Right Panel Visibility
+    const rightPanel = document.getElementById('rightPanelContainer'); 
+    
+    // We reveal the panel when the agent is PLANNING (creating steps) 
+    // or EXECUTING (running Playwright)
+    if (state === 'PLANNING' || state === 'EXECUTING') {
+      rightPanel.classList.add('visible');
+      
+      // Add a little pulse animation to the dot while busy
+      document.getElementById('statusDot').classList.add('animate-pulse');
+    } else {
+      // Stop the pulsing when IDLE or GATHERING_CONTEXT
+      document.getElementById('statusDot').classList.remove('animate-pulse');
+    }
   }
 
   // ── Intent classification feedback ─────────────────────────────────────────
@@ -504,6 +619,14 @@
     const b = document.getElementById('execBadge');
     b.className = `text-xs px-2 py-0.5 rounded-md font-medium bg-indigo-50 text-indigo-600`;
     b.textContent = intent.toLowerCase().replace('_', ' ');
+  }
+
+  function fillPrompt(text) {
+    const ta = document.getElementById('chatInput');
+    ta.value = text;
+    ta.focus();
+    // Trigger the height resize logic
+    ta.dispatchEvent(new Event('input'));
   }
 </script>
 </body>

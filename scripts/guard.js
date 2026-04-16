@@ -54,9 +54,25 @@ export function guardCheck(input) {
     return { safe: false, reason: 'Input exceeds maximum length.' };
   }
 
+  // Normalize: lowercase and remove non-alphanumeric for a "deep" check
+  const normalized = trimmed.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  const DEEP_PATTERNS = [
+    /ignorepreviousinstructions/i,
+    /systemprompt/i,
+    /developerbitmode/i,
+    /danmode/i
+  ];
+
   // Check allowlist first — if it matches a known safe QA pattern, pass it
   for (const pattern of ALLOWLIST) {
     if (pattern.test(trimmed)) return { safe: true };
+  }
+
+  for (const pattern of DEEP_PATTERNS) {
+    if (pattern.test(normalized)) {
+      return { safe: false, reason: 'System override attempt detected.' };
+    }
   }
 
   // Check injection patterns

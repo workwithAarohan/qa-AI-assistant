@@ -1,38 +1,38 @@
 import { chromium } from 'playwright';
 
-const DEFAULT_URL = process.env.BASE_URL || 'http://localhost:4000/testapp';
-
-function sanitizeHtml(html, maxLen = 10000) {
-  // remove scripts and large inline data to keep prompt small
-  const noScripts = html.replace(/<script[\s\S]*?<\/script>/gi, '');
-  // collapse whitespace
-  const collapsed = noScripts.replace(/\s+/g, ' ').trim();
-  return collapsed.slice(0, maxLen);
-}
-
-export async function getBrowserContext(url = DEFAULT_URL, { timeout = 8000, headless = true } = {}) {
-  if (!url) url = DEFAULT_URL;
-  const browser = await chromium.launch({ headless });
+export async function captureBrowserContext(url) {
+  const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
-
+  
   try {
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout });
+    if (url) await page.goto(url, { waitUntil: 'networkidle' });
 
-    const html = await page.content();
-    const sanitized = sanitizeHtml(html);
+    // This script runs in the browser and strips away everything non-essential
+    const prunedDOM = await page.evaluate(() => {
+      const selectors = 'button, input, select, textarea, a, [role="button"], [id], h1, h2, .error, .success';
+      const elements = document.querySelectorAll(selectors);
+      
+      return Array.from(elements).map(el => {
+        const rect = el.getBoundingClientRect();
+        // Only capture visible elements
+        if (rect.width === 0 || rect.height === 0) return null;
 
-    const buf = await page.screenshot({ fullPage: false });
-    const screenshotBase64 = buf.toString('base64');
+        return {
+          tag: el.tagName.toLowerCase(),
+          id: el.id || null,
+          text: el.innerText?.trim().substring(0, 50) || null,
+          placeholder: el.getAttribute('placeholder') || null,
+          type: el.getAttribute('type') || null,
+          role: el.getAttribute('role') || null,
+          ariaLabel: el.getAttribute('aria-label') || null
+        };
+      }).filter(Boolean);
+    });
 
     await browser.close();
-
-    return { url, html: sanitized, screenshotBase64 };
+    return JSON.stringify(prunedDOM);
   } catch (err) {
-    try { await browser.close(); } catch {}
-    throw err;
+    await browser.close();
+    return "Error capturing DOM: " + err.message;
   }
 }
-
-// alias for backward compatibility
-export const captureBrowserContext = getBrowserContext;
-

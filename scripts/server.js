@@ -9,8 +9,8 @@ dotenv.config();
 import { analyzeRequest, generateAllScenarioSteps, generateSteps, fixSteps } from './agent.js';
 import { runSteps } from './executor.js';
 import { validatePlan } from './validator.js';
-import { saveToMemory, findSimilarPlan, deduplicateMemory } from './memory.js';
-import { getRelevantContext, extractBaseUrl, extractDocScenarios } from './context.js';
+import { saveToMemory, findSimilarPlan } from './memory.js';
+import { getRelevantContext, extractBaseUrl, extractDocScenarios, loadAllDocs } from './context.js';
 import { captureBrowserContext } from './browser-context.js';
 import { guardCheck } from './guard.js';
 import { STATE, outOfScopeResponse } from './classifier.js';
@@ -46,10 +46,6 @@ app.use('/testapp', express.static(path.join(ROOT, 'public', 'testapp')));
 app.get(/^\/testapp\/?.*$/, (req, res) => {
   res.sendFile(path.join(ROOT, 'public', 'testapp.html'));
 });
-
-
-const dr = deduplicateMemory();
-if (dr.removed > 0) console.log(`Memory: ${dr.before} → ${dr.after} entries (${dr.removed} dupes removed)`);
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -116,8 +112,11 @@ async function executePlan(ws, plan, scenarioId, userInput, baseUrl) {
   send(ws, 'plan', { ...finalPlan, scenarioId });
   sendState(ws, STATE.EXECUTING);
 
-  let result = await runSteps(finalPlan.steps, (index, step, status) => {
-    send(ws, 'step', { index, step, status, scenarioId });
+  const result = await runSteps(plan.steps, {
+    browser,
+    baseUrl,
+    onStep: (index, step, status) => send(ws, 'step', { index, status }),
+    onLog: (text, level) => send(ws, 'log', { text, level })
   });
 
   let healCount = 0;
@@ -134,8 +133,11 @@ async function executePlan(ws, plan, scenarioId, userInput, baseUrl) {
       const fixedWithUrl = injectDocUrl(fixedPlan, baseUrl);
       send(ws, 'plan', { ...fixedWithUrl, scenarioId });
 
-      result = await runSteps(fixedWithUrl.steps, (index, step, status) => {
-        send(ws, 'step', { index, step, status, scenarioId });
+      result = await runSteps(plan.steps, {
+        browser,
+        baseUrl,
+        onStep: (index, step, status) => send(ws, 'step', { index, status }),
+        onLog: (text, level) => send(ws, 'log', { text, level })
       });
 
       healCount++;
@@ -169,24 +171,74 @@ async function orchestrate(ws, userInput) {
       return;
     }
 
+    // Inside orchestrate(ws, userInput)
+    const lowInput = userInput.toLowerCase().trim();
+
+    // Optimization: Immediate local responses for common short phrases
+    if (['hi', 'hello', 'hey', 'help', 'what do you do?'].includes(lowInput)) {
+      const helpMsg = "I'm your QA Assistant! I can:\n1. **Run tests** (e.g., 'test login')\n2. **Explore** (e.g., 'what can I test?')\n3. **Heal** failing scripts automatically.";
+      send(ws, 'agent_message', helpMsg);
+      return;
+    }
+
+    if (lowInput.length < 3) {
+      send(ws, 'agent_message', "Could you provide a bit more detail? For example: 'Test the login page'.");
+      return;
+    }
+
     sendState(ws, STATE.GATHERING_CONTEXT);
 
     // ── Load doc context + extract URL from docs (no LLM) ───────────────────
-    log(ws, 'Loading document context...');
+    log(ws, 'Searching documentation...', 'info');
     const docContext = getRelevantContext(userInput);
-    const baseUrl    = extractBaseUrl(userInput);        // URL comes from docs
+    let baseUrl    = extractBaseUrl(userInput);
+    if (!baseUrl) {
+      const urlMatch = userInput.match(/https?:\/\/[^\s]+/);
+      if (urlMatch) {
+        baseUrl = urlMatch[0];
+        log(ws, `Using URL from prompt: ${baseUrl}`, 'info');
+      }
+    }
+
+    // 3. FINAL FALLBACK: If still no URL, ask the user
+    if (!baseUrl) {
+      log(ws, "I don't know which website to test.", 'warn');
+      baseUrl = await askUser(ws, "I couldn't find a URL in my docs. Which URL should I test?");
+      // Basic validation
+      if (!baseUrl.startsWith('http')) baseUrl = 'http://' + baseUrl;
+    }
+
     const docScenarios = extractDocScenarios(userInput); // scenarios from docs
 
     if (docContext) log(ws, 'Docs loaded', 'success');
     if (baseUrl)    log(ws, `Base URL: ${baseUrl}`, 'success');
 
     // ── Check memory using doc-declared scenarios ────────────────────────────
-    // If ALL doc scenarios are in memory → skip LLM entirely
-    const module = docScenarios[0]?.module || userInput.toLowerCase().match(/(login|dashboard|project|profile)/)?.[0] || 'unknown';
+    // 1. Try to get the module name from the first documented scenario found
+    let module = docScenarios[0]?.module;
+
+    // 2. FALLBACK: If no docs, try to get it from the browser page title or URL
+    if (!module && browserContext) {
+      try {
+        const dom = JSON.parse(browserContext);
+        // Look for a heading or a specific ID that might indicate the module
+        const mainHeader = dom.find(el => el.tag === 'h1')?.text;
+        if (mainHeader) {
+          module = mainHeader.toLowerCase().replace(/\s+/g, '_');
+        }
+      } catch (e) {
+        module = 'default_module';
+      }
+    }
+
+    // 3. LAST RESORT: Just use "general" or a slug from the URL
+    if (!module) {
+      module = baseUrl ? new URL(baseUrl).pathname.replace(/\//g, '') || 'index' : 'unknown';
+    }
 
     const memoryCheck = docScenarios.map(s => ({
       scenario: s,
-      cached: findSimilarPlan(module, s.id),
+      cached: findSimilarPlan(module, s.id, userInput),
     }));
 
     const allCached   = memoryCheck.length > 0 && memoryCheck.every(r => r.cached);
@@ -244,12 +296,12 @@ async function orchestrate(ws, userInput) {
     }
 
     // ── Need LLM — capture browser context now ───────────────────────────────
-    log(ws, 'Capturing browser DOM state...');
+    log(ws, 'Connecting to browser...', 'info');
     const browserContext = await captureBrowserContext(baseUrl || undefined);
     log(ws, 'DOM captured', 'success');
 
     // ── MERGED CALL 1: analyze + scenarios (1 LLM call) ─────────────────────
-    log(ws, 'Analyzing request...');
+    log(ws, 'Synthesizing DOM + Docs...', 'info');
     const analysis = await analyzeRequest(userInput, docContext, browserContext);
     log(ws, `Intent: ${analysis.intent}`, 'info');
     send(ws, 'intent', { intent: analysis.intent, confidence: 'high' });
@@ -261,7 +313,18 @@ async function orchestrate(ws, userInput) {
     }
 
     if (analysis.intent === 'EXPLORE' || analysis.intent === 'UNDERSTAND') {
-      send(ws, 'agent_message', `I can help with that. Try: "test [feature name]" to run automation.`);
+      // Extract unique module names from the documented scenarios
+      const uniqueModules = [...new Set(docScenarios.map(s => s.module))];
+      
+      let message = "I can help with that! Based on my documentation, you can test the following modules:\n";
+      if (uniqueModules.length > 0) {
+        message += uniqueModules.map(m => `• ${m}`).join('\n');
+      } else {
+        message += "• Login\n• Dashboard\n• Projects"; // Fallback
+      }
+      message += "\n\nJust tell me which one you want to run (e.g., 'test the login module').";
+
+      send(ws, 'agent_message', message);
       send(ws, 'report', { status: 'success', results: [], healCount: 0, summary: { total: 0, passed: 0, failed: 0, healed: 0 } });
       return;
     }
@@ -368,6 +431,18 @@ async function orchestrate(ws, userInput) {
 wss.on('connection', (ws) => {
   console.log('Client connected');
   sendState(ws, STATE.IDLE);
+  const docs = loadAllDocs(); // Your function that reads the /docs directory
+  
+  const suggestions = docs.length > 0 
+    ? docs.slice(0, 3).map(d => `Test ${d.name.replace('.md', '')}`)
+    : ["Explore the app", "Run health check"];
+
+  // 2. Send them immediately to the UI
+  ws.send(JSON.stringify({ 
+    type: 'suggestions', 
+    data: { payload: suggestions } 
+  }));
+
   ws.on('message', async (raw) => {
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
