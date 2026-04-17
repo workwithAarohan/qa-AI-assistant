@@ -1,90 +1,6 @@
 {
-  "login__invalid_password": {
-    "module": "login",
-    "scenario": "invalid_password",
-    "steps": [
-      {
-        "action": "navigate",
-        "value": "http://localhost:4000/testapp"
-      },
-      {
-        "action": "type",
-        "selector": "#username",
-        "value": "admin"
-      },
-      {
-        "action": "type",
-        "selector": "#password",
-        "value": "wrong"
-      },
-      {
-        "action": "click",
-        "selector": "#login-btn"
-      },
-      {
-        "action": "expect",
-        "selector": "#error"
-      }
-    ]
-  },
-  "login__valid_password": {
-    "module": "login",
-    "scenario": "valid_password",
-    "steps": [
-      {
-        "action": "navigate",
-        "value": "http://localhost:4000"
-      },
-      {
-        "action": "type",
-        "selector": "#username",
-        "value": "#username"
-      },
-      {
-        "action": "type",
-        "selector": "#password",
-        "value": "#password"
-      },
-      {
-        "action": "click",
-        "selector": "#login-btn"
-      }
-    ]
-  },
-  "login__invalid_input": {
-    "module": "login",
-    "scenario": "invalid_input",
-    "steps": [
-      {
-        "action": "navigate",
-        "value": "http://localhost:4000"
-      },
-      {
-        "action": "type",
-        "selector": "#username",
-        "value": "testuser"
-      },
-      {
-        "action": "type",
-        "selector": "#password",
-        "value": "invalidpass"
-      },
-      {
-        "action": "click",
-        "selector": "#login-btn"
-      },
-      {
-        "action": "expect",
-        "selector": "#error"
-      }
-    ]
-  },
-  "query_engine__verification": {
-    "module": "query_engine",
-    "scenario": "verification",
-    "steps": []
-  },
   "login__valid_login": {
+    "id": "valid_login",
     "module": "login",
     "scenario": "valid_login",
     "steps": [
@@ -107,15 +23,16 @@
         "selector": "#login-btn"
       },
       {
-        "action": "expect",
-        "selector": "h2:has-text('Dashboard')"
+        "action": "expectUrl",
+        "value": "http://localhost:4000/dashboard"
       }
     ],
-    "savedAt": "2026-04-15T05:29:34.058Z"
+    "savedAt": "2026-04-16T13:53:24.521Z"
   },
-  "login__invalid_credentials": {
+  "login__invalid_password": {
+    "id": "invalid_password",
     "module": "login",
-    "scenario": "invalid_credentials",
+    "scenario": "invalid_password",
     "steps": [
       {
         "action": "navigate",
@@ -124,7 +41,7 @@
       {
         "action": "type",
         "selector": "#username",
-        "value": "invaliduser"
+        "value": "admin"
       },
       {
         "action": "type",
@@ -139,38 +56,11 @@
         "action": "expect",
         "selector": "#error"
       }
-    ]
-  },
-  "login__valid_credentials": {
-    "module": "login",
-    "scenario": "valid_credentials",
-    "steps": [
-      {
-        "action": "navigate",
-        "value": "http://localhost:4000/testapp"
-      },
-      {
-        "action": "type",
-        "selector": "#username",
-        "value": "admin"
-      },
-      {
-        "action": "type",
-        "selector": "#password",
-        "value": "admin"
-      },
-      {
-        "action": "click",
-        "selector": "#login-btn"
-      },
-      {
-        "action": "expect",
-        "selector": "h2",
-        "value": "Dashboard"
-      }
-    ]
+    ],
+    "savedAt": "2026-04-16T16:19:26.112Z"
   },
   "login__empty_fields": {
+    "id": "empty_fields",
     "module": "login",
     "scenario": "empty_fields",
     "steps": [
@@ -186,9 +76,11 @@
         "action": "expect",
         "selector": "#error"
       }
-    ]
+    ],
+    "savedAt": "2026-04-16T16:19:28.425Z"
   },
   "dashboard__dashboard_loads": {
+    "id": "dashboard_loads",
     "module": "dashboard",
     "scenario": "dashboard_loads",
     "steps": [
@@ -215,7 +107,7 @@
       },
       {
         "action": "expectUrl",
-        "value": "http://localhost:4000/testapp/dashboard.html"
+        "value": "http://localhost:4000/dashboard"
       },
       {
         "action": "expect",
@@ -231,9 +123,10 @@
         "selector": "#welcome-msg"
       }
     ],
-    "savedAt": "2026-04-15T05:29:19.584Z"
+    "savedAt": "2026-04-16T16:50:03.413Z"
   },
   "dashboard__navigate_to_projects": {
+    "id": "navigate_to_projects",
     "module": "dashboard",
     "scenario": "navigate_to_projects",
     "steps": [
@@ -259,10 +152,6 @@
         "action": "waitForNavigation"
       },
       {
-        "action": "expectUrl",
-        "value": "http://localhost:4000/testapp/dashboard.html"
-      },
-      {
         "action": "click",
         "selector": "#view-projects-btn"
       },
@@ -271,68 +160,9 @@
       },
       {
         "action": "expectUrl",
-        "value": "http://localhost:4000/testapp/projects.html"
-      },
-      {
-        "action": "expect",
-        "selector": "#projects-heading"
+        "value": "http://localhost:4000/project"
       }
     ],
-    "savedAt": "2026-04-15T05:29:19.586Z"
-  },
-  "dashboard__new_project_shortcut": {
-    "module": "dashboard",
-    "scenario": "new_project_shortcut",
-    "steps": [
-      {
-        "action": "navigate",
-        "value": "http://localhost:4000/testapp"
-      },
-      {
-        "action": "type",
-        "selector": "#username",
-        "value": "admin"
-      },
-      {
-        "action": "type",
-        "selector": "#password",
-        "value": "admin"
-      },
-      {
-        "action": "click",
-        "selector": "#login-btn"
-      },
-      {
-        "action": "waitForNavigation"
-      },
-      {
-        "action": "expectUrl",
-        "value": "http://localhost:4000/testapp/dashboard.html"
-      },
-      {
-        "action": "click",
-        "selector": "#new-project-btn"
-      },
-      {
-        "action": "waitForNavigation"
-      },
-      {
-        "action": "expectUrl",
-        "value": "http://localhost:4000/testapp/projects.html?new=1"
-      },
-      {
-        "action": "expect",
-        "selector": "#project-name-input"
-      },
-      {
-        "action": "expect",
-        "selector": "#project-type-select"
-      },
-      {
-        "action": "expect",
-        "selector": "#create-project-btn"
-      }
-    ],
-    "savedAt": "2026-04-15T05:29:19.587Z"
+    "savedAt": "2026-04-16T16:50:03.416Z"
   }
 }

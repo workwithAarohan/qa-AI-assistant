@@ -7,7 +7,7 @@ import dotenv from 'dotenv';
 import { chromium } from 'playwright';
 dotenv.config();
 
-import { analyzeRequest, generateAllScenarioSteps, generateSteps, fixSteps } from './agent.js';
+import { analyzeRequest, generateAllScenarioSteps, fixSteps } from './agent.js';
 import { runSteps } from './executor.js';
 import { validatePlan } from './validator.js';
 import { saveToMemory, findSimilarPlan } from './memory.js';
@@ -41,24 +41,10 @@ app.get('/.well-known/appspecific/com.chrome.devtools.json', (req, res) => {
 
 app.use(express.static(ROOT));
 app.use('/testapp', express.static(path.join(ROOT, 'public', 'testapp')));
-app.get(/^\/testapp\/?.*$/, (req, res) => {
-  res.sendFile(path.join(ROOT, 'public', 'testapp.html'));
-});
-
-app.use('/dashboard', express.static(path.join(ROOT, 'public', 'dashboard')));
-app.get(/^\/dashboard\/?.*$/, (req, res) => {
-  res.sendFile(path.join(ROOT, 'public', 'dashboard.html'));
-});
-
-app.use('/projects', express.static(path.join(ROOT, 'public', 'projects')));
-app.get(/^\/projects\/?.*$/, (req, res) => {
-  res.sendFile(path.join(ROOT, 'public', 'projects.html'));
-});
-
-app.use('/profile', express.static(path.join(ROOT, 'public', 'profile')));
-app.get(/^\/profile\/?.*$/, (req, res) => {
-  res.sendFile(path.join(ROOT, 'public', 'profile.html'));
-});
+app.get('/testapp', (req, res) => res.sendFile(path.join(ROOT, 'public', 'testapp.html')));
+app.get('/dashboard', (req, res) => res.sendFile(path.join(ROOT, 'public', 'dashboard.html')));
+app.get('/projects',  (req, res) => res.sendFile(path.join(ROOT, 'public', 'projects.html')));
+app.get('/profile',   (req, res) => res.sendFile(path.join(ROOT, 'public', 'profile.html')));
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -74,22 +60,13 @@ function log(ws, text, level = 'info') {
 
 function sendState(ws, state) { send(ws, 'agent_state', state); }
 
-// FIX: Use event listener pattern — not ws.once — so concurrent messages don't
-// get swallowed. Each waitForAnswer registers and removes its own handler.
 function waitForAnswer(ws, timeoutMs = 120000) {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      ws.off('message', handler);
-      reject(new Error('Answer timeout'));
-    }, timeoutMs);
+    const timer = setTimeout(() => { ws.off('message', handler); reject(new Error('Answer timeout')); }, timeoutMs);
     function handler(raw) {
       try {
         const msg = JSON.parse(raw);
-        if (msg.type === 'answer') {
-          clearTimeout(timer);
-          ws.off('message', handler);
-          resolve(msg.data);
-        }
+        if (msg.type === 'answer') { clearTimeout(timer); ws.off('message', handler); resolve(msg.data); }
       } catch {}
     }
     ws.on('message', handler);
@@ -97,7 +74,6 @@ function waitForAnswer(ws, timeoutMs = 120000) {
 }
 
 async function askUser(ws, question, questionType = 'text') {
-  // questionType: 'text' | 'heal_choice' | 'scenario_choice'
   send(ws, 'question', { text: question, type: questionType });
   const answer = await waitForAnswer(ws);
   send(ws, 'answer_received', answer);
@@ -117,37 +93,51 @@ function injectDocUrl(plan, baseUrl) {
   };
 }
 
-// FIX 1: Score each scenario against the user prompt using keyword overlap.
-// "test login with valid password" → valid_login scores highest (valid, login match)
-// This replaces the broken string.includes() check.
+// ── FIX 1: Word-boundary scoring — prevents "valid" matching inside "invalid" ─
+// Uses unique deduplicated keywords and whole-word matching via regex.
+
 function resolveSpecificScenario(input, docScenarios) {
   const lower = input.toLowerCase();
-  const scored = docScenarios.map(s => {
-    const keywords = [
-      ...s.id.split('_'),
-      ...s.name.toLowerCase().split(' '),
-      ...s.description.toLowerCase().split(/\s+/),
-    ].filter(w => w.length > 2);
 
-    const matches = keywords.filter(kw => lower.includes(kw));
-    return { scenario: s, score: matches.length };
+  // Build a word-boundary test: only match whole words, not substrings
+  function matchesWholeWord(text, word) {
+    // Escape special regex chars in word
+    const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`\\b${escaped}\\b`).test(text);
+  }
+
+  const scored = docScenarios.map(s => {
+    // Collect all keywords then DEDUPLICATE — stops duplicate counting
+    const raw = [
+      ...s.id.split('_'),
+      ...s.name.toLowerCase().split(/\s+/),
+    ].filter(w => w.length > 2);
+    const keywords = [...new Set(raw)]; // deduplicate
+
+    const matches = keywords.filter(kw => matchesWholeWord(lower, kw));
+    return { scenario: s, score: matches.length, matches };
   }).filter(s => s.score > 0).sort((a, b) => b.score - a.score);
 
-  if (scored.length === 0) return null;
+  if (!scored.length) return null;
 
-  // Only resolve to a specific scenario if it clearly dominates
-  // (avoids false matches when all scenarios score equally low)
   const top = scored[0];
   const second = scored[1];
-  const clearWinner = !second || top.score > second.score || top.score >= 2;
 
-  return clearWinner ? top.scenario : null;
+  // Need a clear winner OR at least 2 matching keywords
+  const clearWinner = !second || top.score > second.score;
+  const confident = top.score >= 2;
+
+  return (clearWinner && confident) ? top.scenario : null;
 }
 
 // ── Execute one plan ──────────────────────────────────────────────────────────
 
 async function executePlan(ws, plan, scenarioId, userInput, baseUrl, browser) {
   const finalPlan = injectDocUrl(plan, baseUrl);
+
+  // Short delay before execution — gives the user a moment to see the plan
+  await new Promise(r => setTimeout(r, 600));
+
   send(ws, 'plan', { ...finalPlan, scenarioId });
   sendState(ws, STATE.EXECUTING);
 
@@ -162,13 +152,7 @@ async function executePlan(ws, plan, scenarioId, userInput, baseUrl, browser) {
 
   if (result.status === 'failed') {
     log(ws, `Step failed: ${result.error}`, 'error');
-
-    // FIX 4: Send heal_choice type so UI renders buttons instead of free-text input
-    const choice = await askUser(
-      ws,
-      `A step failed: "${result.error}". What should I do?`,
-      'heal_choice'
-    );
+    const choice = await askUser(ws, `A step failed: "${result.error}". What should I do?`, 'heal_choice');
 
     if (/yes|heal|try|fix|retry/i.test(choice)) {
       log(ws, 'Auto-healing — refreshing DOM...', 'warn');
@@ -179,19 +163,14 @@ async function executePlan(ws, plan, scenarioId, userInput, baseUrl, browser) {
       send(ws, 'plan', { ...fixedWithUrl, scenarioId });
 
       result = await runSteps(fixedWithUrl.steps, {
-        browser,
-        baseUrl,
+        browser, baseUrl,
         onStep: (index, step, status) => send(ws, 'step', { index, status }),
         onLog:  (text, level) => log(ws, text, level),
       });
 
       healCount++;
-      if (result.status === 'success') {
-        saveToMemory(fixedPlan);
-        log(ws, 'Heal successful — memory updated', 'success');
-      } else {
-        log(ws, 'Heal failed', 'error');
-      }
+      if (result.status === 'success') { saveToMemory(fixedPlan); log(ws, 'Heal successful — memory updated', 'success'); }
+      else log(ws, 'Heal failed', 'error');
     } else {
       log(ws, 'Stopped by user', 'warn');
     }
@@ -203,29 +182,16 @@ async function executePlan(ws, plan, scenarioId, userInput, baseUrl, browser) {
   return { result, healCount };
 }
 
-// ── Router: classify request into one of 4 routes ─────────────────────────────
-// FIX 3: Lightweight router agent — replaces the linear waterfall.
-// Each route has a single responsibility, short-circuits early.
+// ── Router ────────────────────────────────────────────────────────────────────
 
 function routeRequest(userInput, docScenarios) {
   const lower = userInput.toLowerCase().trim();
+  if (['hi', 'hello', 'hey', 'help', 'what can you do'].includes(lower)) return 'GREET';
 
-  // Route A: Greeting / help — answer immediately, no LLM
-  if (['hi', 'hello', 'hey', 'help', 'what can you do'].includes(lower)) {
-    return 'GREET';
-  }
-
-  // Route B: Specific scenario — one scenario, skip picker
   const specific = resolveSpecificScenario(lower, docScenarios);
   if (specific) return { route: 'SPECIFIC', scenario: specific };
 
-  // Route C: Module-level — show scenario picker
-  const hasModuleKeyword = docScenarios.some(s =>
-    lower.includes(s.module.toLowerCase())
-  );
-  if (hasModuleKeyword || docScenarios.length > 0) return 'MODULE';
-
-  // Route D: Unknown — needs LLM analysis
+  if (docScenarios.length > 0) return 'MODULE';
   return 'ANALYZE';
 }
 
@@ -235,42 +201,33 @@ async function orchestrate(ws, userInput) {
   let browserInstance = null;
 
   try {
-    // Layer 2: Guard
     const guard = guardCheck(userInput);
-    if (!guard.safe) {
-      send(ws, 'agent_message', guard.reason);
-      return;
-    }
+    if (!guard.safe) { send(ws, 'agent_message', guard.reason); return; }
 
     sendState(ws, STATE.GATHERING_CONTEXT);
 
-    // Load docs — zero LLM cost
-    const docContext    = getRelevantContext(userInput);
-    const baseUrl       = extractBaseUrl(userInput) || process.env.BASE_URL || 'http://localhost:4000/testapp';
-    const docScenarios  = extractDocScenarios(userInput);
-    const module        = docScenarios[0]?.module || 'general';
-
-    // FIX 3: Route first, then act
-    const route = routeRequest(userInput, docScenarios);
+    const docContext   = getRelevantContext(userInput);
+    const baseUrl      = extractBaseUrl(userInput) || process.env.BASE_URL || 'http://localhost:4000/testapp';
+    const docScenarios = extractDocScenarios(userInput);
+    const module       = docScenarios[0]?.module || 'general';
+    const route        = routeRequest(userInput, docScenarios);
 
     // ── Route A: Greet ──────────────────────────────────────────────────────
     if (route === 'GREET') {
       const modules = [...new Set(loadAllDocs().map(d => d.name))];
-      send(ws, 'agent_message',
-        `I can test the following modules:\n${modules.map(m => `• ${m}`).join('\n')}\n\nTry: "test login" or "test login with valid password".`
-      );
+      send(ws, 'agent_message', `I can test:\n${modules.map(m => `• ${m}`).join('\n')}\n\nTry "test login" or "test login with invalid password".`);
       return;
     }
 
     // ── Route B: Specific single scenario ──────────────────────────────────
     if (route?.route === 'SPECIFIC') {
       const s = route.scenario;
-      const cached = findSimilarPlan(s.module, s.id, userInput);
-
-      log(ws, `Specific scenario: "${s.name}"`, 'info');
+      log(ws, `Matched scenario: "${s.name}"`, 'info');
       send(ws, 'scenario_start', s);
 
+      const cached = findSimilarPlan(s.module, s.id, userInput);
       let plan = cached;
+
       if (cached) {
         log(ws, 'Memory hit — reusing cached plan', 'success');
       } else {
@@ -287,15 +244,9 @@ async function orchestrate(ws, userInput) {
       const { result, healCount } = await executePlan(ws, plan, s.id, userInput, baseUrl, browserInstance);
 
       send(ws, 'report', {
-        status: result.status,
-        healCount,
+        status: result.status, healCount,
         scenarios: [{ scenario: s, result, healCount }],
-        summary: {
-          total:  1,
-          passed: result.status === 'success' ? 1 : 0,
-          failed: result.status === 'failed'  ? 1 : 0,
-          healed: healCount,
-        },
+        summary: { total: 1, passed: result.status === 'success' ? 1 : 0, failed: result.status === 'failed' ? 1 : 0, healed: healCount },
       });
       sendState(ws, STATE.IDLE);
       return;
@@ -303,21 +254,16 @@ async function orchestrate(ws, userInput) {
 
     // ── Route C: Module-level — check memory, show picker ──────────────────
     if (route === 'MODULE') {
-      const memoryCheck = docScenarios.map(s => ({
-        scenario: s,
-        cached:   findSimilarPlan(module, s.id, userInput),
-      }));
-
+      const memoryCheck = docScenarios.map(s => ({ scenario: s, cached: findSimilarPlan(module, s.id, userInput) }));
       const allCached = memoryCheck.length > 0 && memoryCheck.every(r => r.cached);
 
       if (!allCached) {
-        log(ws, `Generating plans for uncached scenarios...`, 'info');
+        log(ws, 'Generating plans for uncached scenarios...', 'info');
         const browserCtx = await captureBrowserContext(baseUrl);
-        const uncached   = memoryCheck.filter(r => !r.cached).map(r => r.scenario);
-        const batch      = await generateAllScenarioSteps(uncached, docContext, browserCtx);
+        const uncached = memoryCheck.filter(r => !r.cached).map(r => r.scenario);
+        const batch = await generateAllScenarioSteps(uncached, docContext, browserCtx);
         batch.forEach(p => {
-          validatePlan(p);
-          saveToMemory(p);
+          validatePlan(p); saveToMemory(p);
           const m = memoryCheck.find(r => r.scenario.id === p.id);
           if (m) m.cached = p;
         });
@@ -346,77 +292,45 @@ async function orchestrate(ws, userInput) {
       let totalHealed = 0;
 
       for (let i = 0; i < toRun.length; i++) {
-        const s    = toRun[i];
+        const s = toRun[i];
         const plan = memoryCheck.find(r => r.scenario.id === s.id)?.cached;
         if (!plan) { log(ws, `No plan for "${s.name}" — skipping`, 'warn'); continue; }
-
         send(ws, 'scenario_start', s);
         log(ws, `Running: ${s.name}`);
         const { result, healCount } = await executePlan(ws, plan, s.id, userInput, baseUrl, browserInstance);
         scenarioResults.push({ scenario: s, result, healCount });
         totalHealed += healCount;
-
-        if (i < toRun.length - 1) {
-          await new Promise(r => setTimeout(r, 600));
-          log(ws, '─────────────────────');
-        }
+        if (i < toRun.length - 1) { await new Promise(r => setTimeout(r, 600)); log(ws, '─────────────────────'); }
       }
 
       const passed = scenarioResults.filter(r => r.result.status === 'success').length;
       const failed = scenarioResults.filter(r => r.result.status === 'failed').length;
-      send(ws, 'report', {
-        status: failed === 0 ? 'success' : 'failed',
-        healCount: totalHealed,
-        scenarios: scenarioResults,
-        summary: { total: toRun.length, passed, failed, healed: totalHealed },
-      });
+      send(ws, 'report', { status: failed === 0 ? 'success' : 'failed', healCount: totalHealed, scenarios: scenarioResults, summary: { total: toRun.length, passed, failed, healed: totalHealed } });
       sendState(ws, STATE.IDLE);
       return;
     }
 
-    // ── Route D: Unknown — full LLM analysis ───────────────────────────────
+    // ── Route D: Unknown — LLM analysis ────────────────────────────────────
     log(ws, 'Analyzing request...', 'info');
     const browserCtx = await captureBrowserContext(baseUrl);
-
-    const { enrichedInput } = await gatherContext(
-      userInput, null,
-      (q) => askUser(ws, q),
-      (t, l) => log(ws, t, l)
-    );
-
+    const { enrichedInput } = await gatherContext(userInput, null, (q) => askUser(ws, q), (t, l) => log(ws, t, l));
     const analysis = await analyzeRequest(enrichedInput, docContext, browserCtx);
-    log(ws, `Intent: ${analysis.intent}`, 'info');
     send(ws, 'intent', { intent: analysis.intent, confidence: 'high' });
 
-    if (analysis.intent === 'OUT_OF_SCOPE') {
-      send(ws, 'agent_message', outOfScopeResponse(userInput));
-      return;
-    }
-
+    if (analysis.intent === 'OUT_OF_SCOPE') { send(ws, 'agent_message', outOfScopeResponse(userInput)); return; }
     if (analysis.intent === 'EXPLORE' || analysis.intent === 'UNDERSTAND') {
       const modules = [...new Set(loadAllDocs().map(d => d.name))];
-      send(ws, 'agent_message',
-        `I can help with that. I know about these modules:\n${modules.map(m => `• ${m}`).join('\n')}\n\nTry: "test [module name]".`
-      );
+      send(ws, 'agent_message', `I know about:\n${modules.map(m => `• ${m}`).join('\n')}\n\nTry "test [module name]".`);
       return;
     }
 
     const scenarios = docScenarios.length > 0 ? docScenarios : (analysis.scenarios || []);
-    if (!scenarios.length) {
-      send(ws, 'agent_message', 'I could not identify test scenarios for that request. Try being more specific.');
-      return;
-    }
+    if (!scenarios.length) { send(ws, 'agent_message', 'Could not identify scenarios. Try being more specific.'); return; }
 
     sendState(ws, STATE.PLANNING);
     const planMap = {};
-    const stillUncached = scenarios.filter(s => {
-      const p = findSimilarPlan(module, s.id);
-      if (p) { planMap[s.id] = p; return false; }
-      return true;
-    });
-
+    const stillUncached = scenarios.filter(s => { const p = findSimilarPlan(module, s.id); if (p) { planMap[s.id] = p; return false; } return true; });
     if (stillUncached.length > 0) {
-      log(ws, `Generating steps for ${stillUncached.length} scenario(s)...`);
       const batch = await generateAllScenarioSteps(stillUncached, docContext, browserCtx);
       batch.forEach(p => { validatePlan(p); saveToMemory(p); planMap[p.id] = p; });
     }
@@ -424,39 +338,25 @@ async function orchestrate(ws, userInput) {
     send(ws, 'scenarios', { scenarios, module: userInput });
     const choice = await waitForAnswer(ws);
     send(ws, 'answer_received', choice);
-
-    const finalToRun = choice.toLowerCase().includes('all')
-      ? scenarios
-      : (() => {
-          const indices = [...choice.matchAll(/\d+/g)].map(m => parseInt(m[0]) - 1);
-          return indices.length > 0
-            ? indices.filter(i => i >= 0 && i < scenarios.length).map(i => scenarios[i])
-            : scenarios;
-        })();
+    const finalToRun = choice.toLowerCase().includes('all') ? scenarios : (() => {
+      const indices = [...choice.matchAll(/\d+/g)].map(m => parseInt(m[0]) - 1);
+      return indices.length > 0 ? indices.filter(i => i >= 0 && i < scenarios.length).map(i => scenarios[i]) : scenarios;
+    })();
 
     sendState(ws, STATE.EXECUTING);
     browserInstance = await chromium.launch({ headless: false });
-    const results = [];
-    let healed = 0;
-
+    const results = []; let healed = 0;
     for (let i = 0; i < finalToRun.length; i++) {
       const s = finalToRun[i];
       if (!planMap[s.id]) { log(ws, `No plan for "${s.name}" — skipping`, 'warn'); continue; }
       send(ws, 'scenario_start', s);
       const { result, healCount } = await executePlan(ws, planMap[s.id], s.id, enrichedInput, baseUrl, browserInstance);
-      results.push({ scenario: s, result, healCount });
-      healed += healCount;
+      results.push({ scenario: s, result, healCount }); healed += healCount;
       if (i < finalToRun.length - 1) { await new Promise(r => setTimeout(r, 600)); log(ws, '─────────────────────'); }
     }
-
     const p = results.filter(r => r.result.status === 'success').length;
     const f = results.filter(r => r.result.status === 'failed').length;
-    send(ws, 'report', {
-      status: f === 0 ? 'success' : 'failed',
-      healCount: healed,
-      scenarios: results,
-      summary: { total: finalToRun.length, passed: p, failed: f, healed },
-    });
+    send(ws, 'report', { status: f === 0 ? 'success' : 'failed', healCount: healed, scenarios: results, summary: { total: finalToRun.length, passed: p, failed: f, healed } });
     sendState(ws, STATE.IDLE);
 
   } catch (err) {
@@ -473,10 +373,11 @@ wss.on('connection', (ws) => {
   console.log('Client connected');
   sendState(ws, STATE.IDLE);
 
+  // Send doc-based suggestions immediately on connect
   const docs = loadAllDocs();
   const suggestions = docs.length > 0
-    ? docs.slice(0, 3).map(d => `Test ${d.name}`)
-    : ['Explore the app'];
+    ? docs.map(d => `Test ${d.name}`)
+    : ['Test login', 'Explore the app'];
   send(ws, 'suggestions', { payload: suggestions });
 
   ws.on('message', async (raw) => {
@@ -484,7 +385,6 @@ wss.on('connection', (ws) => {
     try { msg = JSON.parse(raw); } catch { return; }
     if (msg.type === 'prompt') orchestrate(ws, msg.data);
   });
-
   ws.on('close', () => console.log('Client disconnected'));
 });
 

@@ -67,8 +67,8 @@
       </div>
     </div>
 
-    <!-- Collapsible test plan -->
-    <div class="bg-white border-b border-gray-100 flex-shrink-0">
+    <!-- Collapsible test plan — hidden until steps arrive -->
+    <div id="planSection" class="bg-white border-b border-gray-100 flex-shrink-0 hidden">
       <button onclick="togglePlan()"
         class="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-medium text-gray-500 hover:bg-gray-50 transition text-left select-none">
         <svg id="planChevron" width="10" height="10" viewBox="0 0 10 10" style="transition:transform 0.2s;transform:rotate(90deg)">
@@ -88,7 +88,6 @@
     <div class="flex-1 overflow-hidden flex flex-col px-4 py-3 min-h-0">
       <p class="text-xs font-medium text-gray-400 uppercase tracking-widest mb-2 flex-shrink-0">Live log</p>
       <div id="logStream" class="flex-1 overflow-y-auto flex flex-col gap-0 font-mono text-xs min-h-0">
-        <p class="text-gray-300 text-center py-8">Waiting for test...</p>
       </div>
     </div>
 
@@ -161,6 +160,7 @@
     else if (type==='agent_state')     setAgentStateBadge(data);
     else if (type==='intent')          onIntentClassified(data);
     else if (type==='error')           { addLog('Error: '+data,'error'); resetInput(); }
+    else if (type==='suggestions')     renderSuggestions(data.payload);
   };
 
   // ── Send handler ───────────────────────────────────────────────────────────
@@ -300,7 +300,9 @@
 
   // ── Plan ───────────────────────────────────────────────────────────────────
   function renderSteps(steps) {
-    if (!steps) return;
+    if (!steps || steps.length === 0) return;
+    // Reveal plan panel now that we have steps
+    document.getElementById('planSection').classList.remove('hidden');
     const inner=document.getElementById('planInner');
     inner.innerHTML=''; stepCount=steps.length;
     steps.forEach((step,i)=>{
@@ -510,6 +512,7 @@
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   function resetExecPanel(){
+    document.getElementById('planSection').classList.add('hidden');
     document.getElementById('logStream').innerHTML='';
     document.getElementById('planInner').innerHTML='<p class="text-xs text-gray-300 py-2">Generating plan...</p>';
     document.getElementById('planCount').textContent='0 steps';
@@ -567,6 +570,38 @@
     b.className = `text-xs px-2 py-0.5 rounded-md font-medium bg-indigo-50 text-indigo-600`;
     b.textContent = intent.toLowerCase().replace('_', ' ');
   }
+
+  // ── Suggestion chips ─────────────────────────────────────────────────────
+  function renderSuggestions(items) {
+    // Build chip row above input — dynamically populated from docs
+    const existing = document.getElementById('suggestionChips');
+    if (existing) existing.remove();
+
+    if (!items || items.length === 0) return;
+
+    const inputArea = document.querySelector('.px-4.py-3.border-t.border-gray-100.flex');
+    const chipRow = document.createElement('div');
+    chipRow.id = 'suggestionChips';
+    chipRow.className = 'px-4 pb-2 flex gap-2 overflow-x-auto flex-shrink-0';
+
+    items.forEach((text, i) => {
+      const btn = document.createElement('button');
+      btn.className = 'whitespace-nowrap px-3 py-1.5 rounded-full text-xs transition ' +
+        (i === 0
+          ? 'border border-indigo-100 bg-indigo-50 text-indigo-600 hover:bg-indigo-100'
+          : 'border border-gray-100 bg-gray-50 text-gray-600 hover:bg-gray-100');
+      btn.textContent = text;
+      btn.onclick = () => {
+        ta.value = text;
+        ta.focus();
+        ta.dispatchEvent(new Event('input'));
+      };
+      chipRow.appendChild(btn);
+    });
+
+    inputArea.parentElement.insertBefore(chipRow, inputArea);
+  }
+
 </script>
 </body>
 </html>
