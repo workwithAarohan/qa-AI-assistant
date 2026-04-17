@@ -66,6 +66,7 @@ export async function runSteps(steps, { browser, baseUrl, onStep, onLog }) {
       try {
         switch (step.action.toLowerCase()) {
           case 'navigate':
+          case 'goto':
             const targetUrl = step.value.startsWith('http') ? step.value : `${baseUrl}${step.value}`;
             await page.goto(targetUrl, { waitUntil: 'networkidle' });
             break;
@@ -96,6 +97,16 @@ export async function runSteps(steps, { browser, baseUrl, onStep, onLog }) {
             }
             break;
 
+          case 'expectUrl':
+          case 'verifyUrl':
+            const expected = step.value.startsWith('http') ? step.value : `${baseUrl}${step.value}`;
+            await page.waitForURL(url => {
+                const current = url.toString().toLowerCase();
+                const target = expected.toLowerCase();
+                return current.includes(target) || target.includes(current);
+            }, { timeout: 7000 });
+            break;
+
           case 'verify':
           case 'assert':
           case 'expect':
@@ -104,6 +115,18 @@ export async function runSteps(steps, { browser, baseUrl, onStep, onLog }) {
               await page.waitForSelector(`${step.selector}:has-text("${step.value}")`, { state: 'visible' });
             } else {
               await page.waitForSelector(step.selector, { state: 'visible' });
+            }
+            break;
+
+          case 'waitfornavigation':
+            await page.waitForLoadState('networkidle', { timeout: 10000 });
+            break;
+
+          case 'asserttext':
+            await page.waitForSelector(step.selector, { state: 'visible' });
+            const content = await page.textContent(step.selector);
+            if (!content.includes(step.value)) {
+              throw new Error(`Text validation failed. Expected "${step.value}" but found "${content}"`);
             }
             break;
 
