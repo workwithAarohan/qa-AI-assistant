@@ -1,7 +1,7 @@
 # Dashboard Module
 
 ## URL
-http://localhost:4000/testapp/dashboard.html
+http://localhost:4000/dashboard
 
 ## Description
 The dashboard is the main screen after login.

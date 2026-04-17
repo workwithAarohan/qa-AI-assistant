@@ -18,7 +18,7 @@ Users authenticate with a username and password.
 - Invalid: any other combination
 
 ## Behaviour
-- Valid login → navigates to /testapp/dashboard.html
+- Valid login → navigates to /dashboard
 - Invalid login → #error becomes visible, page stays on login
 - Empty fields → #error becomes visible
 

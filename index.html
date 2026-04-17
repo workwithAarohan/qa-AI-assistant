@@ -18,51 +18,6 @@
     .sdot-healed  { background:#f59e0b }
     textarea { resize:none }
     .detail-row:hover { background:#f9fafb }
-
-    /* --- Optimized Chat Bubble Styles --- */
-
-    /* The log container inside a chat bubble */
-    .chat-log-pre {
-      max-height: 150px;
-      overflow-y: auto;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      font-size: 0.75rem;
-      line-height: 1.25;
-      background: rgba(0, 0, 0, 0.03);
-      padding: 8px;
-      border-radius: 6px;
-      margin-top: 4px;
-      white-space: pre-wrap;
-      word-break: break-all;
-    }
-
-    /* Custom scrollbar for log bubbles to keep them sleek */
-    .chat-log-pre::-webkit-scrollbar {
-      width: 4px;
-    }
-    .chat-log-pre::-webkit-scrollbar-thumb {
-      background: #d1d5db;
-      border-radius: 10px;
-    }
-
-    /* Ensure the main chat container always keeps the input at the bottom */
-    #chatMessages {
-      scroll-behavior: smooth;
-    }
-
-        /* index.html */
-    #rightPanelContainer {
-      opacity: 0;
-      transform: translateX(20px); /* Slight slide-in effect */
-      transition: all 0.5s ease-in-out;
-      display: none; /* Fully hidden from layout */
-    }
-
-    #rightPanelContainer.visible {
-      display: flex; /* Or 'block' depending on your layout */
-      opacity: 1;
-      transform: translateX(0);
-    }
   </style>
 </head>
 <body class="bg-gray-100 h-screen flex items-center justify-center p-4 overflow-hidden">
@@ -85,12 +40,6 @@
         </div>
         <div class="text-xs text-gray-300">now</div>
       </div>
-    </div>
-
-    <div id="starterChips" class="px-4 py-2 flex gap-2 overflow-x-auto no-scrollbar flex-shrink-0">
-      <button onclick="fillPrompt('Test the login flow')" class="whitespace-nowrap px-3 py-1.5 rounded-full border border-indigo-100 bg-indigo-50 text-indigo-600 text-xs hover:bg-indigo-100 transition">Test Login</button>
-      <button onclick="fillPrompt('What can I test on the dashboard?')" class="whitespace-nowrap px-3 py-1.5 rounded-full border border-gray-100 bg-gray-50 text-gray-600 text-xs hover:bg-gray-100 transition">Explore Dashboard</button>
-      <button onclick="fillPrompt('Run all project scenarios')" class="whitespace-nowrap px-3 py-1.5 rounded-full border border-gray-100 bg-gray-50 text-gray-600 text-xs hover:bg-gray-100 transition">Run All Projects</button>
     </div>
 
     <div class="px-4 py-3 border-t border-gray-100 flex gap-2 items-end flex-shrink-0">
@@ -119,7 +68,7 @@
     </div>
 
     <!-- Collapsible test plan -->
-    <div id="planSection" class="bg-white border-b border-gray-100 flex-shrink-0 hidden">
+    <div class="bg-white border-b border-gray-100 flex-shrink-0">
       <button onclick="togglePlan()"
         class="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-medium text-gray-500 hover:bg-gray-50 transition text-left select-none">
         <svg id="planChevron" width="10" height="10" viewBox="0 0 10 10" style="transition:transform 0.2s;transform:rotate(90deg)">
@@ -139,6 +88,7 @@
     <div class="flex-1 overflow-hidden flex flex-col px-4 py-3 min-h-0">
       <p class="text-xs font-medium text-gray-400 uppercase tracking-widest mb-2 flex-shrink-0">Live log</p>
       <div id="logStream" class="flex-1 overflow-y-auto flex flex-col gap-0 font-mono text-xs min-h-0">
+        <p class="text-gray-300 text-center py-8">Waiting for test...</p>
       </div>
     </div>
 
@@ -211,15 +161,6 @@
     else if (type==='agent_state')     setAgentStateBadge(data);
     else if (type==='intent')          onIntentClassified(data);
     else if (type==='error')           { addLog('Error: '+data,'error'); resetInput(); }
-    else if (type === 'suggestions') {
-      const container = document.getElementById('starterChips');
-      // data.payload is the array of strings from the server
-      container.innerHTML = data.payload.map(text => `
-        <button onclick="fillPrompt('${text}')" class="px-3 py-1.5 rounded-full border border-gray-100 bg-gray-50 text-gray-600 text-xs hover:bg-indigo-50 hover:text-indigo-600 transition">
-          ${text}
-        </button>
-      `).join('');
-    }
   };
 
   // ── Send handler ───────────────────────────────────────────────────────────
@@ -330,26 +271,7 @@
       isUser?'bg-indigo-50 text-indigo-800 rounded-br-sm':
       isQuestion?'bg-amber-50 text-amber-900 border border-amber-200 rounded-bl-sm':
       'bg-gray-100 text-gray-700 rounded-bl-sm');
-
-    // LOG OPTIMIZATION: Check if the message is a technical log
-    const isLog = text.includes('failed') || text.includes('Error:') || text.includes('==== logs ====');
-
-    if (!isUser && isLog) {
-      // If it's a log, we split the "Human" part from the "Technical" part
-      const parts = text.split('\n');
-      const intro = parts[0]; // Usually the error summary
-      const details = parts.slice(1).join('\n'); // The heavy logs
-      
-      bubble.innerHTML = `<div>${esc(intro)}</div>`;
-      if (details) {
-        const logPre = document.createElement('div');
-        logPre.className = 'chat-log-pre';
-        logPre.textContent = details;
-        bubble.appendChild(logPre);
-      }
-    } else {
-      bubble.textContent = text;
-    }
+    bubble.textContent=text;
     const time=document.createElement('div');
     time.className='text-xs text-gray-300'; time.textContent=now();
     wrap.appendChild(bubble); wrap.appendChild(time);
@@ -367,43 +289,18 @@
 
   // ── Log ────────────────────────────────────────────────────────────────────
   const levelColor={info:'text-gray-400',success:'text-green-600',error:'text-red-500',warn:'text-amber-500',user:'text-indigo-500'};
-  function addLog(text, level = 'info') {
-    // 1. THE GAP FIX: Ignore empty or whitespace-only logs
-    if (!text || text.trim() === '') return; 
-
-    const stream = document.getElementById('logStream'); // Or 'liveLogContent', whichever you use
-
-    // Remove idle state on first real log
-    const idle = document.getElementById('logIdle');
-    if (idle) idle.remove();
-    
-    const placeholder = document.getElementById('logPlaceholder');
-    if (placeholder) placeholder.remove();
-
-    const el = document.createElement('div');
-    // 2. Reduced padding (py-1 instead of py-1.5) to make it tighter
-    el.className = 'flex gap-2 py-1 border-b border-gray-50 last:border-0';
-    
-    el.innerHTML = `
-      <span class="text-gray-300 font-mono text-[10px] flex-shrink-0 mt-0.5 select-none">${now()}</span>
-      <span class="text-xs break-words ${levelColor[level] || levelColor.info}">${esc(text)}</span>
-    `;
-
-    stream.appendChild(el);
-    
-    // Smooth scroll
-    stream.scrollTo({
-      top: stream.scrollHeight,
-      behavior: 'smooth'
-    });
+  function addLog(text,level='info'){
+    const stream=document.getElementById('logStream');
+    const empty=stream.querySelector('p'); if(empty) empty.remove();
+    const el=document.createElement('div');
+    el.className='flex gap-2 py-1 border-b border-gray-50 last:border-0';
+    el.innerHTML=`<span class="text-gray-300 flex-shrink-0 select-none">${now()}</span><span class="${levelColor[level]||levelColor.info}">${esc(text)}</span>`;
+    stream.appendChild(el); stream.scrollTop=stream.scrollHeight;
   }
 
   // ── Plan ───────────────────────────────────────────────────────────────────
   function renderSteps(steps) {
-    if (!steps || steps.length === 0) return;
-
-    // Reveal the plan section now that we have steps
-    document.getElementById('planSection').classList.remove('hidden');
+    if (!steps) return;
     const inner=document.getElementById('planInner');
     inner.innerHTML=''; stepCount=steps.length;
     steps.forEach((step,i)=>{
@@ -442,9 +339,71 @@
   }
 
   // ── Answer mode ────────────────────────────────────────────────────────────
-  function enterAnswerMode(question){
-    mode='answer'; addChatMsg(question,'agent',true);
-    setBtn(false); ta.placeholder='Type your answer...'; setAgent('waiting for you',true);
+  function enterAnswerMode(payload){
+    // payload can be a plain string (old) or { text, type } (new)
+    const question = typeof payload === 'string' ? payload : payload.text;
+    const qType    = typeof payload === 'object'  ? payload.type : 'text';
+
+    mode = 'answer';
+    setAgent('waiting for you', true);
+
+    if (qType === 'heal_choice') {
+      // FIX 4: Render heal/stop buttons instead of free-text input
+      showHealChoice(question);
+    } else {
+      addChatMsg(question, 'agent', true);
+      setBtn(false);
+      ta.placeholder = 'Type your answer...';
+    }
+  }
+
+  function showHealChoice(question) {
+    const msgs = document.getElementById('chatMessages');
+    const typing = document.getElementById('typingBubble');
+    if (typing) typing.remove();
+
+    const wrap = document.createElement('div');
+    wrap.className = 'flex flex-col gap-2 max-w-[85%]';
+
+    const bubble = document.createElement('div');
+    bubble.className = 'bg-amber-50 text-amber-900 border border-amber-200 text-sm px-3 py-2 rounded-xl rounded-bl-sm leading-relaxed';
+    bubble.textContent = question;
+    wrap.appendChild(bubble);
+
+    const btnRow = document.createElement('div');
+    btnRow.className = 'flex gap-2';
+    btnRow.id = 'healBtnRow';
+
+    const healBtn = document.createElement('button');
+    healBtn.className = 'px-4 py-2 text-xs font-medium bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition';
+    healBtn.textContent = 'Auto-heal';
+    healBtn.onclick = () => { sendAnswer('heal'); btnRow.remove(); };
+
+    const stopBtn = document.createElement('button');
+    stopBtn.className = 'px-4 py-2 text-xs font-medium border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 transition';
+    stopBtn.textContent = 'Stop';
+    stopBtn.onclick = () => { sendAnswer('stop'); btnRow.remove(); };
+
+    btnRow.appendChild(healBtn);
+    btnRow.appendChild(stopBtn);
+    wrap.appendChild(btnRow);
+
+    const time = document.createElement('div');
+    time.className = 'text-xs text-gray-300';
+    time.textContent = now();
+    wrap.appendChild(time);
+
+    msgs.appendChild(wrap);
+    msgs.scrollTop = msgs.scrollHeight;
+
+    // Keep send button disabled — user must click a button
+    setBtn(true);
+  }
+
+  function sendAnswer(val) {
+    addLog('You: ' + val, 'user');
+    ws.send(JSON.stringify({ type: 'answer', data: val }));
+    mode = 'running'; setBtn(true); setAgent('running', true);
   }
 
   // ── Report ─────────────────────────────────────────────────────────────────
@@ -551,11 +510,8 @@
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   function resetExecPanel(){
-    document.getElementById('logStream').innerHTML=
-      '<div id="logIdle" class="text-gray-300 text-xs font-mono py-2 text-center">— ready —</div>';
-
-    document.getElementById('planSection').classList.add('hidden');
-    document.getElementById('planInner').innerHTML='';
+    document.getElementById('logStream').innerHTML='';
+    document.getElementById('planInner').innerHTML='<p class="text-xs text-gray-300 py-2">Generating plan...</p>';
     document.getElementById('planCount').textContent='0 steps';
     document.getElementById('planCount').className='ml-auto text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-400';
     document.getElementById('reportBar').classList.add('hidden');
@@ -583,33 +539,15 @@
   // ── Agent state badge ──────────────────────────────────────────────────────
   const STATE_LABELS = {
     IDLE:              { label: 'ready',    color: 'bg-green-500' },
-    GATHERING_CONTEXT: { label: 'scanning', color: 'bg-amber-400 dot-busy' },
-    PLANNING:          { label: 'writing', color: 'bg-indigo-400 dot-busy' },
+    GATHERING_CONTEXT: { label: 'thinking', color: 'bg-amber-400 dot-busy' },
+    PLANNING:          { label: 'planning', color: 'bg-indigo-400 dot-busy' },
     EXECUTING:         { label: 'running',  color: 'bg-blue-400 dot-busy' },
   };
 
   function setAgentStateBadge(state) {
-    // 1. Get the label and color from your config
     const s = STATE_LABELS[state] || STATE_LABELS.IDLE;
-    
-    // 2. Update the badge text and dot (Your existing logic)
     document.getElementById('agentState').textContent = s.label;
     document.getElementById('statusDot').className = `w-2 h-2 rounded-full flex-shrink-0 ${s.color}`;
-
-    // 3. THE ADDITION: Handle Right Panel Visibility
-    const rightPanel = document.getElementById('rightPanelContainer'); 
-    
-    // We reveal the panel when the agent is PLANNING (creating steps) 
-    // or EXECUTING (running Playwright)
-    if (state === 'PLANNING' || state === 'EXECUTING') {
-      rightPanel.classList.add('visible');
-      
-      // Add a little pulse animation to the dot while busy
-      document.getElementById('statusDot').classList.add('animate-pulse');
-    } else {
-      // Stop the pulsing when IDLE or GATHERING_CONTEXT
-      document.getElementById('statusDot').classList.remove('animate-pulse');
-    }
   }
 
   // ── Intent classification feedback ─────────────────────────────────────────
@@ -628,14 +566,6 @@
     const b = document.getElementById('execBadge');
     b.className = `text-xs px-2 py-0.5 rounded-md font-medium bg-indigo-50 text-indigo-600`;
     b.textContent = intent.toLowerCase().replace('_', ' ');
-  }
-
-  function fillPrompt(text) {
-    const ta = document.getElementById('chatInput');
-    ta.value = text;
-    ta.focus();
-    // Trigger the height resize logic
-    ta.dispatchEvent(new Event('input'));
   }
 </script>
 </body>
