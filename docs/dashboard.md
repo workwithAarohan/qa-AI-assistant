@@ -21,11 +21,9 @@ The main screen after login showing stats and navigation.
 
 ## Behaviour
 - Accessible only after login
-- #new-project-btn navigates to /projects?new=1 (opens modal)
 - #view-projects-btn navigates to /projects
 - #logout-link navigates back to /testapp (login page)
 
 ## Test Scenarios
 - dashboard_loads: Login then verify dashboard heading and welcome message are visible
 - navigate_to_projects: Login then click view projects button — should reach projects page
-- new_project_shortcut: Login then click new project button — should open projects page with modal

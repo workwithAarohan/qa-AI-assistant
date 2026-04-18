@@ -8,8 +8,9 @@
     @keyframes bounce  { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-4px)} }
     @keyframes pulse   { 0%,100%{opacity:1} 50%{opacity:0.3} }
     @keyframes fadeIn  { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
-    @keyframes slideUp { from{transform:translateY(100%)} to{transform:translateY(0)} }
     @keyframes spin    { to{transform:rotate(360deg)} }
+    @keyframes slideUp { from{transform:translateY(100%)} to{transform:translateY(0)} }
+    @keyframes toast-in { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
     .typing-dot { animation:bounce 1s infinite; display:inline-block; }
     .typing-dot:nth-child(2){animation-delay:0.15s}
     .typing-dot:nth-child(3){animation-delay:0.30s}
@@ -24,13 +25,25 @@
     .msg-in   { animation:fadeIn 0.2s ease both }
     .log-phase { color:#6366f1; font-weight:600; letter-spacing:0.02em; border-top:1px solid #e0e7ff; margin-top:2px; padding-top:4px; }
     .spinner   { animation:spin 0.8s linear infinite; display:inline-block; }
-    /* Drawer */
     #reportDrawer { transform:translateY(100%); transition:transform 0.3s cubic-bezier(.4,0,.2,1); }
     #reportDrawer.open { transform:translateY(0); }
-    /* Tab active */
     .tab-btn.active { border-bottom:2px solid #6366f1; color:#6366f1; font-weight:600; }
-    /* Input disabled state */
     #chatInput:disabled { opacity:0.5; cursor:not-allowed; }
+    /* Scenario block — NO overflow-hidden so content isn't clipped */
+    .scenario-block { border:1px solid #e5e7eb; border-radius:10px; margin-bottom:8px; background:white; }
+    .scenario-header { width:100%; display:flex; align-items:center; gap:10px; padding:10px 14px; text-align:left; cursor:pointer; border:none; background:transparent; border-radius:10px; }
+    .scenario-header:hover { filter:brightness(0.97); }
+    .scenario-table { border-top:1px solid #f3f4f6; }
+    .scenario-table-row { display:flex; align-items:center; gap:10px; padding:7px 14px; font-size:11px; border-bottom:1px solid #f9fafb; }
+    .scenario-table-row:last-child { border-bottom:none; }
+    .scenario-heal { border-top:1px solid #fde68a; padding:10px 14px; background:#fffbeb; border-radius:0 0 10px 10px; }
+    /* Toast */
+    .toast { position:fixed; bottom:24px; right:24px; z-index:9999; background:#1f2937; color:white; padding:10px 16px; border-radius:10px; font-size:13px; font-weight:500; animation:toast-in 0.2s ease both; pointer-events:none; }
+    /* History panel */
+    #historyPanel { display:none; }
+    #historyPanel.open { display:flex; }
+    /* Kbd shortcut */
+    kbd { display:inline-block; padding:1px 5px; background:#f3f4f6; border:1px solid #d1d5db; border-radius:4px; font-size:10px; font-family:monospace; color:#6b7280; }
   </style>
 </head>
 <body class="bg-gray-100 h-screen flex items-center justify-center p-4 overflow-hidden">
@@ -44,12 +57,16 @@
       <div class="text-sm font-medium text-gray-700">QA Agent</div>
       <div id="statusDot" class="w-2 h-2 rounded-full bg-green-500 ml-auto flex-shrink-0"></div>
       <div id="agentState" class="text-xs text-gray-400">ready</div>
+      <!-- History button -->
+      <button onclick="toggleHistory()" title="Test history" class="ml-1 w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 transition text-gray-400 hover:text-gray-600 flex-shrink-0">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" stroke="currentColor" stroke-width="1.3"/><path d="M7 4v3.5l2 1.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+      </button>
     </div>
 
     <div id="chatMessages" class="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-3 min-h-0">
       <div class="flex flex-col gap-1 max-w-[85%] msg-in">
         <div class="bg-gray-100 text-gray-700 text-sm px-3 py-2 rounded-xl rounded-bl-sm leading-relaxed">
-          Hi! I can test your web app. Try "test login", ask "tell me about dashboard", or pick a module below.
+          Hi! I can test your web app. Try "test login", ask "tell me about dashboard", or pick a module below. <span class="text-gray-400 text-xs">(<kbd>⌘↵</kbd> to send)</span>
         </div>
         <div class="text-xs text-gray-300">now</div>
       </div>
@@ -141,24 +158,50 @@
   </div>
 </div>
 
+<!-- ── History Panel ─────────────────────────────────────────────────────── -->
+<div id="historyBackdrop" class="hidden fixed inset-0 z-40" style="background:rgba(0,0,0,0.2)" onclick="toggleHistory()"></div>
+<div id="historyPanel" class="fixed top-0 left-0 bottom-0 z-50 bg-white flex-col shadow-2xl" style="width:300px;border-right:1px solid #e5e7eb;">
+  <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+    <span class="text-sm font-semibold text-gray-800">Test History</span>
+    <button onclick="toggleHistory()" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+  </div>
+  <div id="historyList" class="flex-1 overflow-y-auto p-3 flex flex-col gap-2">
+    <p class="text-xs text-gray-400 text-center py-4">No runs yet</p>
+  </div>
+  <div class="px-3 pb-3">
+    <button onclick="clearHistory()" class="w-full text-xs text-gray-400 hover:text-red-500 transition py-1">Clear history</button>
+  </div>
+</div>
+
 <!-- ── Report Drawer ─────────────────────────────────────────────────────── -->
 <div id="drawerBackdrop" class="hidden fixed inset-0 z-40" style="background:rgba(0,0,0,0.3)" onclick="closeDrawer()"></div>
 
-<div id="reportDrawer" class="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl shadow-2xl" style="max-height:75vh;display:flex;flex-direction:column;">
-  <!-- Drawer handle -->
+<div id="reportDrawer" class="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl shadow-2xl" style="max-height:80vh;display:flex;flex-direction:column;">
+  <!-- Drawer header -->
   <div class="flex-shrink-0 flex items-center justify-between px-6 py-4 border-b border-gray-100">
     <div class="flex items-center gap-3">
       <div id="drawerStatusDot" class="w-2.5 h-2.5 rounded-full bg-gray-300"></div>
       <span id="drawerTitle" class="text-sm font-semibold text-gray-800">Test Report</span>
       <span id="drawerPassRate" class="hidden text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 font-medium"></span>
     </div>
-    <button onclick="closeDrawer()" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+    <div class="flex items-center gap-2">
+      <!-- Export button -->
+      <button onclick="exportReport()" title="Export JSON report" class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 transition">
+        <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M5.5 1v6M2.5 5l3 3 3-3M1 9.5h9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Export
+      </button>
+      <button onclick="copyReportSummary()" title="Copy summary" class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 transition">
+        <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><rect x="1" y="3" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M3 3V2a1 1 0 011-1h5a1 1 0 011 1v5a1 1 0 01-1 1H9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        Copy
+      </button>
+      <button onclick="closeDrawer()" class="text-gray-400 hover:text-gray-600 text-xl leading-none ml-1">&times;</button>
+    </div>
   </div>
 
   <!-- Pass rate bar -->
   <div id="drawerRateBar" class="hidden flex-shrink-0 px-6 py-2 border-b border-gray-100">
     <div class="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
-      <div id="drawerRateFill" class="h-full rounded-full transition-all" style="width:0%"></div>
+      <div id="drawerRateFill" class="h-full rounded-full transition-all duration-700" style="width:0%"></div>
     </div>
   </div>
 
@@ -171,8 +214,8 @@
     <button class="tab-btn py-2.5 text-xs text-gray-400" data-tab="healed" onclick="switchTab('healed')">Healed</button>
   </div>
 
-  <!-- Drawer content -->
-  <div id="drawerContent" class="overflow-y-auto flex-1 px-6 py-4 flex flex-col gap-2"></div>
+  <!-- ── FIXED: drawer content with min-height:0 and explicit overflow ── -->
+  <div id="drawerContent" class="px-6 py-4 flex flex-col gap-2" style="overflow-y:auto;flex:1;min-height:0;"></div>
 </div>
 
 <script>
@@ -181,10 +224,14 @@
   let allScenarioData = [];
   let currentTab = 'all';
   let drawerOpen = false;
+  let lastReportData = null;
+  let testHistory = JSON.parse(localStorage.getItem('qa_history') || '[]');
 
   const ta = document.getElementById('chatInput');
   ta.addEventListener('input', () => { ta.style.height='auto'; ta.style.height=Math.min(ta.scrollHeight,80)+'px'; });
-  ta.addEventListener('keydown', e => { if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();handleSend();} });
+  ta.addEventListener('keydown', e => {
+    if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
+  });
 
   // ── WebSocket ──────────────────────────────────────────────────────────────
   ws.onmessage = (event) => {
@@ -215,7 +262,6 @@
       ws.send(JSON.stringify({type:'answer',data:val}));
       mode='running'; lockInput(true); setAgent('running',true);
     } else if (mode==='confirm') {
-      // In confirm mode, free text treated as cancel/skip
       addChatMsg(val,'user');
       ws.send(JSON.stringify({type:'answer',data:val}));
       mode='running'; lockInput(false); setAgent('running',true);
@@ -230,7 +276,6 @@
     }
   }
 
-  // FIX 3: Lock input field during confirm/running modes
   function lockInput(locked) {
     ta.disabled = locked;
     document.getElementById('sendBtn').disabled = locked;
@@ -263,12 +308,10 @@
     const msgs = document.getElementById('chatMessages');
     const wrap = document.createElement('div');
     wrap.className = 'flex flex-col gap-2 max-w-[90%] msg-in';
-
     const bubble = document.createElement('div');
     bubble.className = 'bg-gray-100 text-gray-700 text-sm px-3 py-2 rounded-xl rounded-bl-sm leading-relaxed';
     bubble.textContent = `I found ${scenarios.length} scenario${scenarios.length>1?'s':''} for "${mod}":`;
     wrap.appendChild(bubble);
-
     const list = document.createElement('div');
     list.className = 'flex flex-col gap-1.5 pl-1';
     scenarios.forEach((s, i) => {
@@ -278,7 +321,6 @@
       list.appendChild(row);
     });
     wrap.appendChild(list);
-
     const btnRow = document.createElement('div');
     btnRow.className = 'flex gap-2 flex-wrap';
     const allBtn = document.createElement('button');
@@ -289,7 +331,7 @@
     scenarios.forEach((s, i) => {
       const btn = document.createElement('button');
       btn.className = 'px-3 py-1.5 text-xs font-medium border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 transition';
-      btn.textContent = `Run ${i+1} only`;
+      btn.textContent = `Run ${i + 1} only`;
       btn.addEventListener('click', () => { sendChoice(String(i+1)); btnRow.remove(); });
       btnRow.appendChild(btn);
     });
@@ -348,7 +390,6 @@
   function onScenarioStart(scenario) {
     const lbl = document.getElementById('scenarioLabel');
     lbl.textContent = scenario.name; lbl.classList.remove('hidden');
-    // FIX 3: Reset plan inner to show scenario name + spinner for new scenario
     document.getElementById('planSection').classList.remove('hidden');
     document.getElementById('planSpinner').classList.remove('hidden');
     const inner = document.getElementById('planInner');
@@ -446,7 +487,6 @@
     const qType    = typeof payload==='object'  ? payload.type : 'text';
     const meta     = typeof payload==='object'  ? payload.meta : null;
     setAgent('waiting for you',true);
-
     if (qType==='confirm_run')  showConfirmRun(question, meta);
     else if (qType==='heal_choice') showHealChoice(question, meta);
     else {
@@ -457,30 +497,23 @@
     }
   }
 
-  // FIX 2: Confirm dialog — no ID shown, plan already rendered above
   function showConfirmRun(question, meta) {
     removeTyping();
     mode='confirm';
-    lockInput(true); // FIX 3: lock input — use the buttons
+    lockInput(true);
     const msgs=document.getElementById('chatMessages');
     const wrap=document.createElement('div');
     wrap.className='flex flex-col gap-2 max-w-[85%] msg-in';
-
     const bubble=document.createElement('div');
     bubble.className='bg-indigo-50 border border-indigo-100 rounded-xl rounded-bl-sm px-3 py-2.5';
-
     const title=document.createElement('div');
     title.className='font-semibold text-indigo-700 text-sm mb-1 flex items-center gap-2';
     title.innerHTML=`<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="5" stroke="#6366f1" stroke-width="1.5"/><path d="M4 6l1.5 1.5L8 4" stroke="#6366f1" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Ready to run`;
     bubble.appendChild(title);
-
-    // Scenario name (human-readable, no ID)
     const scenName = document.createElement('div');
     scenName.className = 'text-xs text-indigo-600 font-medium mb-1';
     scenName.textContent = meta?.scenarioName || question.split('\n')[0].replace('Ready to run: ','');
     bubble.appendChild(scenName);
-
-    // Step preview (already clean from server)
     const steps = question.split('\n').slice(2).filter(Boolean);
     if (steps.length) {
       const pre=document.createElement('pre');
@@ -488,29 +521,23 @@
       pre.textContent=steps.join('\n');
       bubble.appendChild(pre);
     }
-
     if (meta?.totalSteps) {
       const hint = document.createElement('div');
       hint.className = 'text-xs text-indigo-400 mt-1';
       hint.textContent = `${meta.totalSteps} total steps · take your time`;
       bubble.appendChild(hint);
     }
-
     wrap.appendChild(bubble);
-
     const btnRow=document.createElement('div');
     btnRow.className='flex gap-2';
-
     const runBtn=document.createElement('button');
     runBtn.className='px-4 py-2 text-xs font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition flex items-center gap-1.5';
     runBtn.innerHTML=`<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M3 2l5 3-5 3V2z" fill="white"/></svg>Run test`;
     runBtn.addEventListener('click', () => { addChatMsg('Run test','user'); sendAnswer('yes'); btnRow.remove(); });
-
     const skipBtn=document.createElement('button');
     skipBtn.className='px-4 py-2 text-xs font-medium border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 transition';
     skipBtn.textContent='Skip';
     skipBtn.addEventListener('click', () => { addChatMsg('Skip','user'); sendAnswer('skip'); btnRow.remove(); });
-
     btnRow.appendChild(runBtn); btnRow.appendChild(skipBtn);
     wrap.appendChild(btnRow);
     addTime(wrap);
@@ -519,37 +546,31 @@
 
   function showHealChoice(errorMsg, meta) {
     removeTyping();
-    lockInput(true); // FIX 3: lock during heal choice too
+    lockInput(true);
     const msgs=document.getElementById('chatMessages');
     const wrap=document.createElement('div');
     wrap.className='flex flex-col gap-2 max-w-[85%] msg-in';
-
     const bubble=document.createElement('div');
     bubble.className='bg-red-50 border border-red-200 rounded-xl rounded-bl-sm px-3 py-2.5';
-
     const title=document.createElement('div');
     title.className='font-semibold text-red-700 text-xs uppercase tracking-wide mb-1 flex items-center gap-1.5';
     title.innerHTML=`<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><circle cx="5" cy="5" r="4" stroke="#ef4444" stroke-width="1.5"/><path d="M5 3v2.5M5 7h.01" stroke="#ef4444" stroke-width="1.5" stroke-linecap="round"/></svg>Step failed`;
     bubble.appendChild(title);
-
     const errText=document.createElement('div');
     errText.className='text-red-700 text-xs font-mono bg-red-100 rounded px-2 py-1.5 mt-1 break-all';
     errText.textContent=errorMsg;
     bubble.appendChild(errText);
-
     if (meta?.failedStep) {
       const stepInfo=document.createElement('div');
       stepInfo.className='text-red-500 text-xs mt-1';
       stepInfo.textContent=`Failed at: ${meta.failedStep.action} ${meta.failedStep.selector||meta.failedStep.value||''}`;
       bubble.appendChild(stepInfo);
     }
-
     const healHint=document.createElement('div');
     healHint.className='text-amber-700 text-xs mt-2 bg-amber-50 border border-amber-200 rounded px-2 py-1.5';
     healHint.innerHTML='<strong>Auto-heal</strong> captures the current DOM and asks Gemini to regenerate corrected steps.';
     bubble.appendChild(healHint);
     wrap.appendChild(bubble);
-
     const btnRow=document.createElement('div');
     btnRow.className='flex gap-2';
     const healBtn=document.createElement('button');
@@ -573,6 +594,7 @@
 
   // ── Report ─────────────────────────────────────────────────────────────────
   function showReport(data) {
+    lastReportData = data;
     const s=data.summary||{};
     const total  = s.total  ?? 1;
     const passed = s.passed ?? (data.status==='success'?1:0);
@@ -592,8 +614,10 @@
     document.getElementById('scenarioLabel').classList.add('hidden');
     allScenarioData = data.scenarios || [];
 
-    // Pre-build drawer content
     buildDrawerContent(data);
+
+    // Save to history
+    saveToHistory(data);
 
     const isReg = data.type==='regression';
     const msg = data.status==='success'
@@ -603,7 +627,9 @@
     resetInput();
   }
 
-  // ── Drawer ─────────────────────────────────────────────────────────────────
+  // ── ═══════════════════════════════════════════════════════════════════════
+  // FIXED Drawer — buildDrawerContent & buildScenarioBlock
+  // ══════════════════════════════════════════════════════════════════════════
   let drawerSummary = {};
 
   function buildDrawerContent(data) {
@@ -611,11 +637,9 @@
     drawerSummary = { ...s, status: data.status, type: data.type };
     const scenarios = data.scenarios || [];
 
-    // Header
     document.getElementById('drawerStatusDot').className = 'w-2.5 h-2.5 rounded-full ' + (s.passed === s.total ? 'bg-green-500' : s.failed > 0 ? 'bg-red-500' : 'bg-amber-500');
     document.getElementById('drawerTitle').textContent = data.type==='regression' ? 'Regression Report' : 'Test Report';
 
-    // Pass rate
     const pct = s.total > 0 ? Math.round((s.passed/s.total)*100) : 0;
     if (s.total > 1) {
       document.getElementById('drawerPassRate').textContent = pct+'% passed';
@@ -623,11 +647,9 @@
       document.getElementById('drawerRateBar').classList.remove('hidden');
       const fill = document.getElementById('drawerRateFill');
       fill.style.width = pct+'%';
-      fill.className = `h-full rounded-full transition-all ${pct===100?'bg-green-500':pct>=50?'bg-amber-400':'bg-red-500'}`;
+      fill.className = `h-full rounded-full transition-all duration-700 ${pct===100?'bg-green-500':pct>=50?'bg-amber-400':'bg-red-500'}`;
     }
 
-    // Update tab counts
-    // FIX 2: "passed" = succeeded WITHOUT healing; "healed" = succeeded WITH healing
     const tabCounts = {
       all: scenarios.length,
       passed:  scenarios.filter(r => r.result?.status==='success' && !r.healCount).length,
@@ -655,17 +677,19 @@
     content.innerHTML = '';
 
     let items = allScenarioData;
-    if (tab === 'passed')  items = allScenarioData.filter(r => r.result?.status === 'success' && !r.healCount); // FIX 2: exclude healed
+    if (tab === 'passed')  items = allScenarioData.filter(r => r.result?.status === 'success' && !r.healCount);
     if (tab === 'failed')  items = allScenarioData.filter(r => r.result?.status === 'failed');
     if (tab === 'skipped') items = allScenarioData.filter(r => r.result?.status === 'skipped');
     if (tab === 'healed')  items = allScenarioData.filter(r => r.healCount > 0);
 
     if (!items.length) {
-      content.innerHTML = `<p class="text-sm text-gray-400 text-center py-8">No ${tab === 'all' ? '' : tab + ' '}scenarios</p>`;
+      const empty = document.createElement('p');
+      empty.className = 'text-sm text-gray-400 text-center py-8';
+      empty.textContent = `No ${tab === 'all' ? '' : tab + ' '}scenarios`;
+      content.appendChild(empty);
       return;
     }
 
-    // Group by module when regression or multiple modules
     const hasMultipleModules = new Set(items.map(r => r.scenario?.module)).size > 1;
 
     if (hasMultipleModules) {
@@ -673,7 +697,7 @@
       items.forEach(r => { const m = r.scenario?.module||'general'; (byModule[m]=byModule[m]||[]).push(r); });
       Object.entries(byModule).forEach(([mod, modItems]) => {
         const header = document.createElement('div');
-        header.className = 'text-xs font-bold uppercase tracking-widest text-indigo-500 mt-3 mb-1 first:mt-0';
+        header.style.cssText = 'font-size:11px;font-weight:700;letter-spacing:0.08em;color:#6366f1;text-transform:uppercase;margin-top:12px;margin-bottom:6px;';
         header.textContent = mod;
         content.appendChild(header);
         modItems.forEach(r => content.appendChild(buildScenarioBlock(r)));
@@ -683,103 +707,146 @@
     }
   }
 
+  // ── FIXED buildScenarioBlock ───────────────────────────────────────────────
+  // Key fixes:
+  // 1. Uses plain CSS classes (scenario-block etc) instead of Tailwind overflow-hidden
+  //    which was collapsing the button height
+  // 2. Appends header → table → healSection in correct DOM order
+  // 3. Toggle collapse via JS closure (no DOM query needed for table)
   function buildScenarioBlock({ scenario, result, healCount=0, healMeta=null }) {
     const status  = result?.status;
     const passed  = status === 'success';
     const skipped = status === 'skipped';
     const steps   = result?.results || [];
 
+    const bgColor   = passed ? '#f0fdf4' : skipped ? '#f9fafb' : '#fef2f2';
+    const dotColor  = passed ? '#22c55e' : skipped ? '#9ca3af' : '#ef4444';
+    const textColor = passed ? '#166534' : skipped ? '#4b5563' : '#991b1b';
+    const badgeColor= passed ? '#16a34a' : skipped ? '#6b7280' : '#dc2626';
+    const badgeText = passed ? 'PASS'    : skipped ? 'SKIP'   : 'FAIL';
+
+    // ── block: no overflow:hidden — that was collapsing button height ──────
     const block = document.createElement('div');
-    block.className = 'border border-gray-100 rounded-xl overflow-hidden mb-2';
+    block.className = 'scenario-block';
 
-    const bgClass    = passed?'bg-green-50':skipped?'bg-gray-50':'bg-red-50';
-    const dotClass   = passed?'bg-green-500':skipped?'bg-gray-400':'bg-red-500';
-    const textClass  = passed?'text-green-800':skipped?'text-gray-600':'text-red-800';
-    const badgeColor = passed?'text-green-600':skipped?'text-gray-500':'text-red-600';
-    const badgeText  = passed?'PASS':skipped?'SKIP':'FAIL';
+    // ── header button ──────────────────────────────────────────────────────
+    const header = document.createElement('div');
+    header.className = 'scenario-header';
+    header.style.background = bgColor;
+    header.style.borderRadius = steps.length > 0 ? '10px 10px 0 0' : '10px';
 
-    // Collapsible header
-    const header = document.createElement('button');
-    header.className = `w-full flex items-center gap-3 px-4 py-2.5 ${bgClass} text-left`;
-    header.innerHTML = `
-      <div class="w-2 h-2 rounded-full flex-shrink-0 ${dotClass}"></div>
-      <span class="text-sm font-semibold flex-1 ${textClass}">${esc(scenario?.name||'Scenario')}</span>
-      ${healCount>0?`<span class="text-xs text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">${healCount} healed</span>`:''}
-      <span class="text-xs font-bold ${badgeColor}">${badgeText}</span>
-      <svg class="step-chevron ml-1" width="10" height="10" viewBox="0 0 10 10" style="transform:rotate(90deg);transition:transform 0.2s"><path d="M3 2L7 5L3 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" fill="none"/></svg>`;
+    const dot = document.createElement('div');
+    dot.style.cssText = `width:8px;height:8px;border-radius:50%;background:${dotColor};flex-shrink:0;`;
+
+    const nameSpan = document.createElement('span');
+    nameSpan.style.cssText = `font-size:13px;font-weight:600;flex:1;color:${textColor};`;
+    nameSpan.textContent = scenario?.name || 'Scenario';
+
+    const badgeSpan = document.createElement('span');
+    badgeSpan.style.cssText = `font-size:10px;font-weight:700;color:${badgeColor};`;
+    badgeSpan.textContent = badgeText;
+
+    const chevron = document.createElement('span');
+    chevron.style.cssText = 'display:inline-block;transition:transform 0.2s;transform:rotate(90deg);margin-left:4px;color:#9ca3af;font-size:10px;';
+    chevron.textContent = '›';
+
+    header.appendChild(dot);
+    header.appendChild(nameSpan);
+
+    if (healCount > 0) {
+      const healBadge = document.createElement('span');
+      healBadge.style.cssText = 'font-size:10px;color:#d97706;background:#fef3c7;border:1px solid #fde68a;padding:2px 7px;border-radius:20px;';
+      healBadge.textContent = `${healCount} healed`;
+      header.appendChild(healBadge);
+    }
+
+    if (skipped) {
+      const skipBadge = document.createElement('span');
+      skipBadge.style.cssText = 'font-size:10px;color:#6b7280;background:#f3f4f6;padding:2px 7px;border-radius:20px;';
+      skipBadge.textContent = 'No plan cached';
+      header.appendChild(skipBadge);
+    }
+
+    header.appendChild(badgeSpan);
 
     if (steps.length > 0) {
+      header.appendChild(chevron);
+    }
+
+    // ── CORRECT append order: header first, always ─────────────────────────
+    block.appendChild(header);
+
+    if (steps.length > 0) {
+      // ── step table ───────────────────────────────────────────────────────
       const table = document.createElement('div');
-      table.className = 'divide-y divide-gray-50';
+      table.className = 'scenario-table';
+
       steps.forEach((r, i) => {
-        const ok = r.status==='success';
+        const ok = r.status === 'success';
         const row = document.createElement('div');
-        row.className = 'flex items-center gap-3 px-4 py-2 text-xs hover:bg-gray-50 transition';
+        row.className = 'scenario-table-row';
         row.innerHTML = `
-          <span class="text-gray-400 w-5 text-right font-mono">${i+1}</span>
-          <div class="w-1.5 h-1.5 rounded-full flex-shrink-0 ${ok?'bg-green-400':'bg-red-400'}"></div>
-          <span class="font-mono font-medium text-gray-600 w-20 flex-shrink-0">${esc(r.step?.action||'')}</span>
-          <span class="font-mono text-gray-400 flex-1 truncate">${esc(r.step?.selector||r.step?.value||'')}</span>
-          <span class="font-semibold ${ok?'text-green-500':'text-red-500'}">${ok?'pass':'fail'}</span>`;
+          <span style="color:#d1d5db;width:18px;text-align:right;font-family:monospace;">${i+1}</span>
+          <div style="width:6px;height:6px;border-radius:50%;background:${ok?'#4ade80':'#f87171'};flex-shrink:0;"></div>
+          <span style="font-family:monospace;font-weight:600;color:#6b7280;width:72px;flex-shrink:0;">${esc(r.step?.action||'')}</span>
+          <span style="font-family:monospace;color:#9ca3af;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(r.step?.selector||r.step?.value||'')}</span>
+          <span style="font-weight:700;font-size:10px;color:${ok?'#16a34a':'#dc2626'};">${ok?'pass':'fail'}</span>`;
         table.appendChild(row);
+
         if (!ok && r.error) {
           const errRow = document.createElement('div');
-          errRow.className = 'px-4 pb-2 text-xs text-red-400 font-mono bg-red-50 break-all';
+          errRow.style.cssText = 'padding:4px 14px 8px;font-size:10px;font-family:monospace;color:#ef4444;background:#fff5f5;word-break:break-all;';
           errRow.textContent = r.error;
           table.appendChild(errRow);
         }
       });
 
-      // ── FIX 2c: Heal detail section ──────────────────────────────────
+      // ── append table AFTER header ─────────────────────────────────────
+      block.appendChild(table);
+
+      // ── heal section AFTER table ──────────────────────────────────────
       if (healCount > 0 && healMeta) {
         const healSection = document.createElement('div');
-        healSection.className = 'bg-amber-50 border-t border-amber-100 px-4 py-2.5';
+        healSection.className = 'scenario-heal';
 
         const healTitle = document.createElement('div');
-        healTitle.className = 'text-xs font-semibold text-amber-700 mb-1.5 flex items-center gap-1.5';
-        healTitle.innerHTML = `<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M5 1a4 4 0 100 8A4 4 0 005 1" stroke="#d97706" stroke-width="1.2" stroke-linecap="round"/></svg>Auto-heal applied`;
+        healTitle.style.cssText = 'font-size:11px;font-weight:600;color:#d97706;margin-bottom:6px;';
+        healTitle.textContent = '✦ Auto-heal applied';
         healSection.appendChild(healTitle);
 
         if (healMeta.failedStep) {
-          const failedRow = document.createElement('div');
-          failedRow.className = 'flex items-start gap-2 text-xs mb-1';
-          failedRow.innerHTML = `<span class="text-red-500 font-medium w-16 flex-shrink-0">Failed:</span>
-            <span class="font-mono text-red-600 bg-red-50 rounded px-1.5 py-0.5 break-all">${esc(healMeta.failedStep.action)} ${esc(healMeta.failedStep.selector||healMeta.failedStep.value||'')}</span>`;
-          healSection.appendChild(failedRow);
+          const r = document.createElement('div');
+          r.style.cssText = 'display:flex;gap:8px;font-size:10px;margin-bottom:4px;';
+          r.innerHTML = `<span style="color:#ef4444;font-weight:600;width:44px;flex-shrink:0;">Failed</span><span style="font-family:monospace;color:#dc2626;">${esc(healMeta.failedStep.action)} ${esc(healMeta.failedStep.selector||healMeta.failedStep.value||'')}</span>`;
+          healSection.appendChild(r);
         }
-
         if (healMeta.originalError) {
-          const errRow = document.createElement('div');
-          errRow.className = 'flex items-start gap-2 text-xs mb-1';
-          errRow.innerHTML = `<span class="text-red-400 font-medium w-16 flex-shrink-0">Error:</span>
-            <span class="font-mono text-red-500 break-all">${esc(healMeta.originalError)}</span>`;
-          healSection.appendChild(errRow);
+          const r = document.createElement('div');
+          r.style.cssText = 'display:flex;gap:8px;font-size:10px;margin-bottom:4px;';
+          r.innerHTML = `<span style="color:#f87171;font-weight:600;width:44px;flex-shrink:0;">Error</span><span style="font-family:monospace;color:#f87171;word-break:break-all;">${esc(healMeta.originalError)}</span>`;
+          healSection.appendChild(r);
         }
-
         if (healMeta.fixedStep) {
-          const fixedRow = document.createElement('div');
-          fixedRow.className = 'flex items-start gap-2 text-xs mt-1';
-          fixedRow.innerHTML = `<span class="text-green-600 font-medium w-16 flex-shrink-0">Fixed:</span>
-            <span class="font-mono text-green-700 bg-green-50 rounded px-1.5 py-0.5 break-all">${esc(healMeta.fixedStep.action)} ${esc(healMeta.fixedStep.selector||healMeta.fixedStep.value||'')}</span>`;
-          healSection.appendChild(fixedRow);
+          const r = document.createElement('div');
+          r.style.cssText = 'display:flex;gap:8px;font-size:10px;';
+          r.innerHTML = `<span style="color:#16a34a;font-weight:600;width:44px;flex-shrink:0;">Fixed</span><span style="font-family:monospace;color:#15803d;">${esc(healMeta.fixedStep.action)} ${esc(healMeta.fixedStep.selector||healMeta.fixedStep.value||'')}</span>`;
+          healSection.appendChild(r);
         }
 
         block.appendChild(healSection);
       }
 
-      // Toggle collapse
+      // ── collapse toggle (closure over table & healSection via block query) ──
       let expanded = true;
+      header.style.cursor = 'pointer';
       header.addEventListener('click', () => {
         expanded = !expanded;
         table.style.display = expanded ? '' : 'none';
-        if (healCount > 0 && healMeta) block.querySelector('.bg-amber-50').style.display = expanded ? '' : 'none';
-        header.querySelector('.step-chevron').style.transform = expanded ? 'rotate(90deg)' : 'rotate(0deg)';
+        const hs = block.querySelector('.scenario-heal');
+        if (hs) hs.style.display = expanded ? '' : 'none';
+        chevron.style.transform = expanded ? 'rotate(90deg)' : 'rotate(0deg)';
+        header.style.borderRadius = expanded ? '10px 10px 0 0' : '10px';
       });
-
-      block.appendChild(header);
-      block.appendChild(table);
-    } else {
-      block.appendChild(header);
     }
 
     return block;
@@ -799,6 +866,120 @@
     document.getElementById('reportDrawer').classList.remove('open');
     document.getElementById('drawerBackdrop').classList.add('hidden');
     drawerOpen = false;
+  }
+
+  // ── Export report ──────────────────────────────────────────────────────────
+  function exportReport() {
+    if (!lastReportData) return;
+    const ts = new Date().toISOString().replace(/[:.]/g,'-').slice(0,19);
+    const blob = new Blob([JSON.stringify(lastReportData, null, 2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `qa-report-${ts}.json`;
+    a.click(); URL.revokeObjectURL(url);
+    showToast('Report exported');
+  }
+
+  function copyReportSummary() {
+    if (!lastReportData) return;
+    const s = lastReportData.summary || {};
+    const pct = s.total > 0 ? Math.round((s.passed/s.total)*100) : 0;
+    const type = lastReportData.type === 'regression' ? 'Regression' : 'Test';
+    const lines = [
+      `${type} Report — ${new Date().toLocaleString()}`,
+      `Pass rate: ${pct}% (${s.passed}/${s.total})`,
+      `Passed: ${s.passed} | Failed: ${s.failed} | Skipped: ${s.skipped} | Healed: ${s.healed}`,
+      '',
+      ...(lastReportData.scenarios||[]).map(r => {
+        const icon = r.result?.status==='success'?'✓':r.result?.status==='skipped'?'○':'✗';
+        return `${icon} ${r.scenario?.name} (${r.scenario?.module})`;
+      })
+    ];
+    navigator.clipboard.writeText(lines.join('\n'));
+    showToast('Summary copied to clipboard');
+  }
+
+  // ── Toast ──────────────────────────────────────────────────────────────────
+  function showToast(msg) {
+    const t = document.createElement('div');
+    t.className = 'toast';
+    t.textContent = msg;
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 2500);
+  }
+
+  // ── History ────────────────────────────────────────────────────────────────
+  function saveToHistory(data) {
+    const entry = {
+      id: Date.now(),
+      ts: new Date().toLocaleString(),
+      type: data.type || 'single',
+      status: data.status,
+      summary: data.summary,
+      data,
+    };
+    testHistory.unshift(entry);
+    if (testHistory.length > 20) testHistory = testHistory.slice(0, 20);
+    try { localStorage.setItem('qa_history', JSON.stringify(testHistory)); } catch {}
+    renderHistory();
+  }
+
+  function renderHistory() {
+    const list = document.getElementById('historyList');
+    list.innerHTML = '';
+    if (!testHistory.length) {
+      list.innerHTML = '<p class="text-xs text-gray-400 text-center py-4">No runs yet</p>';
+      return;
+    }
+    testHistory.forEach(entry => {
+      const s = entry.summary || {};
+      const pct = s.total > 0 ? Math.round((s.passed/s.total)*100) : 0;
+      const color = entry.status === 'success' ? 'text-green-600' : 'text-red-500';
+      const dot   = entry.status === 'success' ? 'bg-green-500'  : 'bg-red-500';
+      const card = document.createElement('div');
+      card.className = 'border border-gray-100 rounded-lg p-3 cursor-pointer hover:bg-gray-50 transition';
+      card.innerHTML = `
+        <div class="flex items-center gap-2 mb-1">
+          <div class="w-2 h-2 rounded-full ${dot} flex-shrink-0"></div>
+          <span class="text-xs font-medium text-gray-700 flex-1">${entry.type === 'regression' ? 'Regression' : 'Module test'}</span>
+          <span class="text-xs ${color} font-bold">${pct}%</span>
+        </div>
+        <div class="text-xs text-gray-400 mb-1.5">${entry.ts}</div>
+        <div class="flex gap-2 text-xs">
+          <span class="text-green-600 font-medium">${s.passed||0} pass</span>
+          <span class="text-red-500 font-medium">${s.failed||0} fail</span>
+          ${s.skipped ? `<span class="text-gray-400">${s.skipped} skip</span>` : ''}
+          ${s.healed  ? `<span class="text-amber-500">${s.healed} healed</span>` : ''}
+        </div>`;
+      card.addEventListener('click', () => {
+        allScenarioData = entry.data.scenarios || [];
+        lastReportData = entry.data;
+        buildDrawerContent(entry.data);
+        toggleHistory();
+        openDrawer('all');
+      });
+      list.appendChild(card);
+    });
+  }
+
+  function toggleHistory() {
+    const panel = document.getElementById('historyPanel');
+    const backdrop = document.getElementById('historyBackdrop');
+    const open = panel.classList.contains('open');
+    if (open) {
+      panel.classList.remove('open');
+      backdrop.classList.add('hidden');
+    } else {
+      renderHistory();
+      panel.classList.add('open');
+      backdrop.classList.remove('hidden');
+    }
+  }
+
+  function clearHistory() {
+    testHistory = [];
+    try { localStorage.removeItem('qa_history'); } catch {}
+    renderHistory();
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────────
@@ -841,6 +1022,9 @@
     document.getElementById('agentState').textContent=s.label;
     document.getElementById('statusDot').className=`w-2 h-2 rounded-full flex-shrink-0 ${s.dot}`;
   }
+
+  // ── Init ───────────────────────────────────────────────────────────────────
+  renderHistory();
 </script>
 </body>
 </html>

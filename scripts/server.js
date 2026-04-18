@@ -264,7 +264,16 @@ async function runScenarios(ws, toRun, getPlan, userInput, baseUrl, browserInsta
     const s = toRun[i];
     const plan = typeof getPlan === 'function' ? getPlan(s) : getPlan.find(r => r.scenario.id === s.id)?.cached;
 
-    if (!plan) { log(ws, `No plan for "${s.name}" — skipping`, 'warn'); continue; }
+    if (!plan) { 
+      log(ws, `No plan for "${s.name}" — skipping`, 'warn'); 
+      scenarioResults.push({
+        scenario: s,
+        result: { status: 'skipped', results: [] },
+        healCount: 0,
+        healMeta: null,
+      });
+      continue; 
+    }
 
     phase(ws, `── Scenario ${i+1}/${toRun.length}: ${s.name} ──`);
     log(ws, s.description, 'info');
@@ -361,14 +370,28 @@ async function orchestrate(ws, userInput) {
       }
       send(ws, 'regression_plan', { modules: allDocs.map(d => ({ name: d.name, scenarios: allScenarios.filter(s => s.module === d.name) })), total: allScenarios.length });
       const choice = await waitForAnswer(ws);
-      if (!/yes|run|ok|confirm|go|start|all/i.test(choice)) { send(ws, 'agent_message', 'Regression cancelled.'); sendState(ws, STATE.IDLE); return; }
+      if (!/yes|run|ok|confirm|go|start|all/i.test(choice)) { 
+        phase(ws, '── Regression cancelled ──');
+        log(ws, 'Regression test suite was cancelled by user.', 'warn'); 
+        send(ws, 'agent_message', 'Regression cancelled. Let me know when you want to run it.'); 
+        sendState(ws, STATE.IDLE); return; 
+      }
       sendState(ws, STATE.EXECUTING);
       browserInstance = await chromium.launch({ headless: false });
       const { scenarioResults, totalHealed } = await runScenarios(ws, allScenarios, (s) => memoryCheck.find(r => r.scenario.id === s.id && r.scenario.module === s.module)?.cached, userInput, baseUrl, browserInstance, false);
       const passed = scenarioResults.filter(r => r.result.status === 'success').length;
       const failed = scenarioResults.filter(r => r.result.status === 'failed').length;
       const skipped = scenarioResults.filter(r => r.result.status === 'skipped').length;
-      send(ws, 'report', { type: 'regression', status: failed === 0 ? 'success' : 'failed', healCount: totalHealed, scenarios: scenarioResults, summary: { total: allScenarios.length, passed, failed, skipped, healed: totalHealed } });
+      send(ws, 'report', 
+        { 
+          type: 'regression', 
+          status: failed === 0 ? 'success' : 'failed', 
+          healCount: totalHealed, 
+          scenarios: scenarioResults, 
+          summary: { 
+            total: scenarioResults.length, passed, failed, skipped, healed: totalHealed 
+          } 
+        });
       sendState(ws, STATE.IDLE);
       return;
     }
