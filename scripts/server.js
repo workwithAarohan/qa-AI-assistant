@@ -58,7 +58,6 @@ function log(ws, text, level = 'info') {
 function sendState(ws, state) { send(ws, 'agent_state', state); }
 
 function phase(ws, text) {
-  // Phase separator — visually distinct from regular logs
   send(ws, 'log', { text, level: 'phase' });
 }
 
@@ -95,65 +94,91 @@ function injectDocUrl(plan, baseUrl) {
   };
 }
 
+// ── BUG FIX 2: Word-boundary scoring with synonym expansion ──────────────────
+// "test login with correct credentials" -> correct maps to valid -> valid_login wins
+const SYNONYMS = {
+  correct: ['valid'], right: ['valid'], good: ['valid'],
+  wrong: ['invalid'], bad: ['invalid'], incorrect: ['invalid'],
+  blank: ['empty'],
+};
+
 function resolveSpecificScenario(input, docScenarios) {
-  const lower = input.toLowerCase();
-  function matchesWholeWord(text, word) {
-    const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return new RegExp(`\\b${escaped}\\b`).test(text);
-  }
-  const scored = docScenarios.map(s => {
+  const promptWords = input.toLowerCase().split(/\s+/).filter(w => w.length > 1);
+
+  // Expand prompt with synonyms
+  const expanded = [...promptWords];
+  promptWords.forEach(w => { if (SYNONYMS[w]) expanded.push(...SYNONYMS[w]); });
+
+  function scoreScenario(s) {
     const raw = [...s.id.split('_'), ...s.name.toLowerCase().split(/\s+/)].filter(w => w.length > 2);
     const keywords = [...new Set(raw)];
-    const matches = keywords.filter(kw => matchesWholeWord(lower, kw));
-    return { scenario: s, score: matches.length };
-  }).filter(s => s.score > 0).sort((a, b) => b.score - a.score);
+    // Whole-word match against expanded prompt
+    const matches = keywords.filter(kw => expanded.some(pw => pw === kw));
+    return { scenario: s, score: matches.length, matches };
+  }
+
+  const scored = docScenarios.map(scoreScenario)
+    .filter(s => s.score > 0)
+    .sort((a, b) => b.score - a.score);
 
   if (!scored.length) return null;
-  const top = scored[0], second = scored[1];
-  return (!second || top.score > second.score) && top.score >= 2 ? top.scenario : null;
+
+  const top = scored[0];
+  const second = scored[1];
+
+  // Clear winner: alone at top, OR strictly higher than second, AND minimum score of 1
+  const clearWinner = !second || top.score > second.score;
+  return clearWinner ? top.scenario : null;
 }
 
-// ── EXPLORE: conversational response about a module ───────────────────────────
+// ── EXPLORE handler ────────────────────────────────────────────────────────────
 function buildExploreResponse(docScenarios, docs, userInput) {
   const lower = userInput.toLowerCase();
-
-  // Check if asking about a specific module
   const matchedDoc = docs.find(d => lower.includes(d.name.toLowerCase()));
 
   if (matchedDoc) {
-    const scenarios = docScenarios.filter(s => s.module === matchedDoc.name);
+    const scenarios = matchedDoc.content.match(/##\s*Test Scenarios\s*\n([\s\S]*?)(?=\n##|$)/i)?.[1]?.trim().split('\n')
+      .map(line => { const m = line.match(/[-*]\s*([a-z_]+):\s*(.+)/i); return m ? { name: m[1].replace(/_/g,' '), description: m[2] } : null; })
+      .filter(Boolean) || [];
     const urlMatch = matchedDoc.content.match(/##\s*URL\s*\n(https?:\/\/[^\s]+)/i);
-    const url = urlMatch ? urlMatch[1] : null;
-
-    let msg = `Here is what I know about the **${matchedDoc.name}** module:\n\n`;
-    if (url) msg += `URL: ${url}\n\n`;
-
     const desc = matchedDoc.content.match(/##\s*Description\s*\n([\s\S]*?)(?=\n##|$)/i)?.[1]?.trim();
+    let msg = `Here is what I know about the ${matchedDoc.name} module:\n\n`;
+    if (urlMatch) msg += `URL: ${urlMatch[1]}\n\n`;
     if (desc) msg += `${desc}\n\n`;
-
     if (scenarios.length > 0) {
-      msg += `Test scenarios available:\n${scenarios.map((s, i) => `${i + 1}. ${s.name} — ${s.description}`).join('\n')}\n\n`;
-      msg += `Say "test ${matchedDoc.name}" to run all, or "test ${matchedDoc.name} with ${scenarios[0].name}" to run one.`;
+      msg += `Test scenarios available:\n${scenarios.map((s, i) => `${i+1}. ${s.name} — ${s.description}`).join('\n')}\n\n`;
+      msg += `Say "test ${matchedDoc.name}" to run all, or pick a specific one.`;
     }
     return msg;
   }
 
-  // Generic explore — list all modules
   const modules = [...new Set(docs.map(d => d.name))];
-  return `I can test the following modules:\n${modules.map(m => `• ${m}`).join('\n')}\n\nAsk me about any module to learn more, or say "test [module name]" to run tests.`;
+  return `I can test these modules:\n${modules.map(m => `• ${m}`).join('\n')}\n\nAsk me about any one to learn more, or say "test [module name]" to run tests.`;
 }
 
-// ── Execute one plan — with countdown ────────────────────────────────────────
+// ── Pre-execution confirmation ─────────────────────────────────────────────────
+// Sends a confirm message with plan summary — user clicks Run or Cancel
+async function confirmExecution(ws, scenario, plan) {
+  const stepSummary = plan.steps
+    .slice(0, 5)
+    .map((s, i) => `${i+1}. ${s.action} ${s.selector || s.value || ''}`)
+    .join('\n');
+  const extra = plan.steps.length > 5 ? `\n... +${plan.steps.length - 5} more steps` : '';
 
-async function executePlan(ws, plan, scenarioId, userInput, baseUrl, browser) {
+  send(ws, 'question', {
+    text: `Ready to run: ${scenario.name}\n\n${stepSummary}${extra}`,
+    type: 'confirm_run',
+    meta: { scenario: scenario.name, steps: plan.steps.length },
+  });
+
+  const answer = await waitForAnswer(ws);
+  return /yes|run|ok|confirm|go|start/i.test(answer);
+}
+
+// ── Execute one plan ──────────────────────────────────────────────────────────
+async function executePlan(ws, plan, scenario, userInput, baseUrl, browser) {
   const finalPlan = injectDocUrl(plan, baseUrl);
-  send(ws, 'plan', { ...finalPlan, scenarioId });
-
-  // 2-second countdown before execution
-  log(ws, 'Starting in 2 seconds...', 'info');
-  await new Promise(r => setTimeout(r, 1000));
-  log(ws, 'Starting in 1 second...', 'info');
-  await new Promise(r => setTimeout(r, 1000));
+  send(ws, 'plan', { ...finalPlan, scenarioId: scenario.id });
 
   sendState(ws, STATE.EXECUTING);
   phase(ws, '── Executing steps ──');
@@ -168,20 +193,30 @@ async function executePlan(ws, plan, scenarioId, userInput, baseUrl, browser) {
 
   if (result.status === 'failed') {
     phase(ws, '── Step failed ──');
-    log(ws, `Failed: ${result.error}`, 'error');
-    const choice = await askUser(ws, `A step failed: "${result.error}". What should I do?`, 'heal_choice');
+    log(ws, `Error: ${result.error}`, 'error');
+
+    // Send detailed heal message with error context
+    send(ws, 'question', {
+      text: result.error,
+      type: 'heal_choice',
+      meta: {
+        failedStep: result.results?.find(r => r.status === 'failed')?.step,
+        error: result.error,
+      },
+    });
+    const choice = await waitForAnswer(ws);
 
     if (/yes|heal|try|fix|retry/i.test(choice)) {
       phase(ws, '── Auto-healing ──');
-      log(ws, 'Refreshing browser context...', 'info');
+      log(ws, 'Capturing fresh browser snapshot...', 'info');
       const freshCtx = await captureBrowserContext(baseUrl);
-      log(ws, 'Asking Gemini for corrected plan...', 'info');
+      log(ws, 'Asking Gemini for corrected steps...', 'info');
       const fixedPlan = await fixSteps(finalPlan, result.error, userInput, freshCtx);
       validatePlan(fixedPlan);
       const fixedWithUrl = injectDocUrl(fixedPlan, baseUrl);
-      send(ws, 'plan', { ...fixedWithUrl, scenarioId });
+      send(ws, 'plan', { ...fixedWithUrl, scenarioId: scenario.id });
 
-      phase(ws, '── Retrying with healed plan ──');
+      phase(ws, '── Retrying healed plan ──');
       result = await runSteps(fixedWithUrl.steps, {
         browser, baseUrl,
         onStep: (index, step, status) => send(ws, 'step', { index, status }),
@@ -190,12 +225,12 @@ async function executePlan(ws, plan, scenarioId, userInput, baseUrl, browser) {
 
       healCount++;
       if (result.status === 'success') {
-        log(ws, 'Heal successful', 'success');
-        phase(ws, '── Saving healed plan to memory ──');
+        log(ws, 'Heal succeeded', 'success');
+        phase(ws, '── Saving healed plan ──');
         saveToMemory(fixedPlan);
-        log(ws, 'Memory updated', 'success');
+        log(ws, `Cached as "${fixedPlan.module}__${fixedPlan.scenario}"`, 'success');
       } else {
-        log(ws, 'Heal failed', 'error');
+        log(ws, 'Heal also failed', 'error');
       }
     } else {
       log(ws, 'Stopped by user', 'warn');
@@ -203,32 +238,60 @@ async function executePlan(ws, plan, scenarioId, userInput, baseUrl, browser) {
   } else {
     phase(ws, '── Saving to memory ──');
     saveToMemory(finalPlan);
-    log(ws, 'Plan cached for future runs', 'success');
+    log(ws, `Cached: "${finalPlan.module}__${finalPlan.scenario}"`, 'success');
   }
 
   return { result, healCount };
 }
 
 // ── Router ────────────────────────────────────────────────────────────────────
-
 const GREET_PHRASES = ['hi', 'hello', 'hey', 'help', 'what can you do', 'what do you do', 'who are you'];
 
 function routeRequest(userInput, docScenarios) {
   const lower = userInput.toLowerCase().trim();
   if (GREET_PHRASES.some(p => lower === p || lower.startsWith(p + ' '))) return 'GREET';
-
-  // Explore/understand intent keywords
   if (/\b(what|tell me|show me|explain|describe|about|how does|info|information|learn)\b/.test(lower)) return 'EXPLORE';
-
   const specific = resolveSpecificScenario(lower, docScenarios);
   if (specific) return { route: 'SPECIFIC', scenario: specific };
-
   if (docScenarios.length > 0) return 'MODULE';
   return 'ANALYZE';
 }
 
-// ── MAIN ORCHESTRATION ────────────────────────────────────────────────────────
+// ── Run a list of scenarios sequentially (shared by MODULE + REGRESSION) ──────
+async function runScenarios(ws, toRun, memoryCheck, userInput, baseUrl, browserInstance, confirmEach = true) {
+  const scenarioResults = [];
+  let totalHealed = 0;
 
+  for (let i = 0; i < toRun.length; i++) {
+    const s = toRun[i];
+    const plan = typeof memoryCheck === 'function' ? memoryCheck(s) : memoryCheck.find(r => r.scenario.id === s.id)?.cached;
+
+    if (!plan) { log(ws, `No plan for "${s.name}" — skipping`, 'warn'); continue; }
+
+    phase(ws, `── Scenario ${i+1}/${toRun.length}: ${s.name} ──`);
+    log(ws, s.description, 'info');
+    send(ws, 'scenario_start', s);
+
+    if (confirmEach) {
+      const confirmed = await confirmExecution(ws, s, plan);
+      if (!confirmed) {
+        log(ws, `Skipped: ${s.name}`, 'warn');
+        scenarioResults.push({ scenario: s, result: { status: 'skipped', results: [] }, healCount: 0 });
+        continue;
+      }
+    }
+
+    const { result, healCount } = await executePlan(ws, plan, s, userInput, baseUrl, browserInstance);
+    scenarioResults.push({ scenario: s, result, healCount });
+    totalHealed += healCount;
+
+    if (i < toRun.length - 1) await new Promise(r => setTimeout(r, 400));
+  }
+
+  return { scenarioResults, totalHealed };
+}
+
+// ── MAIN ORCHESTRATION ────────────────────────────────────────────────────────
 async function orchestrate(ws, userInput) {
   let browserInstance = null;
 
@@ -238,7 +301,6 @@ async function orchestrate(ws, userInput) {
 
     sendState(ws, STATE.GATHERING_CONTEXT);
 
-    // ── Phase 1: Load context from docs (zero LLM cost) ─────────────────────
     phase(ws, '── Loading context ──');
     log(ws, 'Reading documentation...', 'info');
     const docContext   = getRelevantContext(userInput);
@@ -247,7 +309,7 @@ async function orchestrate(ws, userInput) {
     const allDocs      = loadAllDocs();
     const module       = docScenarios[0]?.module || 'general';
 
-    if (docContext) log(ws, `Docs loaded: ${docScenarios[0]?.module || 'general'}`, 'success');
+    if (docContext) log(ws, `Docs loaded: ${module}`, 'success');
     else log(ws, 'No matching docs found', 'warn');
 
     const route = routeRequest(userInput, docScenarios);
@@ -255,15 +317,100 @@ async function orchestrate(ws, userInput) {
     // ── Route A: Greet ───────────────────────────────────────────────────────
     if (route === 'GREET') {
       const modules = [...new Set(allDocs.map(d => d.name))];
-      const msg = `Hi! I am your QA automation agent.\n\nI can test these modules:\n${modules.map(m => `• ${m}`).join('\n')}\n\nYou can:\n• Ask me about any module — "tell me about login"\n• Run a specific test — "test login with invalid password"\n• Run all scenarios — "test login"\n\nWhat would you like to do?`;
-      send(ws, 'agent_message', msg);
+      send(ws, 'agent_message',
+        `Hi! I am your QA automation agent.\n\nI can test these modules:\n${modules.map(m => `• ${m}`).join('\n')}\n\nYou can:\n• Ask about a module — "tell me about login"\n• Run one test — "test login with invalid password"\n• Run all scenarios — "test login"\n• Run regression — "run regression"\n\nWhat would you like to do?`
+      );
       return;
     }
 
-    // ── Route: Explore/understand ────────────────────────────────────────────
+    // ── Route: Explore ───────────────────────────────────────────────────────
     if (route === 'EXPLORE') {
-      const msg = buildExploreResponse(docScenarios, allDocs, userInput);
-      send(ws, 'agent_message', msg);
+      send(ws, 'agent_message', buildExploreResponse(docScenarios, allDocs, userInput));
+      return;
+    }
+
+    // ── Route: Regression — run ALL scenarios across ALL modules ─────────────
+    if (/\bregression\b/i.test(userInput)) {
+      phase(ws, '── Regression Test Suite ──');
+      log(ws, 'Loading all modules...', 'info');
+
+      // Collect all scenarios from all docs
+      const allScenarios = [];
+      for (const doc of allDocs) {
+        const section = doc.content.match(/##\s*Test Scenarios\s*\n([\s\S]*?)(?=\n##|$)/i);
+        if (!section) continue;
+        section[1].trim().split('\n').forEach(line => {
+          const m = line.match(/[-*]\s*([a-z_]+):\s*(.+)/i);
+          if (m) allScenarios.push({ id: m[1].trim().toLowerCase(), name: m[1].trim().replace(/_/g,' '), description: m[2].trim(), module: doc.name });
+        });
+      }
+
+      log(ws, `Found ${allScenarios.length} scenarios across ${allDocs.length} modules`, 'info');
+
+      // Check memory / generate missing plans
+      phase(ws, '── Checking memory ──');
+      const memoryCheck = allScenarios.map(s => ({ scenario: s, cached: findSimilarPlan(s.module, s.id) }));
+      const uncached = memoryCheck.filter(r => !r.cached).map(r => r.scenario);
+      const cachedCount = memoryCheck.length - uncached.length;
+      log(ws, `${cachedCount} of ${allScenarios.length} plans cached`, cachedCount === allScenarios.length ? 'success' : 'info');
+
+      if (uncached.length > 0) {
+        phase(ws, '── Generating missing plans ──');
+        const browserCtx = await captureBrowserContext(baseUrl);
+        // Group by module to avoid mixing context
+        const byModule = {};
+        uncached.forEach(s => { (byModule[s.module] = byModule[s.module] || []).push(s); });
+        for (const [mod, scenarios] of Object.entries(byModule)) {
+          const modDoc = getRelevantContext(mod);
+          log(ws, `Generating ${scenarios.length} plans for ${mod}...`, 'info');
+          const batch = await generateAllScenarioSteps(scenarios, modDoc, browserCtx);
+          batch.forEach(p => {
+            validatePlan(p); saveToMemory(p);
+            const m = memoryCheck.find(r => r.scenario.id === p.id && r.scenario.module === p.module);
+            if (m) m.cached = p;
+            log(ws, `Saved: ${p.module}__${p.scenario}`, 'success');
+          });
+        }
+      }
+
+      // Show all scenarios grouped by module, let user confirm
+      send(ws, 'regression_plan', {
+        modules: allDocs.map(d => ({
+          name: d.name,
+          scenarios: allScenarios.filter(s => s.module === d.name),
+        })),
+        total: allScenarios.length,
+      });
+
+      const choice = await waitForAnswer(ws);
+      if (!/yes|run|ok|confirm|go|start|all/i.test(choice)) {
+        send(ws, 'agent_message', 'Regression cancelled.');
+        sendState(ws, STATE.IDLE);
+        return;
+      }
+
+      sendState(ws, STATE.EXECUTING);
+      browserInstance = await chromium.launch({ headless: false });
+
+      const { scenarioResults, totalHealed } = await runScenarios(
+        ws, allScenarios,
+        (s) => memoryCheck.find(r => r.scenario.id === s.id && r.scenario.module === s.module)?.cached,
+        userInput, baseUrl, browserInstance,
+        false // no per-scenario confirm in regression
+      );
+
+      const passed  = scenarioResults.filter(r => r.result.status === 'success').length;
+      const failed  = scenarioResults.filter(r => r.result.status === 'failed').length;
+      const skipped = scenarioResults.filter(r => r.result.status === 'skipped').length;
+
+      send(ws, 'report', {
+        type: 'regression',
+        status: failed === 0 ? 'success' : 'failed',
+        healCount: totalHealed,
+        scenarios: scenarioResults,
+        summary: { total: allScenarios.length, passed, failed, skipped, healed: totalHealed },
+      });
+      sendState(ws, STATE.IDLE);
       return;
     }
 
@@ -271,7 +418,7 @@ async function orchestrate(ws, userInput) {
     if (route?.route === 'SPECIFIC') {
       const s = route.scenario;
       log(ws, `Matched: "${s.name}"`, 'success');
-      log(ws, `URL: ${baseUrl}`, 'info');
+      log(ws, s.description, 'info');
       send(ws, 'scenario_start', s);
 
       phase(ws, '── Checking memory ──');
@@ -279,32 +426,39 @@ async function orchestrate(ws, userInput) {
       let plan = cached;
 
       if (cached) {
-        log(ws, `Memory hit — reusing cached plan for "${s.name}"`, 'success');
-        log(ws, `Plan has ${cached.steps?.length || 0} steps`, 'info');
+        log(ws, `Memory hit — ${cached.steps?.length} steps cached`, 'success');
       } else {
-        log(ws, 'No cached plan found — generating via Gemini', 'info');
+        log(ws, 'Cache miss — generating via Gemini', 'info');
         phase(ws, '── Capturing browser state ──');
         const browserCtx = await captureBrowserContext(baseUrl);
-        log(ws, `DOM snapshot: ${browserCtx.split('\n').length} elements captured`, 'info');
+        log(ws, `DOM captured: ${browserCtx.split('\n').length} lines`, 'info');
 
         phase(ws, '── Generating test plan ──');
         log(ws, 'Calling Gemini...', 'info');
         const batch = await generateAllScenarioSteps([s], docContext, browserCtx);
         plan = batch[0];
         validatePlan(plan);
-        log(ws, `Plan generated: ${plan.steps?.length || 0} steps`, 'success');
+        log(ws, `Plan ready: ${plan.steps?.length} steps`, 'success');
         phase(ws, '── Saving to memory ──');
         saveToMemory(plan);
-        log(ws, `Saved as "${plan.module}__${plan.scenario}"`, 'success');
+        log(ws, `Saved: "${plan.module}__${plan.scenario}"`, 'success');
+      }
+
+      // Confirm before running
+      const confirmed = await confirmExecution(ws, s, plan);
+      if (!confirmed) {
+        send(ws, 'agent_message', 'Test cancelled. Let me know when you want to run it.');
+        sendState(ws, STATE.IDLE);
+        return;
       }
 
       browserInstance = await chromium.launch({ headless: false });
-      const { result, healCount } = await executePlan(ws, plan, s.id, userInput, baseUrl, browserInstance);
+      const { result, healCount } = await executePlan(ws, plan, s, userInput, baseUrl, browserInstance);
 
       send(ws, 'report', {
         status: result.status, healCount,
         scenarios: [{ scenario: s, result, healCount }],
-        summary: { total: 1, passed: result.status === 'success' ? 1 : 0, failed: result.status === 'failed' ? 1 : 0, healed: healCount },
+        summary: { total: 1, passed: result.status === 'success' ? 1 : 0, failed: result.status === 'failed' ? 1 : 0, skipped: 0, healed: healCount },
       });
       sendState(ws, STATE.IDLE);
       return;
@@ -315,18 +469,16 @@ async function orchestrate(ws, userInput) {
       phase(ws, '── Checking memory ──');
       const memoryCheck = docScenarios.map(s => ({ scenario: s, cached: findSimilarPlan(module, s.id, userInput) }));
       const cachedCount = memoryCheck.filter(r => r.cached).length;
-      const uncachedScenarios = memoryCheck.filter(r => !r.cached).map(r => r.scenario);
+      log(ws, `${cachedCount} of ${docScenarios.length} scenarios cached`, cachedCount === docScenarios.length ? 'success' : 'info');
 
-      log(ws, `${cachedCount} of ${docScenarios.length} scenarios in memory`, cachedCount === docScenarios.length ? 'success' : 'info');
-
-      if (uncachedScenarios.length > 0) {
+      const uncached = memoryCheck.filter(r => !r.cached).map(r => r.scenario);
+      if (uncached.length > 0) {
         phase(ws, '── Capturing browser state ──');
         const browserCtx = await captureBrowserContext(baseUrl);
         log(ws, `DOM captured at ${baseUrl}`, 'info');
-
         phase(ws, '── Generating missing plans ──');
-        log(ws, `Generating steps for: ${uncachedScenarios.map(s => s.name).join(', ')}`, 'info');
-        const batch = await generateAllScenarioSteps(uncachedScenarios, docContext, browserCtx);
+        log(ws, `Generating: ${uncached.map(s => s.name).join(', ')}`, 'info');
+        const batch = await generateAllScenarioSteps(uncached, docContext, browserCtx);
         batch.forEach(p => {
           validatePlan(p); saveToMemory(p);
           log(ws, `Saved: "${p.module}__${p.scenario}"`, 'success');
@@ -349,51 +501,38 @@ async function orchestrate(ws, userInput) {
 
       sendState(ws, STATE.EXECUTING);
       browserInstance = await chromium.launch({ headless: false });
-      const scenarioResults = [];
-      let totalHealed = 0;
 
-      for (let i = 0; i < toRun.length; i++) {
-        const s = toRun[i];
-        const plan = memoryCheck.find(r => r.scenario.id === s.id)?.cached;
-        if (!plan) { log(ws, `No plan for "${s.name}" — skipping`, 'warn'); continue; }
-
-        phase(ws, `── Scenario ${i + 1}/${toRun.length}: ${s.name} ──`);
-        send(ws, 'scenario_start', s);
-        const { result, healCount } = await executePlan(ws, plan, s.id, userInput, baseUrl, browserInstance);
-        scenarioResults.push({ scenario: s, result, healCount });
-        totalHealed += healCount;
-
-        if (i < toRun.length - 1) await new Promise(r => setTimeout(r, 400));
-      }
+      const { scenarioResults, totalHealed } = await runScenarios(
+        ws, toRun,
+        memoryCheck,
+        userInput, baseUrl, browserInstance,
+        true // confirm each scenario
+      );
 
       const passed = scenarioResults.filter(r => r.result.status === 'success').length;
       const failed = scenarioResults.filter(r => r.result.status === 'failed').length;
-      send(ws, 'report', { status: failed === 0 ? 'success' : 'failed', healCount: totalHealed, scenarios: scenarioResults, summary: { total: toRun.length, passed, failed, healed: totalHealed } });
+      const skipped = scenarioResults.filter(r => r.result.status === 'skipped').length;
+      send(ws, 'report', { status: failed === 0 ? 'success' : 'failed', healCount: totalHealed, scenarios: scenarioResults, summary: { total: toRun.length, passed, failed, skipped, healed: totalHealed } });
       sendState(ws, STATE.IDLE);
       return;
     }
 
     // ── Route D: Unknown — LLM analysis ──────────────────────────────────────
     phase(ws, '── Analyzing request ──');
-    log(ws, 'Capturing browser state...', 'info');
     const browserCtx = await captureBrowserContext(baseUrl);
-    log(ws, 'DOM captured', 'info');
-
     const { enrichedInput } = await gatherContext(userInput, null, (q) => askUser(ws, q), (t, l) => log(ws, t, l));
-
-    log(ws, 'Sending to Gemini for analysis...', 'info');
+    log(ws, 'Sending to Gemini...', 'info');
     const analysis = await analyzeRequest(enrichedInput, docContext, browserCtx);
     send(ws, 'intent', { intent: analysis.intent, confidence: 'high' });
-    log(ws, `Intent classified: ${analysis.intent}`, 'info');
+    log(ws, `Intent: ${analysis.intent}`, 'info');
 
     if (analysis.intent === 'OUT_OF_SCOPE') { send(ws, 'agent_message', outOfScopeResponse(userInput)); return; }
     if (analysis.intent === 'EXPLORE' || analysis.intent === 'UNDERSTAND') {
-      send(ws, 'agent_message', buildExploreResponse(docScenarios, allDocs, userInput));
-      return;
+      send(ws, 'agent_message', buildExploreResponse(docScenarios, allDocs, userInput)); return;
     }
 
     const scenarios = docScenarios.length > 0 ? docScenarios : (analysis.scenarios || []);
-    if (!scenarios.length) { send(ws, 'agent_message', 'Could not identify test scenarios. Try being more specific.'); return; }
+    if (!scenarios.length) { send(ws, 'agent_message', 'Could not identify scenarios. Try being more specific.'); return; }
 
     sendState(ws, STATE.PLANNING);
     const planMap = {};
@@ -404,28 +543,23 @@ async function orchestrate(ws, userInput) {
     }
 
     send(ws, 'scenarios', { scenarios, module: userInput });
-    const choice = await waitForAnswer(ws);
-    send(ws, 'answer_received', choice);
-    const finalToRun = choice.toLowerCase().includes('all') ? scenarios : (() => {
-      const indices = [...choice.matchAll(/\d+/g)].map(m => parseInt(m[0]) - 1);
+    const choice2 = await waitForAnswer(ws);
+    send(ws, 'answer_received', choice2);
+    const finalToRun = choice2.toLowerCase().includes('all') ? scenarios : (() => {
+      const indices = [...choice2.matchAll(/\d+/g)].map(m => parseInt(m[0]) - 1);
       return indices.length > 0 ? indices.filter(i => i >= 0 && i < scenarios.length).map(i => scenarios[i]) : scenarios;
     })();
 
     sendState(ws, STATE.EXECUTING);
     browserInstance = await chromium.launch({ headless: false });
-    const results = []; let healed = 0;
-    for (let i = 0; i < finalToRun.length; i++) {
-      const s = finalToRun[i];
-      if (!planMap[s.id]) { log(ws, `No plan for "${s.name}" — skipping`, 'warn'); continue; }
-      phase(ws, `── Scenario ${i + 1}/${finalToRun.length}: ${s.name} ──`);
-      send(ws, 'scenario_start', s);
-      const { result, healCount } = await executePlan(ws, planMap[s.id], s.id, enrichedInput, baseUrl, browserInstance);
-      results.push({ scenario: s, result, healCount }); healed += healCount;
-      if (i < finalToRun.length - 1) await new Promise(r => setTimeout(r, 400));
-    }
-    const p = results.filter(r => r.result.status === 'success').length;
-    const f = results.filter(r => r.result.status === 'failed').length;
-    send(ws, 'report', { status: f === 0 ? 'success' : 'failed', healCount: healed, scenarios: results, summary: { total: finalToRun.length, passed: p, failed: f, healed } });
+    const { scenarioResults: rResults, totalHealed: rHealed } = await runScenarios(
+      ws, finalToRun, (s) => planMap[s.id],
+      enrichedInput, baseUrl, browserInstance, true
+    );
+    const rp = rResults.filter(r => r.result.status === 'success').length;
+    const rf = rResults.filter(r => r.result.status === 'failed').length;
+    const rs = rResults.filter(r => r.result.status === 'skipped').length;
+    send(ws, 'report', { status: rf === 0 ? 'success' : 'failed', healCount: rHealed, scenarios: rResults, summary: { total: finalToRun.length, passed: rp, failed: rf, skipped: rs, healed: rHealed } });
     sendState(ws, STATE.IDLE);
 
   } catch (err) {
