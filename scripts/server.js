@@ -55,7 +55,7 @@ function log(ws, text, level = 'info') {
 function sendState(ws, state) { send(ws, 'agent_state', state); }
 function phase(ws, text) { send(ws, 'log', { text, level: 'phase' }); }
 
-function waitForAnswer(ws, timeoutMs = 120000) {
+function waitForAnswer(ws, timeoutMs = 1800000) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => { ws.off('message', handler); reject(new Error('Answer timeout')); }, timeoutMs);
     function handler(raw) {
@@ -182,15 +182,17 @@ async function executePlan(ws, plan, scenario, userInput, baseUrl, browser) {
   });
 
   let healCount = 0;
+  let healMeta = null; // track what failed and what the fix was
 
   if (result.status === 'failed') {
     phase(ws, '── Step failed ──');
     log(ws, `Error: ${result.error}`, 'error');
+    const failedStepResult = result.results?.find(r => r.status === 'failed');
     send(ws, 'question', {
       text: result.error,
       type: 'heal_choice',
       meta: {
-        failedStep: result.results?.find(r => r.status === 'failed')?.step,
+        failedStep: failedStepResult?.step,
         error: result.error,
       },
     });
@@ -217,6 +219,14 @@ async function executePlan(ws, plan, scenario, userInput, baseUrl, browser) {
         phase(ws, '── Saving healed plan ──');
         saveToMemory(fixedPlan);
         log(ws, `Cached: "${fixedPlan.module}__${fixedPlan.scenario}"`, 'success');
+        // Track heal metadata for the report
+        const fixedStep = fixedPlan.steps[failedStepResult?.index];
+        healMeta = {
+          originalError: result.error || failedStepResult?.error,
+          failedStep: failedStepResult?.step,
+          fixedStep,
+          stepIndex: failedStepResult?.index,
+        };
       } else {
         log(ws, 'Heal also failed', 'error');
       }
@@ -229,7 +239,7 @@ async function executePlan(ws, plan, scenario, userInput, baseUrl, browser) {
     log(ws, `Cached: "${finalPlan.module}__${finalPlan.scenario}"`, 'success');
   }
 
-  return { result, healCount };
+  return { result, healCount, healMeta };
 }
 
 // ── Router ────────────────────────────────────────────────────────────────────
@@ -269,8 +279,8 @@ async function runScenarios(ws, toRun, getPlan, userInput, baseUrl, browserInsta
       }
     }
 
-    const { result, healCount } = await executePlan(ws, plan, s, userInput, baseUrl, browserInstance);
-    scenarioResults.push({ scenario: s, result, healCount });
+    const { result, healCount, healMeta } = await executePlan(ws, plan, s, userInput, baseUrl, browserInstance);
+    scenarioResults.push({ scenario: s, result, healCount, healMeta });
     totalHealed += healCount;
 
     if (i < toRun.length - 1) await new Promise(r => setTimeout(r, 400));
@@ -392,8 +402,8 @@ async function orchestrate(ws, userInput) {
       const confirmed = await confirmExecution(ws, s, plan);
       if (!confirmed) { send(ws, 'agent_message', 'Test cancelled. Let me know when you want to run it.'); sendState(ws, STATE.IDLE); return; }
       browserInstance = await chromium.launch({ headless: false });
-      const { result, healCount } = await executePlan(ws, plan, s, userInput, baseUrl, browserInstance);
-      send(ws, 'report', { status: result.status, healCount, scenarios: [{ scenario: s, result, healCount }], summary: { total: 1, passed: result.status === 'success' ? 1 : 0, failed: result.status === 'failed' ? 1 : 0, skipped: 0, healed: healCount } });
+      const { result, healCount, healMeta } = await executePlan(ws, plan, s, userInput, baseUrl, browserInstance);
+      send(ws, 'report', { status: result.status, healCount, scenarios: [{ scenario: s, result, healCount, healMeta }], summary: { total: 1, passed: result.status === 'success' ? 1 : 0, failed: result.status === 'failed' ? 1 : 0, skipped: 0, healed: healCount } });
       sendState(ws, STATE.IDLE);
       return;
     }
@@ -415,7 +425,7 @@ async function orchestrate(ws, userInput) {
         batch.forEach(p => { validatePlan(p); saveToMemory(p); log(ws, `Saved: "${p.module}__${p.scenario}"`, 'success'); const m = memoryCheck.find(r => r.scenario.id === p.id); if (m) m.cached = p; });
       }
       sendState(ws, STATE.PLANNING);
-      send(ws, 'scenarios', { scenarios: docScenarios, module: userInput });
+      send(ws, 'scenarios', { scenarios: docScenarios, module: docScenarios[0]?.module || userInput });
       const choice = await waitForAnswer(ws);
       send(ws, 'answer_received', choice);
       const toRun = choice.toLowerCase().includes('all') ? docScenarios : (() => {
@@ -452,7 +462,7 @@ async function orchestrate(ws, userInput) {
       const batch = await generateAllScenarioSteps(stillUncached, docContext, browserCtx);
       batch.forEach(p => { validatePlan(p); saveToMemory(p); planMap[p.id] = p; log(ws, `Saved: "${p.module}__${p.scenario}"`, 'success'); });
     }
-    send(ws, 'scenarios', { scenarios, module: userInput });
+    send(ws, 'scenarios', { scenarios, module: scenarios[0]?.module || userInput });
     const choice2 = await waitForAnswer(ws);
     send(ws, 'answer_received', choice2);
     const finalToRun = choice2.toLowerCase().includes('all') ? scenarios : (() => {

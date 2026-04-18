@@ -26,10 +26,9 @@
         "value": "http://localhost:4000/dashboard"
       }
     ],
-    "savedAt": "2026-04-18T09:31:48.975Z"
+    "savedAt": "2026-04-18T15:08:45.922Z"
   },
   "login__invalid_password": {
-    "id": "invalid_password",
     "module": "login",
     "scenario": "invalid_password",
     "steps": [
@@ -49,17 +48,16 @@
       },
       {
         "action": "click",
-        "selector": "#login-btn"
+        "selector": "#submit-btn"
       },
       {
         "action": "expect",
         "selector": "#error"
       }
     ],
-    "savedAt": "2026-04-17T15:27:27.592Z"
+    "savedAt": "2026-04-18T15:08:48.627Z"
   },
   "login__empty_fields": {
-    "id": "empty_fields",
     "module": "login",
     "scenario": "empty_fields",
     "steps": [
@@ -69,14 +67,14 @@
       },
       {
         "action": "click",
-        "selector": "#login-btn"
+        "selector": "#submit-btn"
       },
       {
         "action": "expect",
         "selector": "#error"
       }
     ],
-    "savedAt": "2026-04-17T14:49:35.496Z"
+    "savedAt": "2026-04-18T15:08:51.291Z"
   },
   "dashboard__dashboard_loads": {
     "id": "dashboard_loads",
@@ -99,7 +97,7 @@
       },
       {
         "action": "click",
-        "selector": "#login-btn"
+        "selector": "#submit-btn"
       },
       {
         "action": "waitForNavigation"
@@ -122,10 +120,9 @@
         "selector": "#welcome-msg"
       }
     ],
-    "savedAt": "2026-04-18T09:05:17.325Z"
+    "savedAt": "2026-04-18T15:08:39.028Z"
   },
   "dashboard__navigate_to_projects": {
-    "id": "navigate_to_projects",
     "module": "dashboard",
     "scenario": "navigate_to_projects",
     "steps": [
@@ -145,7 +142,7 @@
       },
       {
         "action": "click",
-        "selector": "#login-btn"
+        "selector": "#submit-btn"
       },
       {
         "action": "waitForNavigation"
@@ -162,6 +159,290 @@
         "value": "http://localhost:4000/project"
       }
     ],
-    "savedAt": "2026-04-16T16:50:03.416Z"
+    "savedAt": "2026-04-18T15:08:43.127Z"
+  },
+  "navigation__full_login_flow": {
+    "id": "full_login_flow",
+    "module": "navigation",
+    "scenario": "full_login_flow",
+    "steps": [
+      {
+        "action": "navigate",
+        "value": "http://localhost:4000/testapp"
+      },
+      {
+        "action": "type",
+        "selector": "#username",
+        "value": "admin"
+      },
+      {
+        "action": "type",
+        "selector": "#password",
+        "value": "admin"
+      },
+      {
+        "action": "click",
+        "selector": "#submit-btn"
+      },
+      {
+        "action": "waitForNavigation"
+      },
+      {
+        "action": "expectUrl",
+        "value": "http://localhost:4000/dashboard"
+      },
+      {
+        "action": "assertText",
+        "selector": "#page-title",
+        "value": "Dashboard"
+      },
+      {
+        "action": "click",
+        "selector": "#nav-projects"
+      },
+      {
+        "action": "waitForNavigation"
+      },
+      {
+        "action": "expectUrl",
+        "value": "http://localhost:4000/projects"
+      },
+      {
+        "action": "assertText",
+        "selector": "#page-title",
+        "value": "Projects"
+      }
+    ],
+    "savedAt": "2026-04-18T14:53:51.297Z"
+  },
+  "navigation__logout_flow": {
+    "id": "logout_flow",
+    "module": "navigation",
+    "scenario": "logout_flow",
+    "steps": [
+      {
+        "action": "navigate",
+        "value": "http://localhost:4000/testapp"
+      },
+      {
+        "action": "type",
+        "selector": "#username",
+        "value": "admin"
+      },
+      {
+        "action": "type",
+        "selector": "#password",
+        "value": "admin"
+      },
+      {
+        "action": "click",
+        "selector": "#submit-btn"
+      },
+      {
+        "action": "waitForNavigation"
+      },
+      {
+        "action": "expectUrl",
+        "value": "http://localhost:4000/dashboard"
+      },
+      {
+        "action": "click",
+        "selector": "#logout-link"
+      },
+      {
+        "action": "waitForNavigation"
+      },
+      {
+        "action": "expectUrl",
+        "value": "http://localhost:4000/testapp"
+      },
+      {
+        "action": "expect",
+        "selector": "#username"
+      }
+    ],
+    "savedAt": "2026-04-18T15:09:47.748Z"
+  },
+  "profile__view_profile": {
+    "id": "view_profile",
+    "module": "profile",
+    "scenario": "view_profile",
+    "steps": [
+      {
+        "action": "navigate",
+        "value": "http://localhost:4000/testapp"
+      },
+      {
+        "action": "type",
+        "selector": "#username",
+        "value": "admin"
+      },
+      {
+        "action": "type",
+        "selector": "#password",
+        "value": "admin"
+      },
+      {
+        "action": "click",
+        "selector": "#submit-btn"
+      },
+      {
+        "action": "waitForNavigation"
+      },
+      {
+        "action": "navigate",
+        "value": "http://localhost:4000/profile"
+      },
+      {
+        "action": "expect",
+        "selector": "#profile-heading"
+      },
+      {
+        "action": "expect",
+        "selector": "#profile-name"
+      }
+    ],
+    "savedAt": "2026-04-18T15:09:51.647Z"
+  },
+  "profile__save_profile": {
+    "id": "save_profile",
+    "module": "profile",
+    "scenario": "save_profile",
+    "steps": [
+      {
+        "action": "navigate",
+        "value": "http://localhost:4000/testapp"
+      },
+      {
+        "action": "type",
+        "selector": "#username",
+        "value": "admin"
+      },
+      {
+        "action": "type",
+        "selector": "#password",
+        "value": "admin"
+      },
+      {
+        "action": "click",
+        "selector": "#submit-btn"
+      },
+      {
+        "action": "waitForNavigation"
+      },
+      {
+        "action": "navigate",
+        "value": "http://localhost:4000/profile"
+      },
+      {
+        "action": "type",
+        "selector": "#profile-email",
+        "value": "new.admin@example.com"
+      },
+      {
+        "action": "click",
+        "selector": "#save-profile-btn"
+      },
+      {
+        "action": "expect",
+        "selector": "#save-msg"
+      }
+    ],
+    "savedAt": "2026-04-18T15:09:55.577Z"
+  },
+  "projects__create_project": {
+    "id": "create_project",
+    "module": "projects",
+    "scenario": "create_project",
+    "steps": [
+      {
+        "action": "navigate",
+        "value": "http://localhost:4000/testapp"
+      },
+      {
+        "action": "type",
+        "selector": "#username",
+        "value": "admin"
+      },
+      {
+        "action": "type",
+        "selector": "#password",
+        "value": "admin"
+      },
+      {
+        "action": "click",
+        "selector": "#submit-btn"
+      },
+      {
+        "action": "waitForNavigation"
+      },
+      {
+        "action": "navigate",
+        "value": "http://localhost:4000/projects"
+      },
+      {
+        "action": "click",
+        "selector": "#new-project-btn"
+      },
+      {
+        "action": "type",
+        "selector": "#project-name-input",
+        "value": "Delta"
+      },
+      {
+        "action": "click",
+        "selector": "#create-project-btn"
+      },
+      {
+        "action": "expect",
+        "selector": "#success-msg"
+      }
+    ],
+    "savedAt": "2026-04-18T15:09:59.553Z"
+  },
+  "projects__cancel_modal": {
+    "id": "cancel_modal",
+    "module": "projects",
+    "scenario": "cancel_modal",
+    "steps": [
+      {
+        "action": "navigate",
+        "value": "http://localhost:4000/testapp"
+      },
+      {
+        "action": "type",
+        "selector": "#username",
+        "value": "admin"
+      },
+      {
+        "action": "type",
+        "selector": "#password",
+        "value": "admin"
+      },
+      {
+        "action": "click",
+        "selector": "#submit-btn"
+      },
+      {
+        "action": "waitForNavigation"
+      },
+      {
+        "action": "navigate",
+        "value": "http://localhost:4000/projects"
+      },
+      {
+        "action": "click",
+        "selector": "#new-project-btn"
+      },
+      {
+        "action": "click",
+        "selector": "#cancel-btn"
+      },
+      {
+        "action": "expect",
+        "selector": "#new-project-btn"
+      }
+    ],
+    "savedAt": "2026-04-18T15:10:03.512Z"
   }
 }
