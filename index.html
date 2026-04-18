@@ -5,10 +5,11 @@
   <title>AI QA Agent</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    @keyframes bounce { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-4px)} }
-    @keyframes pulse  { 0%,100%{opacity:1} 50%{opacity:0.3} }
-    @keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
-    @keyframes spin   { to{transform:rotate(360deg)} }
+    @keyframes bounce  { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-4px)} }
+    @keyframes pulse   { 0%,100%{opacity:1} 50%{opacity:0.3} }
+    @keyframes fadeIn  { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
+    @keyframes slideUp { from{transform:translateY(100%)} to{transform:translateY(0)} }
+    @keyframes spin    { to{transform:rotate(360deg)} }
     .typing-dot { animation:bounce 1s infinite; display:inline-block; }
     .typing-dot:nth-child(2){animation-delay:0.15s}
     .typing-dot:nth-child(3){animation-delay:0.30s}
@@ -20,9 +21,16 @@
     .sdot-healed  { background:#f59e0b }
     .sdot-skipped { background:#9ca3af }
     textarea { resize:none }
-    .msg-in { animation: fadeIn 0.2s ease both; }
+    .msg-in   { animation:fadeIn 0.2s ease both }
     .log-phase { color:#6366f1; font-weight:600; letter-spacing:0.02em; border-top:1px solid #e0e7ff; margin-top:2px; padding-top:4px; }
-    .spinner { animation:spin 0.8s linear infinite; display:inline-block; }
+    .spinner   { animation:spin 0.8s linear infinite; display:inline-block; }
+    /* Drawer */
+    #reportDrawer { transform:translateY(100%); transition:transform 0.3s cubic-bezier(.4,0,.2,1); }
+    #reportDrawer.open { transform:translateY(0); }
+    /* Tab active */
+    .tab-btn.active { border-bottom:2px solid #6366f1; color:#6366f1; font-weight:600; }
+    /* Input disabled state */
+    #chatInput:disabled { opacity:0.5; cursor:not-allowed; }
   </style>
 </head>
 <body class="bg-gray-100 h-screen flex items-center justify-center p-4 overflow-hidden">
@@ -41,7 +49,7 @@
     <div id="chatMessages" class="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-3 min-h-0">
       <div class="flex flex-col gap-1 max-w-[85%] msg-in">
         <div class="bg-gray-100 text-gray-700 text-sm px-3 py-2 rounded-xl rounded-bl-sm leading-relaxed">
-          Hi! I can test your web application. Try "test login", ask "tell me about dashboard", or pick a module below.
+          Hi! I can test your web app. Try "test login", ask "tell me about dashboard", or pick a module below.
         </div>
         <div class="text-xs text-gray-300">now</div>
       </div>
@@ -52,7 +60,7 @@
     <div class="px-4 py-3 border-t border-gray-100 flex gap-2 items-end flex-shrink-0">
       <div class="flex-1 border border-gray-200 rounded-xl overflow-hidden focus-within:border-gray-400 transition">
         <textarea id="chatInput" rows="1"
-          class="w-full px-3 py-2 text-sm bg-transparent outline-none text-gray-700"
+          class="w-full px-3 py-2 text-sm bg-transparent outline-none text-gray-700 transition"
           placeholder="Describe a test or ask about a module..."></textarea>
       </div>
       <button id="sendBtn" onclick="handleSend()"
@@ -74,7 +82,7 @@
       </div>
     </div>
 
-    <!-- Test plan — hidden until steps arrive -->
+    <!-- Test plan -->
     <div id="planSection" class="bg-white border-b border-gray-100 flex-shrink-0 hidden">
       <button onclick="togglePlan()"
         class="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-medium text-gray-500 hover:bg-gray-50 transition text-left select-none">
@@ -82,12 +90,12 @@
           <path d="M3 2L7 5L3 8" stroke="#9ca3af" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
         </svg>
         Test plan
-        <span id="planSpinner" class="spinner text-indigo-400 hidden" style="font-size:10px;width:12px;height:12px;border:2px solid #e0e7ff;border-top-color:#6366f1;border-radius:50%;"></span>
+        <span id="planSpinner" class="spinner hidden" style="width:10px;height:10px;border:1.5px solid #e0e7ff;border-top-color:#6366f1;border-radius:50%;"></span>
         <span id="planCount" class="ml-auto text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-400">0 steps</span>
       </button>
       <div id="planBody" style="overflow:hidden;transition:max-height 0.25s ease;max-height:180px">
         <div id="planInner" class="px-4 pb-3 flex flex-col gap-1 overflow-y-auto" style="max-height:170px">
-          <p id="planPlaceholder" class="text-xs text-gray-300 py-1 flex items-center gap-2">
+          <p class="text-xs text-gray-300 py-1 flex items-center gap-2">
             <span class="spinner" style="width:10px;height:10px;border:1.5px solid #e0e7ff;border-top-color:#6366f1;border-radius:50%;display:inline-block;"></span>
             Preparing plan...
           </p>
@@ -101,31 +109,31 @@
       <div id="logStream" class="flex-1 overflow-y-auto flex flex-col gap-0 font-mono text-xs min-h-0"></div>
     </div>
 
-    <!-- Report summary bar -->
+    <!-- Report bar -->
     <div id="reportBar" class="hidden flex-shrink-0 border-t border-gray-100 bg-white">
-      <div class="grid grid-cols-5 gap-2 px-4 pt-3 pb-2 cursor-pointer" onclick="openReportModal()">
-        <div class="bg-gray-50 rounded-lg p-2 text-center hover:bg-gray-100 transition">
-          <div id="mTotal" class="text-lg font-semibold text-gray-700">0</div>
+      <div class="grid grid-cols-5 gap-1.5 px-4 pt-3 pb-1">
+        <button onclick="openDrawer('all')" class="report-stat bg-gray-50 rounded-lg p-2 text-center hover:bg-gray-100 transition cursor-pointer">
+          <div id="mTotal" class="text-base font-bold text-gray-700">0</div>
           <div class="text-xs text-gray-400">total</div>
-        </div>
-        <div class="bg-green-50 rounded-lg p-2 text-center hover:bg-green-100 transition">
-          <div id="mPass" class="text-lg font-semibold text-green-600">0</div>
+        </button>
+        <button onclick="openDrawer('passed')" class="report-stat bg-green-50 rounded-lg p-2 text-center hover:bg-green-100 transition cursor-pointer">
+          <div id="mPass" class="text-base font-bold text-green-600">0</div>
           <div class="text-xs text-green-400">passed</div>
-        </div>
-        <div class="bg-red-50 rounded-lg p-2 text-center hover:bg-red-100 transition">
-          <div id="mFail" class="text-lg font-semibold text-red-500">0</div>
+        </button>
+        <button onclick="openDrawer('failed')" class="report-stat bg-red-50 rounded-lg p-2 text-center hover:bg-red-100 transition cursor-pointer">
+          <div id="mFail" class="text-base font-bold text-red-500">0</div>
           <div class="text-xs text-red-400">failed</div>
-        </div>
-        <div class="bg-gray-50 rounded-lg p-2 text-center hover:bg-gray-100 transition">
-          <div id="mSkip" class="text-lg font-semibold text-gray-500">0</div>
+        </button>
+        <button onclick="openDrawer('skipped')" class="report-stat bg-gray-50 rounded-lg p-2 text-center hover:bg-gray-100 transition cursor-pointer">
+          <div id="mSkip" class="text-base font-bold text-gray-500">0</div>
           <div class="text-xs text-gray-400">skipped</div>
-        </div>
-        <div class="bg-amber-50 rounded-lg p-2 text-center hover:bg-amber-100 transition">
-          <div id="mHeal" class="text-lg font-semibold text-amber-500">0</div>
+        </button>
+        <button onclick="openDrawer('healed')" class="report-stat bg-amber-50 rounded-lg p-2 text-center hover:bg-amber-100 transition cursor-pointer">
+          <div id="mHeal" class="text-base font-bold text-amber-500">0</div>
           <div class="text-xs text-amber-400">healed</div>
-        </div>
+        </button>
       </div>
-      <button onclick="openReportModal()" class="w-full flex items-center justify-center gap-1 pb-2 text-xs text-indigo-500 hover:text-indigo-700 transition font-medium">
+      <button onclick="openDrawer('all')" class="w-full flex items-center justify-center gap-1 pb-2 pt-0.5 text-xs text-indigo-500 hover:text-indigo-700 transition font-medium">
         View full report
         <svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 3L5 7L8 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" fill="none"/></svg>
       </button>
@@ -133,47 +141,47 @@
   </div>
 </div>
 
-<!-- ── Report Modal ──────────────────────────────────────────────────────── -->
-<div id="reportModal" class="hidden fixed inset-0 z-50 flex items-end justify-center" style="background:rgba(0,0,0,0.45)">
-  <div class="bg-white rounded-t-2xl w-full max-w-3xl shadow-2xl" style="max-height:82vh;overflow:hidden;display:flex;flex-direction:column;animation:fadeIn 0.2s ease">
-    <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
-      <div class="flex items-center gap-3">
-        <div id="modalStatusDot" class="w-3 h-3 rounded-full bg-gray-300"></div>
-        <span id="modalTitle" class="text-sm font-semibold text-gray-800">Test Run Report</span>
-      </div>
-      <button onclick="closeReportModal()" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
-    </div>
+<!-- ── Report Drawer ─────────────────────────────────────────────────────── -->
+<div id="drawerBackdrop" class="hidden fixed inset-0 z-40" style="background:rgba(0,0,0,0.3)" onclick="closeDrawer()"></div>
 
-    <!-- Summary strip -->
-    <div id="modalSummary" class="grid grid-cols-5 gap-3 px-6 py-4 border-b border-gray-100 flex-shrink-0">
-      <div class="text-center"><div id="modalTotal" class="text-2xl font-bold text-gray-700">0</div><div class="text-xs text-gray-400 mt-0.5">Total</div></div>
-      <div class="text-center"><div id="modalPass" class="text-2xl font-bold text-green-600">0</div><div class="text-xs text-green-400 mt-0.5">Passed</div></div>
-      <div class="text-center"><div id="modalFail" class="text-2xl font-bold text-red-500">0</div><div class="text-xs text-red-400 mt-0.5">Failed</div></div>
-      <div class="text-center"><div id="modalSkip" class="text-2xl font-bold text-gray-500">0</div><div class="text-xs text-gray-400 mt-0.5">Skipped</div></div>
-      <div class="text-center"><div id="modalHeal" class="text-2xl font-bold text-amber-500">0</div><div class="text-xs text-amber-400 mt-0.5">Healed</div></div>
+<div id="reportDrawer" class="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl shadow-2xl" style="max-height:75vh;display:flex;flex-direction:column;">
+  <!-- Drawer handle -->
+  <div class="flex-shrink-0 flex items-center justify-between px-6 py-4 border-b border-gray-100">
+    <div class="flex items-center gap-3">
+      <div id="drawerStatusDot" class="w-2.5 h-2.5 rounded-full bg-gray-300"></div>
+      <span id="drawerTitle" class="text-sm font-semibold text-gray-800">Test Report</span>
+      <span id="drawerPassRate" class="hidden text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 font-medium"></span>
     </div>
-
-    <!-- Pass rate bar (for regression) -->
-    <div id="passRateBar" class="hidden px-6 py-3 border-b border-gray-100 flex-shrink-0">
-      <div class="flex items-center justify-between mb-1">
-        <span class="text-xs text-gray-500 font-medium">Pass rate</span>
-        <span id="passRatePct" class="text-xs font-bold text-gray-700">0%</span>
-      </div>
-      <div class="w-full bg-gray-100 rounded-full h-1.5">
-        <div id="passRateFill" class="h-1.5 rounded-full bg-green-500 transition-all" style="width:0%"></div>
-      </div>
-    </div>
-
-    <div id="modalContent" class="overflow-y-auto flex-1 px-6 py-4 flex flex-col gap-3"></div>
+    <button onclick="closeDrawer()" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
   </div>
+
+  <!-- Pass rate bar -->
+  <div id="drawerRateBar" class="hidden flex-shrink-0 px-6 py-2 border-b border-gray-100">
+    <div class="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
+      <div id="drawerRateFill" class="h-full rounded-full transition-all" style="width:0%"></div>
+    </div>
+  </div>
+
+  <!-- Tab bar -->
+  <div id="drawerTabs" class="flex-shrink-0 flex border-b border-gray-100 px-6">
+    <button class="tab-btn active py-2.5 mr-5 text-xs" data-tab="all" onclick="switchTab('all')">All</button>
+    <button class="tab-btn py-2.5 mr-5 text-xs text-gray-400" data-tab="passed" onclick="switchTab('passed')">Passed</button>
+    <button class="tab-btn py-2.5 mr-5 text-xs text-gray-400" data-tab="failed" onclick="switchTab('failed')">Failed</button>
+    <button class="tab-btn py-2.5 mr-5 text-xs text-gray-400" data-tab="skipped" onclick="switchTab('skipped')">Skipped</button>
+    <button class="tab-btn py-2.5 text-xs text-gray-400" data-tab="healed" onclick="switchTab('healed')">Healed</button>
+  </div>
+
+  <!-- Drawer content -->
+  <div id="drawerContent" class="overflow-y-auto flex-1 px-6 py-4 flex flex-col gap-2"></div>
 </div>
 
 <script>
   const ws = new WebSocket('ws://localhost:4000');
   let mode = 'prompt';
   let planOpen = true;
-  let allScenarioResults = [];
-  let isPlanLoading = false;
+  let allScenarioData = [];
+  let currentTab = 'all';
+  let drawerOpen = false;
 
   const ta = document.getElementById('chatInput');
   ta.addEventListener('input', () => { ta.style.height='auto'; ta.style.height=Math.min(ta.scrollHeight,80)+'px'; });
@@ -181,8 +189,7 @@
 
   // ── WebSocket ──────────────────────────────────────────────────────────────
   ws.onmessage = (event) => {
-    const msg = JSON.parse(event.data);
-    const { type, data } = msg;
+    const { type, data } = JSON.parse(event.data);
     if      (type==='plan')            renderSteps(data.steps);
     else if (type==='step')            updateStep(data.index, data.status);
     else if (type==='log')             addLog(data.text, data.level);
@@ -190,7 +197,7 @@
     else if (type==='regression_plan') showRegressionPlan(data);
     else if (type==='scenario_start')  onScenarioStart(data);
     else if (type==='question')        enterAnswerMode(data);
-    else if (type==='answer_received') addLog('You: '+data, 'user');
+    else if (type==='answer_received') addLog('→ '+data, 'user');
     else if (type==='report')          showReport(data);
     else if (type==='agent_message')   { addChatMsg(data,'agent'); resetInput(); }
     else if (type==='agent_state')     setAgentStateBadge(data);
@@ -202,41 +209,53 @@
   // ── Send ───────────────────────────────────────────────────────────────────
   function handleSend() {
     const val = ta.value.trim();
-    if (!val) return;
+    if (!val || ta.disabled) return;
     ta.value=''; ta.style.height='auto';
-    if (mode==='answer'||mode==='scenario_choice'||mode==='confirm') {
+    if (mode==='answer'||mode==='scenario_choice') {
       addChatMsg(val,'user');
       ws.send(JSON.stringify({type:'answer',data:val}));
-      mode='running'; setBtn(true); setAgent('running',true);
+      mode='running'; lockInput(true); setAgent('running',true);
+    } else if (mode==='confirm') {
+      // In confirm mode, free text treated as cancel/skip
+      addChatMsg(val,'user');
+      ws.send(JSON.stringify({type:'answer',data:val}));
+      mode='running'; lockInput(false); setAgent('running',true);
     } else {
       if (mode==='running') return;
       mode='running';
       addChatMsg(val,'user');
-      setBtn(true); resetExecPanel(); setBadge('running','blue');
+      lockInput(true); resetExecPanel(); setBadge('running','blue');
       setAgent('thinking',true); showTyping();
-      allScenarioResults=[];
+      allScenarioData=[];
       ws.send(JSON.stringify({type:'prompt',data:val}));
     }
   }
 
-  // ── BUG FIX 1: Suggestions with data-attribute to avoid JS injection ───────
-  function renderSuggestions(items) {
-    const row = document.getElementById('suggestionChips');
-    if (!items || !items.length) { row.innerHTML=''; return; }
-    row.innerHTML = '';
-    items.forEach((text, i) => {
-      const btn = document.createElement('button');
-      btn.className = `whitespace-nowrap px-3 py-1.5 rounded-full text-xs border transition ${
-        i===0 ? 'border-indigo-100 bg-indigo-50 text-indigo-600 hover:bg-indigo-100'
-              : 'border-gray-100 bg-gray-50 text-gray-600 hover:bg-gray-100'}`;
-      btn.textContent = text;
-      btn.addEventListener('click', () => fillPrompt(text));
-      row.appendChild(btn);
-    });
+  // FIX 3: Lock input field during confirm/running modes
+  function lockInput(locked) {
+    ta.disabled = locked;
+    document.getElementById('sendBtn').disabled = locked;
+    if (locked) {
+      ta.placeholder = 'Use the buttons above to respond...';
+      ta.style.opacity = '0.5';
+    } else {
+      ta.placeholder = 'Describe a test or ask about a module...';
+      ta.style.opacity = '';
+    }
   }
 
-  function fillPrompt(text) {
-    ta.value = text; ta.focus(); ta.dispatchEvent(new Event('input'));
+  // ── Suggestion chips ───────────────────────────────────────────────────────
+  function renderSuggestions(items) {
+    const row = document.getElementById('suggestionChips');
+    row.innerHTML = '';
+    if (!items?.length) return;
+    items.forEach((text, i) => {
+      const btn = document.createElement('button');
+      btn.className = `whitespace-nowrap px-3 py-1.5 rounded-full text-xs border transition ${i===0?'border-indigo-100 bg-indigo-50 text-indigo-600 hover:bg-indigo-100':'border-gray-100 bg-gray-50 text-gray-600 hover:bg-gray-100'}`;
+      btn.textContent = text;
+      btn.addEventListener('click', () => { if (!ta.disabled) { ta.value=text; ta.focus(); ta.dispatchEvent(new Event('input')); } });
+      row.appendChild(btn);
+    });
   }
 
   // ── Scenario picker ────────────────────────────────────────────────────────
@@ -256,8 +275,7 @@
     scenarios.forEach((s, i) => {
       const row = document.createElement('div');
       row.className = 'flex items-start gap-2 text-xs text-gray-600';
-      row.innerHTML = `<span class="text-gray-400 flex-shrink-0 font-mono mt-0.5">${i+1}.</span>
-        <div><div class="font-medium text-gray-700">${esc(s.name)}</div><div class="text-gray-400">${esc(s.description)}</div></div>`;
+      row.innerHTML = `<span class="text-gray-400 font-mono mt-0.5">${i+1}.</span><div><div class="font-medium text-gray-700">${esc(s.name)}</div><div class="text-gray-400">${esc(s.description)}</div></div>`;
       list.appendChild(row);
     });
     wrap.appendChild(list);
@@ -277,26 +295,20 @@
       btnRow.appendChild(btn);
     });
     wrap.appendChild(btnRow);
-
-    const time = document.createElement('div');
-    time.className = 'text-xs text-gray-300'; time.textContent = now();
-    wrap.appendChild(time);
-    msgs.appendChild(wrap); msgs.scrollTop = msgs.scrollHeight;
-    mode='scenario_choice'; setBtn(false); setAgent('waiting for you',true);
+    addTime(wrap);
+    msgs.appendChild(wrap); msgs.scrollTop=msgs.scrollHeight;
+    mode='scenario_choice'; lockInput(false); setAgent('waiting for you',true);
   }
 
-  // ── Regression plan picker ─────────────────────────────────────────────────
   function showRegressionPlan({ modules, total }) {
     removeTyping();
     const msgs = document.getElementById('chatMessages');
     const wrap = document.createElement('div');
     wrap.className = 'flex flex-col gap-2 max-w-[95%] msg-in';
-
     const bubble = document.createElement('div');
     bubble.className = 'bg-gray-100 text-gray-700 text-sm px-3 py-2 rounded-xl rounded-bl-sm leading-relaxed';
     bubble.textContent = `Regression suite ready — ${total} scenarios across ${modules.length} modules:`;
     wrap.appendChild(bubble);
-
     modules.forEach(mod => {
       const section = document.createElement('div');
       section.className = 'pl-1';
@@ -307,12 +319,11 @@
       mod.scenarios.forEach((s, i) => {
         const row = document.createElement('div');
         row.className = 'text-xs text-gray-500 flex gap-2';
-        row.innerHTML = `<span class="text-gray-300 font-mono">${i+1}.</span><span>${esc(s.name)} — <span class="text-gray-400">${esc(s.description)}</span></span>`;
+        row.innerHTML = `<span class="text-gray-300 font-mono">${i+1}.</span><span>${esc(s.name)}</span>`;
         section.appendChild(row);
       });
       wrap.appendChild(section);
     });
-
     const btnRow = document.createElement('div');
     btnRow.className = 'flex gap-2';
     const runBtn = document.createElement('button');
@@ -325,61 +336,43 @@
     cancelBtn.addEventListener('click', () => { sendChoice('cancel'); btnRow.remove(); });
     btnRow.appendChild(runBtn); btnRow.appendChild(cancelBtn);
     wrap.appendChild(btnRow);
-
-    const time = document.createElement('div');
-    time.className = 'text-xs text-gray-300'; time.textContent = now();
-    wrap.appendChild(time);
-    msgs.appendChild(wrap); msgs.scrollTop = msgs.scrollHeight;
-    mode='scenario_choice'; setBtn(false); setAgent('waiting for you',true);
+    addTime(wrap);
+    msgs.appendChild(wrap); msgs.scrollTop=msgs.scrollHeight;
+    mode='scenario_choice'; lockInput(false); setAgent('waiting for you',true);
   }
 
   function sendChoice(val) {
     ws.send(JSON.stringify({type:'answer',data:val}));
-    mode='running'; setBtn(true); setAgent('running',true);
+    mode='running'; lockInput(true); setAgent('running',true);
   }
 
   function onScenarioStart(scenario) {
     const lbl = document.getElementById('scenarioLabel');
     lbl.textContent = scenario.name; lbl.classList.remove('hidden');
-    // Show plan spinner while steps load
-    setPlanLoading(true);
-  }
-
-  // ── Plan spinner ───────────────────────────────────────────────────────────
-  function setPlanLoading(loading) {
-    isPlanLoading = loading;
-    const spinner = document.getElementById('planSpinner');
-    const placeholder = document.getElementById('planPlaceholder');
-    spinner?.classList.toggle('hidden', !loading);
-    if (loading && placeholder) placeholder.style.display = 'flex';
+    // Show plan section with spinner
+    document.getElementById('planSection').classList.remove('hidden');
+    document.getElementById('planSpinner').classList.remove('hidden');
   }
 
   // ── Chat helpers ───────────────────────────────────────────────────────────
   function now() { const d=new Date(); return d.getHours()+':'+String(d.getMinutes()).padStart(2,'0'); }
   function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
   function removeTyping() { document.getElementById('typingBubble')?.remove(); }
+  function addTime(wrap) { const t=document.createElement('div'); t.className='text-xs text-gray-300'; t.textContent=now(); wrap.appendChild(t); }
 
-  function addChatMsg(text, who, isQuestion=false, extraClass='') {
+  function addChatMsg(text, who, isQuestion=false) {
     removeTyping();
     const msgs=document.getElementById('chatMessages');
     const isUser=who==='user';
     const wrap=document.createElement('div');
     wrap.className='flex flex-col gap-1 msg-in '+(isUser?'items-end self-end max-w-[85%] ml-auto':'items-start max-w-[85%]');
     const bubble=document.createElement('div');
-    bubble.className='text-sm px-3 py-2 rounded-xl leading-relaxed '+(
-      isUser?'bg-indigo-50 text-indigo-800 rounded-br-sm':
-      isQuestion?'bg-amber-50 text-amber-900 border border-amber-200 rounded-bl-sm':
-      'bg-gray-100 text-gray-700 rounded-bl-sm')+' '+extraClass;
-    if (!isUser && text.includes('\n')) {
-      bubble.innerHTML = text.split('\n').map(line => esc(line) || '&nbsp;').join('<br>');
-    } else {
-      bubble.textContent = text;
-    }
-    const time=document.createElement('div');
-    time.className='text-xs text-gray-300'; time.textContent=now();
-    wrap.appendChild(bubble); wrap.appendChild(time);
+    bubble.className='text-sm px-3 py-2 rounded-xl leading-relaxed '+(isUser?'bg-indigo-50 text-indigo-800 rounded-br-sm':isQuestion?'bg-amber-50 text-amber-900 border border-amber-200 rounded-bl-sm':'bg-gray-100 text-gray-700 rounded-bl-sm');
+    if (!isUser && text.includes('\n')) bubble.innerHTML=text.split('\n').map(l=>esc(l)||'&nbsp;').join('<br>');
+    else bubble.textContent=text;
+    addTime(wrap);
+    wrap.insertBefore(bubble, wrap.firstChild);
     msgs.appendChild(wrap); msgs.scrollTop=msgs.scrollHeight;
-    return bubble;
   }
 
   function showTyping() {
@@ -394,25 +387,19 @@
 
   // ── Log ────────────────────────────────────────────────────────────────────
   const levelColor={info:'text-gray-400',success:'text-green-600',error:'text-red-500',warn:'text-amber-500',user:'text-indigo-500'};
-
   function addLog(text, level='info') {
-    if (!text || !text.trim()) return;
+    if (!text?.trim()) return;
     const stream=document.getElementById('logStream');
     const el=document.createElement('div');
-    if (level === 'phase') {
-      el.className='log-phase py-1 font-mono text-xs';
-      el.textContent = text;
-    } else {
-      el.className='flex gap-2 py-0.5 border-b border-gray-50 last:border-0';
-      el.innerHTML=`<span class="text-gray-300 flex-shrink-0 select-none">${now()}</span><span class="${levelColor[level]||levelColor.info}">${esc(text)}</span>`;
-    }
+    if (level==='phase') { el.className='log-phase py-1 font-mono text-xs'; el.textContent=text; }
+    else { el.className='flex gap-2 py-0.5 border-b border-gray-50'; el.innerHTML=`<span class="text-gray-300 flex-shrink-0 select-none">${now()}</span><span class="${levelColor[level]||levelColor.info}">${esc(text)}</span>`; }
     stream.appendChild(el); stream.scrollTop=stream.scrollHeight;
   }
 
   // ── Plan ───────────────────────────────────────────────────────────────────
   function renderSteps(steps) {
-    if (!steps || steps.length === 0) return;
-    setPlanLoading(false);
+    if (!steps?.length) return;
+    document.getElementById('planSpinner').classList.add('hidden');
     document.getElementById('planSection').classList.remove('hidden');
     const inner=document.getElementById('planInner');
     inner.innerHTML='';
@@ -423,12 +410,13 @@
       row.innerHTML=`<div id="sd-${i}" class="w-2 h-2 rounded-full flex-shrink-0 sdot-idle"></div>
         <span class="font-mono font-medium text-gray-500 w-16 flex-shrink-0">${esc(step.action)}</span>
         <span class="font-mono text-gray-400 truncate flex-1">${esc(step.selector||step.value||'')}</span>
-        <span id="sl-${i}" class="flex-shrink-0 text-gray-300 font-medium text-xs">—</span>`;
+        <span id="sl-${i}" class="flex-shrink-0 text-gray-300 text-xs">—</span>`;
       inner.appendChild(row);
     });
     const count=document.getElementById('planCount');
     count.textContent=steps.length+' steps';
     count.className='ml-auto text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-500';
+    if(!planOpen) togglePlan();
   }
 
   function updateStep(index, status) {
@@ -444,51 +432,64 @@
     document.getElementById('row-'+index)?.scrollIntoView({block:'nearest'});
   }
 
-  function togglePlan(){
-    planOpen=!planOpen;
-    document.getElementById('planBody').style.maxHeight=planOpen?'180px':'0px';
-    document.getElementById('planChevron').style.transform=planOpen?'rotate(90deg)':'rotate(0deg)';
-  }
+  function togglePlan(){ planOpen=!planOpen; document.getElementById('planBody').style.maxHeight=planOpen?'180px':'0px'; document.getElementById('planChevron').style.transform=planOpen?'rotate(90deg)':'rotate(0deg)'; }
 
-  // ── Answer mode ────────────────────────────────────────────────────────────
+  // ── Answer / confirm modes ─────────────────────────────────────────────────
   function enterAnswerMode(payload){
     const question = typeof payload==='string' ? payload : payload.text;
     const qType    = typeof payload==='object'  ? payload.type : 'text';
     const meta     = typeof payload==='object'  ? payload.meta : null;
-    mode='answer'; setAgent('waiting for you',true);
+    setAgent('waiting for you',true);
 
-    if (qType==='heal_choice')   showHealChoice(question, meta);
-    else if (qType==='confirm_run') showConfirmRun(question, meta);
-    else { addChatMsg(question,'agent',true); setBtn(false); ta.placeholder='Type your answer...'; }
+    if (qType==='confirm_run')  showConfirmRun(question, meta);
+    else if (qType==='heal_choice') showHealChoice(question, meta);
+    else {
+      mode='answer';
+      addChatMsg(question,'agent',true);
+      lockInput(false);
+      ta.placeholder='Type your answer...';
+    }
   }
 
-  // ── Confirm run dialog ─────────────────────────────────────────────────────
+  // FIX 2: Confirm dialog — no ID shown, plan already rendered above
   function showConfirmRun(question, meta) {
     removeTyping();
+    mode='confirm';
+    lockInput(true); // FIX 3: lock input — use the buttons
     const msgs=document.getElementById('chatMessages');
     const wrap=document.createElement('div');
     wrap.className='flex flex-col gap-2 max-w-[85%] msg-in';
 
     const bubble=document.createElement('div');
-    bubble.className='bg-indigo-50 border border-indigo-100 text-indigo-900 text-sm px-3 py-2.5 rounded-xl rounded-bl-sm leading-relaxed';
+    bubble.className='bg-indigo-50 border border-indigo-100 rounded-xl rounded-bl-sm px-3 py-2.5';
 
-    // Title line
     const title=document.createElement('div');
-    title.className='font-semibold text-indigo-700 mb-1.5 flex items-center gap-2';
+    title.className='font-semibold text-indigo-700 text-sm mb-1 flex items-center gap-2';
     title.innerHTML=`<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="5" stroke="#6366f1" stroke-width="1.5"/><path d="M4 6l1.5 1.5L8 4" stroke="#6366f1" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Ready to run`;
     bubble.appendChild(title);
 
-    // Steps preview
-    const pre=document.createElement('pre');
-    pre.className='text-xs text-indigo-700 font-mono whitespace-pre-wrap bg-indigo-100 rounded px-2 py-1.5 mt-1';
-    pre.textContent = question.split('\n').slice(1).join('\n'); // skip first line (scenario name in title)
-    if (meta?.steps) {
-      const titleLine = question.split('\n')[0];
-      bubble.appendChild(document.createTextNode(titleLine.replace('Ready to run: ', '')));
+    // Scenario name (human-readable, no ID)
+    const scenName = document.createElement('div');
+    scenName.className = 'text-xs text-indigo-600 font-medium mb-1';
+    scenName.textContent = meta?.scenarioName || question.split('\n')[0].replace('Ready to run: ','');
+    bubble.appendChild(scenName);
+
+    // Step preview (already clean from server)
+    const steps = question.split('\n').slice(2).filter(Boolean);
+    if (steps.length) {
+      const pre=document.createElement('pre');
+      pre.className='text-xs text-indigo-700 font-mono whitespace-pre-wrap bg-indigo-100 rounded px-2 py-1.5 mt-1 leading-relaxed';
+      pre.textContent=steps.join('\n');
       bubble.appendChild(pre);
-    } else {
-      bubble.appendChild(document.createTextNode(question));
     }
+
+    if (meta?.totalSteps) {
+      const hint = document.createElement('div');
+      hint.className = 'text-xs text-indigo-400 mt-1';
+      hint.textContent = `${meta.totalSteps} total steps`;
+      bubble.appendChild(hint);
+    }
+
     wrap.appendChild(bubble);
 
     const btnRow=document.createElement('div');
@@ -496,85 +497,72 @@
 
     const runBtn=document.createElement('button');
     runBtn.className='px-4 py-2 text-xs font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition flex items-center gap-1.5';
-    runBtn.innerHTML=`<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M3 2l5 3-5 3V2z" fill="white"/></svg> Run test`;
-    runBtn.addEventListener('click', () => { sendAnswer('yes'); btnRow.remove(); });
+    runBtn.innerHTML=`<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M3 2l5 3-5 3V2z" fill="white"/></svg>Run test`;
+    runBtn.addEventListener('click', () => { addChatMsg('Run test','user'); sendAnswer('yes'); btnRow.remove(); });
 
     const skipBtn=document.createElement('button');
     skipBtn.className='px-4 py-2 text-xs font-medium border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 transition';
     skipBtn.textContent='Skip';
-    skipBtn.addEventListener('click', () => { sendAnswer('skip'); btnRow.remove(); });
+    skipBtn.addEventListener('click', () => { addChatMsg('Skip','user'); sendAnswer('skip'); btnRow.remove(); });
 
     btnRow.appendChild(runBtn); btnRow.appendChild(skipBtn);
     wrap.appendChild(btnRow);
-
-    const time=document.createElement('div');
-    time.className='text-xs text-gray-300'; time.textContent=now();
-    wrap.appendChild(time);
+    addTime(wrap);
     msgs.appendChild(wrap); msgs.scrollTop=msgs.scrollHeight;
-    setBtn(true); mode='confirm';
   }
 
-  // ── Heal choice dialog — with enhanced error info ──────────────────────────
   function showHealChoice(errorMsg, meta) {
     removeTyping();
+    lockInput(true); // FIX 3: lock during heal choice too
     const msgs=document.getElementById('chatMessages');
     const wrap=document.createElement('div');
     wrap.className='flex flex-col gap-2 max-w-[85%] msg-in';
 
-    // Main error card
     const bubble=document.createElement('div');
-    bubble.className='bg-red-50 border border-red-200 text-sm px-3 py-2.5 rounded-xl rounded-bl-sm leading-relaxed';
+    bubble.className='bg-red-50 border border-red-200 rounded-xl rounded-bl-sm px-3 py-2.5';
 
     const title=document.createElement('div');
-    title.className='font-semibold text-red-700 mb-1 flex items-center gap-2 text-xs uppercase tracking-wide';
+    title.className='font-semibold text-red-700 text-xs uppercase tracking-wide mb-1 flex items-center gap-1.5';
     title.innerHTML=`<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><circle cx="5" cy="5" r="4" stroke="#ef4444" stroke-width="1.5"/><path d="M5 3v2.5M5 7h.01" stroke="#ef4444" stroke-width="1.5" stroke-linecap="round"/></svg>Step failed`;
     bubble.appendChild(title);
 
     const errText=document.createElement('div');
-    errText.className='text-red-700 text-xs font-mono bg-red-100 rounded px-2 py-1.5 mt-1';
+    errText.className='text-red-700 text-xs font-mono bg-red-100 rounded px-2 py-1.5 mt-1 break-all';
     errText.textContent=errorMsg;
     bubble.appendChild(errText);
 
     if (meta?.failedStep) {
       const stepInfo=document.createElement('div');
-      stepInfo.className='text-red-500 text-xs mt-1.5';
-      stepInfo.textContent=`Action: ${meta.failedStep.action} ${meta.failedStep.selector||meta.failedStep.value||''}`;
+      stepInfo.className='text-red-500 text-xs mt-1';
+      stepInfo.textContent=`Failed at: ${meta.failedStep.action} ${meta.failedStep.selector||meta.failedStep.value||''}`;
       bubble.appendChild(stepInfo);
     }
 
     const healHint=document.createElement('div');
     healHint.className='text-amber-700 text-xs mt-2 bg-amber-50 border border-amber-200 rounded px-2 py-1.5';
-    healHint.innerHTML='<strong>Auto-heal</strong> will capture the current browser state and ask Gemini to generate corrected steps.';
+    healHint.innerHTML='<strong>Auto-heal</strong> captures the current DOM and asks Gemini to regenerate corrected steps.';
     bubble.appendChild(healHint);
-
     wrap.appendChild(bubble);
 
     const btnRow=document.createElement('div');
     btnRow.className='flex gap-2';
-
     const healBtn=document.createElement('button');
     healBtn.className='px-4 py-2 text-xs font-medium bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition flex items-center gap-1.5';
-    healBtn.innerHTML=`<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M5 1a4 4 0 100 8A4 4 0 005 1zm0 0v2m0 4h.01" stroke="white" stroke-width="1.2" stroke-linecap="round"/></svg> Auto-heal`;
-    healBtn.addEventListener('click', () => { sendAnswer('heal'); btnRow.remove(); });
-
+    healBtn.innerHTML=`<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M5 1a4 4 0 100 8A4 4 0 005 1" stroke="white" stroke-width="1.2" stroke-linecap="round"/></svg>Auto-heal`;
+    healBtn.addEventListener('click', () => { addChatMsg('Auto-heal','user'); sendAnswer('heal'); btnRow.remove(); });
     const stopBtn=document.createElement('button');
     stopBtn.className='px-4 py-2 text-xs font-medium border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 transition';
     stopBtn.textContent='Stop';
-    stopBtn.addEventListener('click', () => { sendAnswer('stop'); btnRow.remove(); });
-
+    stopBtn.addEventListener('click', () => { addChatMsg('Stop','user'); sendAnswer('stop'); btnRow.remove(); });
     btnRow.appendChild(healBtn); btnRow.appendChild(stopBtn);
     wrap.appendChild(btnRow);
-    const time=document.createElement('div');
-    time.className='text-xs text-gray-300'; time.textContent=now();
-    wrap.appendChild(time);
+    addTime(wrap);
     msgs.appendChild(wrap); msgs.scrollTop=msgs.scrollHeight;
-    setBtn(true);
   }
 
   function sendAnswer(val) {
-    addLog('You: '+val,'user');
     ws.send(JSON.stringify({type:'answer',data:val}));
-    mode='running'; setBtn(true); setAgent('running',true);
+    mode='running'; lockInput(true); setAgent('running',true);
   }
 
   // ── Report ─────────────────────────────────────────────────────────────────
@@ -596,125 +584,190 @@
     setBadge(data.status==='success'?'passed':'failed', data.status==='success'?'green':'red');
     setAgent('done');
     document.getElementById('scenarioLabel').classList.add('hidden');
+    allScenarioData = data.scenarios || [];
 
-    allScenarioResults = data.scenarios || [];
-    buildModalContent(allScenarioResults, { total, passed, failed, skipped, healed, status: data.status, type: data.type });
+    // Pre-build drawer content
+    buildDrawerContent(data);
 
-    const isRegression = data.type === 'regression';
+    const isReg = data.type==='regression';
     const msg = data.status==='success'
-      ? `${isRegression?'Regression':'All'} ${total} scenario${total>1?'s':''} passed.${healed?` (${healed} healed)`:''}`
-      : `${failed} scenario${failed>1?'s':''} failed${skipped?`, ${skipped} skipped`:''}. View the report for details.`;
+      ? `${isReg?'Regression: ':''}${total} scenario${total>1?'s':''} passed.${healed?` (${healed} healed)`:''}`
+      : `${failed} failed${skipped?`, ${skipped} skipped`:''}. Click a stat to view details.`;
     addChatMsg(msg,'agent');
     resetInput();
   }
 
-  // ── Report modal ───────────────────────────────────────────────────────────
-  function buildModalContent(scenarios, summary) {
-    document.getElementById('modalStatusDot').className='w-3 h-3 rounded-full '+(summary.status==='success'?'bg-green-500':'bg-red-500');
-    document.getElementById('modalTitle').textContent = summary.type==='regression' ? 'Regression Report' : 'Test Run Report';
-    document.getElementById('modalTotal').textContent=summary.total;
-    document.getElementById('modalPass').textContent=summary.passed;
-    document.getElementById('modalFail').textContent=summary.failed;
-    document.getElementById('modalSkip').textContent=summary.skipped||0;
-    document.getElementById('modalHeal').textContent=summary.healed;
+  // ── Drawer ─────────────────────────────────────────────────────────────────
+  let drawerSummary = {};
 
-    // Pass rate bar — show for regression or multi-scenario
-    const pct = summary.total > 0 ? Math.round((summary.passed/summary.total)*100) : 0;
-    if (summary.total > 1) {
-      document.getElementById('passRateBar').classList.remove('hidden');
-      document.getElementById('passRatePct').textContent = pct+'%';
-      document.getElementById('passRateFill').style.width = pct+'%';
-      document.getElementById('passRateFill').className = `h-1.5 rounded-full transition-all ${pct===100?'bg-green-500':pct>=50?'bg-amber-500':'bg-red-500'}`;
-    } else {
-      document.getElementById('passRateBar').classList.add('hidden');
+  function buildDrawerContent(data) {
+    const s = data.summary || {};
+    drawerSummary = { ...s, status: data.status, type: data.type };
+    const scenarios = data.scenarios || [];
+
+    // Header
+    document.getElementById('drawerStatusDot').className = 'w-2.5 h-2.5 rounded-full ' + (s.passed === s.total ? 'bg-green-500' : s.failed > 0 ? 'bg-red-500' : 'bg-amber-500');
+    document.getElementById('drawerTitle').textContent = data.type==='regression' ? 'Regression Report' : 'Test Report';
+
+    // Pass rate
+    const pct = s.total > 0 ? Math.round((s.passed/s.total)*100) : 0;
+    if (s.total > 1) {
+      document.getElementById('drawerPassRate').textContent = pct+'% passed';
+      document.getElementById('drawerPassRate').classList.remove('hidden');
+      document.getElementById('drawerRateBar').classList.remove('hidden');
+      const fill = document.getElementById('drawerRateFill');
+      fill.style.width = pct+'%';
+      fill.className = `h-full rounded-full transition-all ${pct===100?'bg-green-500':pct>=50?'bg-amber-400':'bg-red-500'}`;
     }
 
-    const content=document.getElementById('modalContent');
-    content.innerHTML='';
-    if (!scenarios?.length) { content.innerHTML='<p class="text-sm text-gray-400 text-center py-8">No details available</p>'; return; }
-
-    // Group by module for regression
-    const byModule = {};
-    scenarios.forEach(sr => {
-      const mod = sr.scenario?.module || 'general';
-      (byModule[mod] = byModule[mod] || []).push(sr);
+    // Update tab counts
+    const tabCounts = {
+      all: scenarios.length,
+      passed:  scenarios.filter(r => r.result?.status==='success').length,
+      failed:  scenarios.filter(r => r.result?.status==='failed').length,
+      skipped: scenarios.filter(r => r.result?.status==='skipped').length,
+      healed:  scenarios.filter(r => r.healCount > 0).length,
+    };
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      const tab = btn.dataset.tab;
+      const count = tabCounts[tab] ?? 0;
+      btn.textContent = tab.charAt(0).toUpperCase()+tab.slice(1) + (count > 0 ? ` (${count})` : '');
     });
 
-    Object.entries(byModule).forEach(([mod, items]) => {
-      if (Object.keys(byModule).length > 1) {
-        const modHeader = document.createElement('div');
-        modHeader.className = 'text-xs font-bold uppercase tracking-widest text-indigo-500 mt-2 mb-1 px-1';
-        modHeader.textContent = mod;
-        content.appendChild(modHeader);
-      }
-
-      items.forEach(({ scenario, result, healCount=0 }) => {
-        const status = result?.status;
-        const passed = status === 'success';
-        const skipped = status === 'skipped';
-        const steps  = result?.results || [];
-
-        const block=document.createElement('div');
-        block.className='border border-gray-100 rounded-xl overflow-hidden mb-1';
-
-        const bgClass = passed?'bg-green-50':skipped?'bg-gray-50':'bg-red-50';
-        const dotClass = passed?'bg-green-500':skipped?'bg-gray-400':'bg-red-500';
-        const textClass = passed?'text-green-800':skipped?'text-gray-600':'text-red-800';
-        const badgeText = passed?'PASS':skipped?'SKIP':'FAIL';
-        const badgeColor = passed?'text-green-600':skipped?'text-gray-500':'text-red-600';
-
-        const header=document.createElement('div');
-        header.className=`flex items-center gap-3 px-4 py-2.5 ${bgClass}`;
-        header.innerHTML=`
-          <div class="w-2.5 h-2.5 rounded-full flex-shrink-0 ${dotClass}"></div>
-          <span class="text-sm font-semibold ${textClass}">${esc(scenario?.name||'Scenario')}</span>
-          ${healCount>0?`<span class="text-xs text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">${healCount} healed</span>`:''}
-          <span class="ml-auto text-xs font-bold tracking-wide ${badgeColor}">${badgeText}</span>`;
-        block.appendChild(header);
-
-        if (steps.length > 0) {
-          const table=document.createElement('div');
-          table.className='divide-y divide-gray-50';
-          steps.forEach((r,i)=>{
-            const ok=r.status==='success';
-            const row=document.createElement('div');
-            row.className='flex items-center gap-3 px-4 py-2 text-xs hover:bg-gray-50 transition';
-            row.innerHTML=`
-              <span class="text-gray-400 w-5 text-right font-mono">${i+1}</span>
-              <div class="w-1.5 h-1.5 rounded-full flex-shrink-0 ${ok?'bg-green-400':'bg-red-400'}"></div>
-              <span class="font-mono font-medium text-gray-600 w-24 flex-shrink-0">${esc(r.step?.action||'')}</span>
-              <span class="font-mono text-gray-400 flex-1 truncate">${esc(r.step?.selector||r.step?.value||'')}</span>
-              <span class="font-semibold ${ok?'text-green-500':'text-red-500'}">${ok?'pass':'fail'}</span>`;
-            table.appendChild(row);
-            if (!ok && r.error) {
-              const errRow=document.createElement('div');
-              errRow.className='px-4 pb-2 text-xs text-red-400 font-mono bg-red-50';
-              errRow.textContent=r.error;
-              table.appendChild(errRow);
-            }
-          });
-          block.appendChild(table);
-        }
-        content.appendChild(block);
-      });
-    });
+    renderDrawerTab('all');
   }
 
-  function openReportModal() { document.getElementById('reportModal').classList.remove('hidden'); }
-  function closeReportModal() { document.getElementById('reportModal').classList.add('hidden'); }
-  document.getElementById('reportModal').addEventListener('click', e => {
-    if (e.target===document.getElementById('reportModal')) closeReportModal();
-  });
+  function renderDrawerTab(tab) {
+    currentTab = tab;
+    document.querySelectorAll('.tab-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.tab === tab);
+      b.classList.toggle('text-gray-400', b.dataset.tab !== tab);
+    });
+
+    const content = document.getElementById('drawerContent');
+    content.innerHTML = '';
+
+    let items = allScenarioData;
+    if (tab === 'passed')  items = allScenarioData.filter(r => r.result?.status === 'success');
+    if (tab === 'failed')  items = allScenarioData.filter(r => r.result?.status === 'failed');
+    if (tab === 'skipped') items = allScenarioData.filter(r => r.result?.status === 'skipped');
+    if (tab === 'healed')  items = allScenarioData.filter(r => r.healCount > 0);
+
+    if (!items.length) {
+      content.innerHTML = `<p class="text-sm text-gray-400 text-center py-8">No ${tab === 'all' ? '' : tab + ' '}scenarios</p>`;
+      return;
+    }
+
+    // Group by module when regression or multiple modules
+    const hasMultipleModules = new Set(items.map(r => r.scenario?.module)).size > 1;
+
+    if (hasMultipleModules) {
+      const byModule = {};
+      items.forEach(r => { const m = r.scenario?.module||'general'; (byModule[m]=byModule[m]||[]).push(r); });
+      Object.entries(byModule).forEach(([mod, modItems]) => {
+        const header = document.createElement('div');
+        header.className = 'text-xs font-bold uppercase tracking-widest text-indigo-500 mt-3 mb-1 first:mt-0';
+        header.textContent = mod;
+        content.appendChild(header);
+        modItems.forEach(r => content.appendChild(buildScenarioBlock(r)));
+      });
+    } else {
+      items.forEach(r => content.appendChild(buildScenarioBlock(r)));
+    }
+  }
+
+  function buildScenarioBlock({ scenario, result, healCount=0 }) {
+    const status  = result?.status;
+    const passed  = status === 'success';
+    const skipped = status === 'skipped';
+    const steps   = result?.results || [];
+
+    const block = document.createElement('div');
+    block.className = 'border border-gray-100 rounded-xl overflow-hidden mb-2';
+
+    const bgClass    = passed?'bg-green-50':skipped?'bg-gray-50':'bg-red-50';
+    const dotClass   = passed?'bg-green-500':skipped?'bg-gray-400':'bg-red-500';
+    const textClass  = passed?'text-green-800':skipped?'text-gray-600':'text-red-800';
+    const badgeColor = passed?'text-green-600':skipped?'text-gray-500':'text-red-600';
+    const badgeText  = passed?'PASS':skipped?'SKIP':'FAIL';
+
+    // Collapsible header
+    const header = document.createElement('button');
+    header.className = `w-full flex items-center gap-3 px-4 py-2.5 ${bgClass} text-left`;
+    header.innerHTML = `
+      <div class="w-2 h-2 rounded-full flex-shrink-0 ${dotClass}"></div>
+      <span class="text-sm font-semibold flex-1 ${textClass}">${esc(scenario?.name||'Scenario')}</span>
+      ${healCount>0?`<span class="text-xs text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">${healCount} healed</span>`:''}
+      <span class="text-xs font-bold ${badgeColor}">${badgeText}</span>
+      <svg class="step-chevron ml-1" width="10" height="10" viewBox="0 0 10 10" style="transform:rotate(90deg);transition:transform 0.2s"><path d="M3 2L7 5L3 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" fill="none"/></svg>`;
+
+    if (steps.length > 0) {
+      const table = document.createElement('div');
+      table.className = 'divide-y divide-gray-50';
+      steps.forEach((r, i) => {
+        const ok = r.status==='success';
+        const row = document.createElement('div');
+        row.className = 'flex items-center gap-3 px-4 py-2 text-xs hover:bg-gray-50 transition';
+        row.innerHTML = `
+          <span class="text-gray-400 w-5 text-right font-mono">${i+1}</span>
+          <div class="w-1.5 h-1.5 rounded-full flex-shrink-0 ${ok?'bg-green-400':'bg-red-400'}"></div>
+          <span class="font-mono font-medium text-gray-600 w-20 flex-shrink-0">${esc(r.step?.action||'')}</span>
+          <span class="font-mono text-gray-400 flex-1 truncate">${esc(r.step?.selector||r.step?.value||'')}</span>
+          <span class="font-semibold ${ok?'text-green-500':'text-red-500'}">${ok?'pass':'fail'}</span>`;
+        table.appendChild(row);
+        if (!ok && r.error) {
+          const errRow = document.createElement('div');
+          errRow.className = 'px-4 pb-2 text-xs text-red-400 font-mono bg-red-50 break-all';
+          errRow.textContent = r.error;
+          table.appendChild(errRow);
+        }
+      });
+
+      // Toggle collapse
+      let expanded = true;
+      header.addEventListener('click', () => {
+        expanded = !expanded;
+        table.style.display = expanded ? '' : 'none';
+        header.querySelector('.step-chevron').style.transform = expanded ? 'rotate(90deg)' : 'rotate(0deg)';
+      });
+
+      block.appendChild(header);
+      block.appendChild(table);
+    } else {
+      block.appendChild(header);
+    }
+
+    return block;
+  }
+
+  function switchTab(tab) { renderDrawerTab(tab); }
+
+  function openDrawer(tab='all') {
+    if (!allScenarioData.length) return;
+    renderDrawerTab(tab);
+    document.getElementById('drawerBackdrop').classList.remove('hidden');
+    document.getElementById('reportDrawer').classList.add('open');
+    drawerOpen = true;
+  }
+
+  function closeDrawer() {
+    document.getElementById('reportDrawer').classList.remove('open');
+    document.getElementById('drawerBackdrop').classList.add('hidden');
+    drawerOpen = false;
+  }
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   function resetExecPanel(){
     document.getElementById('logStream').innerHTML='';
     document.getElementById('planSection').classList.add('hidden');
-    document.getElementById('planInner').innerHTML='<p id="planPlaceholder" class="text-xs text-gray-300 py-1 flex items-center gap-2"><span class="spinner" style="width:10px;height:10px;border:1.5px solid #e0e7ff;border-top-color:#6366f1;border-radius:50%;display:inline-block;"></span>Preparing plan...</p>';
+    document.getElementById('planInner').innerHTML='<p class="text-xs text-gray-300 py-1">Preparing plan...</p>';
     document.getElementById('planCount').textContent='0 steps';
     document.getElementById('planCount').className='ml-auto text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-400';
     document.getElementById('reportBar').classList.add('hidden');
-    planOpen=true; isPlanLoading=false;
+    document.getElementById('drawerPassRate').classList.add('hidden');
+    document.getElementById('drawerRateBar').classList.add('hidden');
+    planOpen=true;
+    if (drawerOpen) closeDrawer();
   }
 
   function setBadge(text,color){
@@ -728,23 +781,20 @@
     document.getElementById('statusDot').className='w-2 h-2 rounded-full flex-shrink-0 '+(busy?'bg-amber-400 dot-busy':'bg-green-500');
   }
 
-  function setBtn(disabled){ document.getElementById('sendBtn').disabled=disabled; }
-
   function resetInput(){
-    mode='prompt'; setBtn(false); ta.placeholder='Describe a test or ask about a module...';
+    mode='prompt'; lockInput(false);
   }
 
   const STATE_LABELS = {
-    IDLE:              { label: 'ready',    dot: 'bg-green-500' },
-    GATHERING_CONTEXT: { label: 'scanning', dot: 'bg-amber-400 dot-busy' },
-    PLANNING:          { label: 'planning', dot: 'bg-indigo-400 dot-busy' },
-    EXECUTING:         { label: 'running',  dot: 'bg-blue-400 dot-busy' },
+    IDLE:              { label:'ready',    dot:'bg-green-500' },
+    GATHERING_CONTEXT: { label:'scanning', dot:'bg-amber-400 dot-busy' },
+    PLANNING:          { label:'planning', dot:'bg-indigo-400 dot-busy' },
+    EXECUTING:         { label:'running',  dot:'bg-blue-400 dot-busy' },
   };
-
   function setAgentStateBadge(state) {
-    const s = STATE_LABELS[state] || STATE_LABELS.IDLE;
-    document.getElementById('agentState').textContent = s.label;
-    document.getElementById('statusDot').className = `w-2 h-2 rounded-full flex-shrink-0 ${s.dot}`;
+    const s=STATE_LABELS[state]||STATE_LABELS.IDLE;
+    document.getElementById('agentState').textContent=s.label;
+    document.getElementById('statusDot').className=`w-2 h-2 rounded-full flex-shrink-0 ${s.dot}`;
   }
 </script>
 </body>

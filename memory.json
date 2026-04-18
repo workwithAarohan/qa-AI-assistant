@@ -1,6 +1,5 @@
 {
   "login__valid_login": {
-    "id": "valid_login",
     "module": "login",
     "scenario": "valid_login",
     "steps": [
@@ -20,14 +19,14 @@
       },
       {
         "action": "click",
-        "selector": "#login-btn"
+        "selector": "#submit-btn"
       },
       {
         "action": "expectUrl",
         "value": "http://localhost:4000/dashboard"
       }
     ],
-    "savedAt": "2026-04-17T15:42:47.346Z"
+    "savedAt": "2026-04-18T09:31:48.975Z"
   },
   "login__invalid_password": {
     "id": "invalid_password",
