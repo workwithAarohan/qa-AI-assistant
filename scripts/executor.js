@@ -83,6 +83,7 @@ export async function runSteps(steps, { browser, baseUrl, onStep, onLog }) {
           case 'fill':
             await page.waitForSelector(step.selector, { state: 'visible' });
             await page.fill(step.selector, step.value);
+            console.log("Hey");
             break;
 
           case 'press':
@@ -97,8 +98,8 @@ export async function runSteps(steps, { browser, baseUrl, onStep, onLog }) {
             }
             break;
 
-          case 'expectUrl':
-          case 'verifyUrl':
+          case 'expecturl':
+          case 'verifyurl':
             const expected = step.value.startsWith('http') ? step.value : `${baseUrl}${step.value}`;
             await page.waitForURL(url => {
                 const current = url.toString().toLowerCase();
