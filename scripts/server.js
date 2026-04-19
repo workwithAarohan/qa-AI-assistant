@@ -16,6 +16,8 @@ import { captureBrowserContext } from './browser-context.js';
 import { guardCheck } from './guard.js';
 import { STATE, outOfScopeResponse } from './classifier.js';
 import { gatherContext } from './context-gatherer.js';
+import { generate as llmGenerate } from './llm.js';
+import { IDENTITY_ANCHOR } from './guard.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -88,7 +90,59 @@ function injectDocUrl(plan, baseUrl) {
   };
 }
 
-// ── FIX 1: Require score >= 2 to resolve SPECIFIC — prevents 'test login' → valid_login ──
+// ── Emotional / conversational intent detection ────────────────────────────────
+// Detects when user is NOT asking to run a test but having a human conversation
+const EMOTIONAL_PATTERNS = [
+  /\b(new (to|here|in)|just joined|just started|onboard|first (day|week|time))\b/i,
+  /\b(guide|help me understand|walk me through|show me|explain|teach me|how does|what should i|where do i start)\b/i,
+  /\b(confused|lost|overwhelmed|don'?t know|not sure|unsure|clueless)\b/i,
+  /\b(could you|can you|would you|please)\b.*\b(help|guide|explain|tell)\b/i,
+  /\b(what (is|are|does)|how (do|does|can|should)|why (is|does))\b/i,
+  /\b(nervous|excited|worried|anxious|scared|afraid)\b/i,
+  /\bi (am|'m) (a |an )?(new|junior|senior|lead|qa|tester|developer|engineer)/i,
+];
+
+const GREET_PHRASES = ['hi', 'hello', 'hey', 'help', 'what can you do', 'what do you do', 'who are you', 'good morning', 'good afternoon', 'good evening'];
+
+function isEmotionalOrConversational(input) {
+  const lower = input.toLowerCase().trim();
+  if (GREET_PHRASES.some(p => lower === p || lower.startsWith(p + ' ') || lower.startsWith(p + ','))) return true;
+  return EMOTIONAL_PATTERNS.some(p => p.test(lower));
+}
+
+// ── Warm conversational response using LLM ─────────────────────────────────────
+async function generateWarmResponse(userInput, allDocs) {
+  const modules = allDocs.map(d => d.name);
+  const scenarioSummary = allDocs.map(d => {
+    const section = d.content.match(/##\s*Test Scenarios\s*\n([\s\S]*?)(?=\n##|$)/i);
+    if (!section) return `${d.name}: (no scenarios documented)`;
+    const lines = section[1].trim().split('\n')
+      .map(l => { const m = l.match(/[-*]\s*([a-z_]+):\s*(.+)/i); return m ? `  • ${m[1].replace(/_/g,' ')}` : null; })
+      .filter(Boolean);
+    return `${d.name}:\n${lines.join('\n')}`;
+  }).join('\n\n');
+
+  const prompt = `${IDENTITY_ANCHOR}
+
+You are a warm, experienced QA team member — a partner and mentor, not just a tool.
+The new team member said: "${userInput}"
+
+The application has these testable modules and scenarios:
+${scenarioSummary}
+
+Respond conversationally and warmly in 3–5 sentences. 
+- Acknowledge their situation with empathy
+- Briefly orient them to what the app does and what we can test
+- Give 1–2 concrete suggestions for where to start (e.g. "test login" or "tell me about dashboard")
+- Keep it friendly and encouraging, like a colleague on Slack
+- Do NOT list every module exhaustively. Be concise and human.
+- Do NOT output JSON or markdown headers.`;
+
+  const result = await llmGenerate(prompt);
+  return result.response.text().trim();
+}
+
+// ── Specific scenario resolution ───────────────────────────────────────────────
 const SYNONYMS = {
   correct: ['valid'], right: ['valid'], good: ['valid'],
   wrong: ['invalid'], bad: ['invalid'], incorrect: ['invalid'],
@@ -109,7 +163,6 @@ function resolveSpecificScenario(input, docScenarios) {
 
   if (!scored.length) return null;
   const top = scored[0], second = scored[1];
-  // FIX: require score >= 2 AND clear winner — 'test login' scores 1 → MODULE not SPECIFIC
   return (!second || top.score > second.score) && top.score >= 2 ? top.scenario : null;
 }
 
@@ -122,36 +175,34 @@ function buildExploreResponse(docScenarios, docs, userInput) {
       .filter(Boolean) || [];
     const urlMatch = matchedDoc.content.match(/##\s*URL\s*\n(https?:\/\/[^\s]+)/i);
     const desc = matchedDoc.content.match(/##\s*Description\s*\n([\s\S]*?)(?=\n##|$)/i)?.[1]?.trim();
-    let msg = `Here is what I know about the ${matchedDoc.name} module:\n\n`;
+    let msg = `Here's what I know about the ${matchedDoc.name} module:\n\n`;
     if (urlMatch) msg += `URL: ${urlMatch[1]}\n\n`;
     if (desc) msg += `${desc}\n\n`;
     if (scenarios.length > 0) {
-      msg += `Test scenarios available:\n${scenarios.map((s, i) => `${i+1}. ${s.name} — ${s.description}`).join('\n')}\n\n`;
+      msg += `Test scenarios:\n${scenarios.map((s, i) => `${i+1}. ${s.name} — ${s.description}`).join('\n')}\n\n`;
       msg += `Say "test ${matchedDoc.name}" to run all, or pick a specific one.`;
     }
     return msg;
   }
   const modules = [...new Set(docs.map(d => d.name))];
-  return `I can test these modules:\n${modules.map(m => `• ${m}`).join('\n')}\n\nAsk me about any one to learn more, or say "test [module name]" to run tests.`;
+  return `I can test these modules:\n${modules.map(m => `• ${m}`).join('\n')}\n\nAsk about any one to learn more, or say "test [module]" to run tests.`;
 }
 
-// ── FIX 2: Confirmation sends plan steps to UI before asking ──────────────────
+// ── Confirm execution ──────────────────────────────────────────────────────────
 async function confirmExecution(ws, scenario, plan) {
-  // Send the plan first so the test plan panel fills in
   const finalPlan = { ...plan, scenarioId: scenario.id };
   send(ws, 'plan', finalPlan);
 
-  // Build a clean human-readable step summary (no IDs)
   const stepLines = plan.steps.slice(0, 6).map((s, i) => {
     const target = s.selector || s.value || '';
-    const label  = {
-      navigate:          `Navigate to ${target}`,
-      type:              `Type "${s.value}" into ${s.selector}`,
-      click:             `Click ${s.selector}`,
-      expect:            `Expect ${s.selector} to be visible`,
-      expecturl:         `Expect URL to contain ${s.value}`,
+    const label = {
+      navigate: `Navigate to ${target}`,
+      type: `Type "${s.value}" into ${s.selector}`,
+      click: `Click ${s.selector}`,
+      expect: `Expect ${s.selector} to be visible`,
+      expecturl: `Expect URL to contain ${s.value}`,
       waitfornavigation: `Wait for page to load`,
-      asserttext:        `Verify text "${s.value}" in ${s.selector}`,
+      asserttext: `Verify text "${s.value}" in ${s.selector}`,
     }[s.action?.toLowerCase()] || `${s.action} ${target}`;
     return `${i+1}. ${label}`;
   }).join('\n');
@@ -167,10 +218,9 @@ async function confirmExecution(ws, scenario, plan) {
   return /yes|run|ok|confirm|go|start/i.test(answer);
 }
 
-// ── Execute one plan ──────────────────────────────────────────────────────────
+// ── Execute one plan ───────────────────────────────────────────────────────────
 async function executePlan(ws, plan, scenario, userInput, baseUrl, browser) {
   const finalPlan = injectDocUrl(plan, baseUrl);
-  // Re-send plan with injected URLs (may differ from what was shown in confirm)
   send(ws, 'plan', { ...finalPlan, scenarioId: scenario.id });
   sendState(ws, STATE.EXECUTING);
   phase(ws, '── Executing steps ──');
@@ -182,18 +232,24 @@ async function executePlan(ws, plan, scenario, userInput, baseUrl, browser) {
   });
 
   let healCount = 0;
-  let healMeta = null; // track what failed and what the fix was
+  let healMeta = null;
 
   if (result.status === 'failed') {
     phase(ws, '── Step failed ──');
     log(ws, `Error: ${result.error}`, 'error');
     const failedStepResult = result.results?.find(r => r.status === 'failed');
+
+    // ── Enhanced heal — send richer context including DOM diff ──────────────
+    const failedIndex = failedStepResult ? result.results.indexOf(failedStepResult) : -1;
     send(ws, 'question', {
       text: result.error,
       type: 'heal_choice',
       meta: {
         failedStep: failedStepResult?.step,
+        failedIndex,
         error: result.error,
+        totalSteps: finalPlan.steps.length,
+        passedCount: result.results?.filter(r => r.status === 'success').length || 0,
       },
     });
     const choice = await waitForAnswer(ws);
@@ -201,11 +257,23 @@ async function executePlan(ws, plan, scenario, userInput, baseUrl, browser) {
     if (/yes|heal|try|fix|retry/i.test(choice)) {
       phase(ws, '── Auto-healing ──');
       log(ws, 'Capturing fresh browser snapshot...', 'info');
+
+      // Capture both DOM snapshot and a screenshot hint
       const freshCtx = await captureBrowserContext(baseUrl);
-      log(ws, 'Asking Gemini for corrected steps...', 'info');
-      const fixedPlan = await fixSteps(finalPlan, result.error, userInput, freshCtx);
+      log(ws, `DOM captured: ${freshCtx.split('\n').length} elements`, 'info');
+      log(ws, 'Asking LLM for corrected steps...', 'info');
+
+      // Build rich heal context
+      const healContext = buildHealContext(finalPlan, result, failedStepResult, freshCtx);
+      const fixedPlan = await fixSteps(finalPlan, result.error, userInput, healContext);
       validatePlan(fixedPlan);
+
       const fixedWithUrl = injectDocUrl(fixedPlan, baseUrl);
+
+      // Emit diff between original and healed plan
+      const diffData = computePlanDiff(finalPlan.steps, fixedWithUrl.steps);
+      send(ws, 'heal_diff', diffData);
+
       send(ws, 'plan', { ...fixedWithUrl, scenarioId: scenario.id });
       phase(ws, '── Retrying healed plan ──');
       result = await runSteps(fixedWithUrl.steps, {
@@ -214,21 +282,25 @@ async function executePlan(ws, plan, scenario, userInput, baseUrl, browser) {
         onLog:  (text, level) => log(ws, text, level),
       });
       healCount++;
+
       if (result.status === 'success') {
-        log(ws, 'Heal succeeded', 'success');
+        log(ws, 'Heal succeeded ✓', 'success');
         phase(ws, '── Saving healed plan ──');
         saveToMemory(fixedPlan);
         log(ws, `Cached: "${fixedPlan.module}__${fixedPlan.scenario}"`, 'success');
-        // Track heal metadata for the report
         const fixedStep = fixedPlan.steps[failedStepResult?.index];
         healMeta = {
           originalError: result.error || failedStepResult?.error,
           failedStep: failedStepResult?.step,
+          failedIndex,
           fixedStep,
           stepIndex: failedStepResult?.index,
+          diff: diffData,
         };
       } else {
         log(ws, 'Heal also failed', 'error');
+        // Emit second-pass failure for the UI to show
+        send(ws, 'heal_failed', { error: result.error, attempts: 1 });
       }
     } else {
       log(ws, 'Stopped by user', 'warn');
@@ -242,12 +314,44 @@ async function executePlan(ws, plan, scenario, userInput, baseUrl, browser) {
   return { result, healCount, healMeta };
 }
 
-// ── Router ────────────────────────────────────────────────────────────────────
-const GREET_PHRASES = ['hi', 'hello', 'hey', 'help', 'what can you do', 'what do you do', 'who are you'];
+// ── Heal helpers ───────────────────────────────────────────────────────────────
 
+function buildHealContext(plan, result, failedStep, freshDom) {
+  const passedSteps = result.results?.filter(r => r.status === 'success').map(r =>
+    `✓ ${r.step?.action} ${r.step?.selector || r.step?.value || ''}`
+  ) || [];
+  const failedLine = failedStep
+    ? `✗ ${failedStep.step?.action} ${failedStep.step?.selector || failedStep.step?.value || ''} — ERROR: ${failedStep.error || result.error}`
+    : '';
+
+  return `Current DOM state:\n${freshDom}\n\nExecution trace:\n${[...passedSteps, failedLine].join('\n')}`;
+}
+
+function computePlanDiff(original, healed) {
+  const changes = [];
+  const maxLen = Math.max(original.length, healed.length);
+  for (let i = 0; i < maxLen; i++) {
+    const orig = original[i];
+    const heal = healed[i];
+    if (!orig && heal) {
+      changes.push({ type: 'added', index: i, step: heal });
+    } else if (orig && !heal) {
+      changes.push({ type: 'removed', index: i, step: orig });
+    } else if (orig && heal) {
+      const origKey = `${orig.action}:${orig.selector||''}:${orig.value||''}`;
+      const healKey = `${heal.action}:${heal.selector||''}:${heal.value||''}`;
+      if (origKey !== healKey) {
+        changes.push({ type: 'changed', index: i, original: orig, healed: heal });
+      }
+    }
+  }
+  return { changes, originalLength: original.length, healedLength: healed.length };
+}
+
+// ── Router ─────────────────────────────────────────────────────────────────────
 function routeRequest(userInput, docScenarios) {
   const lower = userInput.toLowerCase().trim();
-  if (GREET_PHRASES.some(p => lower === p || lower.startsWith(p + ' '))) return 'GREET';
+  if (isEmotionalOrConversational(userInput)) return 'EMOTIONAL';
   if (/\b(what|tell me|show me|explain|describe|about|how does|info|information|learn)\b/.test(lower)) return 'EXPLORE';
   const specific = resolveSpecificScenario(lower, docScenarios);
   if (specific) return { route: 'SPECIFIC', scenario: specific };
@@ -255,7 +359,7 @@ function routeRequest(userInput, docScenarios) {
   return 'ANALYZE';
 }
 
-// ── Shared scenario runner ────────────────────────────────────────────────────
+// ── Shared scenario runner ─────────────────────────────────────────────────────
 async function runScenarios(ws, toRun, getPlan, userInput, baseUrl, browserInstance, confirmEach = true) {
   const scenarioResults = [];
   let totalHealed = 0;
@@ -264,15 +368,10 @@ async function runScenarios(ws, toRun, getPlan, userInput, baseUrl, browserInsta
     const s = toRun[i];
     const plan = typeof getPlan === 'function' ? getPlan(s) : getPlan.find(r => r.scenario.id === s.id)?.cached;
 
-    if (!plan) { 
-      log(ws, `No plan for "${s.name}" — skipping`, 'warn'); 
-      scenarioResults.push({
-        scenario: s,
-        result: { status: 'skipped', results: [] },
-        healCount: 0,
-        healMeta: null,
-      });
-      continue; 
+    if (!plan) {
+      log(ws, `No plan for "${s.name}" — skipping`, 'warn');
+      scenarioResults.push({ scenario: s, result: { status: 'skipped', results: [] }, healCount: 0, healMeta: null });
+      continue;
     }
 
     phase(ws, `── Scenario ${i+1}/${toRun.length}: ${s.name} ──`);
@@ -298,7 +397,7 @@ async function runScenarios(ws, toRun, getPlan, userInput, baseUrl, browserInsta
   return { scenarioResults, totalHealed };
 }
 
-// ── MAIN ORCHESTRATION ────────────────────────────────────────────────────────
+// ── MAIN ORCHESTRATION ─────────────────────────────────────────────────────────
 async function orchestrate(ws, userInput) {
   let browserInstance = null;
 
@@ -320,10 +419,12 @@ async function orchestrate(ws, userInput) {
 
     const route = routeRequest(userInput, docScenarios);
 
-    // ── Route A: Greet ────────────────────────────────────────────────────────
-    if (route === 'GREET') {
-      const modules = [...new Set(allDocs.map(d => d.name))];
-      send(ws, 'agent_message', `Hi! I am your QA automation agent.\n\nI can test these modules:\n${modules.map(m => `• ${m}`).join('\n')}\n\nYou can:\n• Ask about a module — "tell me about login"\n• Run one test — "test login with invalid password"\n• Run all scenarios — "test login"\n• Run regression — "run regression"\n\nWhat would you like to do?`);
+    // ── Route: Emotional / Conversational ─────────────────────────────────────
+    if (route === 'EMOTIONAL') {
+      log(ws, 'Conversational intent detected', 'info');
+      const warmReply = await generateWarmResponse(userInput, allDocs);
+      send(ws, 'agent_message', warmReply);
+      sendState(ws, STATE.IDLE);
       return;
     }
 
@@ -370,33 +471,27 @@ async function orchestrate(ws, userInput) {
       }
       send(ws, 'regression_plan', { modules: allDocs.map(d => ({ name: d.name, scenarios: allScenarios.filter(s => s.module === d.name) })), total: allScenarios.length });
       const choice = await waitForAnswer(ws);
-      if (!/yes|run|ok|confirm|go|start|all/i.test(choice)) { 
+
+      if (!/yes|run|ok|confirm|go|start|all/i.test(choice)) {
         phase(ws, '── Regression cancelled ──');
-        log(ws, 'Regression test suite was cancelled by user.', 'warn'); 
-        send(ws, 'agent_message', 'Regression cancelled. Let me know when you want to run it.'); 
-        sendState(ws, STATE.IDLE); return; 
+        log(ws, 'Regression cancelled by user.', 'warn');
+        send(ws, 'agent_message', 'Regression cancelled. Let me know when you\'re ready.');
+        sendState(ws, STATE.IDLE);
+        return;
       }
+
       sendState(ws, STATE.EXECUTING);
       browserInstance = await chromium.launch({ headless: false });
       const { scenarioResults, totalHealed } = await runScenarios(ws, allScenarios, (s) => memoryCheck.find(r => r.scenario.id === s.id && r.scenario.module === s.module)?.cached, userInput, baseUrl, browserInstance, false);
       const passed = scenarioResults.filter(r => r.result.status === 'success').length;
       const failed = scenarioResults.filter(r => r.result.status === 'failed').length;
       const skipped = scenarioResults.filter(r => r.result.status === 'skipped').length;
-      send(ws, 'report', 
-        { 
-          type: 'regression', 
-          status: failed === 0 ? 'success' : 'failed', 
-          healCount: totalHealed, 
-          scenarios: scenarioResults, 
-          summary: { 
-            total: scenarioResults.length, passed, failed, skipped, healed: totalHealed 
-          } 
-        });
+      send(ws, 'report', { type: 'regression', status: failed === 0 ? 'success' : 'failed', healCount: totalHealed, scenarios: scenarioResults, summary: { total: scenarioResults.length, passed, failed, skipped, healed: totalHealed } });
       sendState(ws, STATE.IDLE);
       return;
     }
 
-    // ── Route B: Specific ─────────────────────────────────────────────────────
+    // ── Route: Specific ───────────────────────────────────────────────────────
     if (route?.route === 'SPECIFIC') {
       const s = route.scenario;
       log(ws, `Matched: "${s.name}"`, 'success');
@@ -408,22 +503,18 @@ async function orchestrate(ws, userInput) {
       if (cached) {
         log(ws, `Memory hit — ${cached.steps?.length} steps cached`, 'success');
       } else {
-        log(ws, 'Cache miss — generating via Gemini', 'info');
+        log(ws, 'Cache miss — generating via LLM', 'info');
         phase(ws, '── Capturing browser state ──');
         const browserCtx = await captureBrowserContext(baseUrl);
-        log(ws, `DOM captured: ${browserCtx.split('\n').length} lines`, 'info');
         phase(ws, '── Generating test plan ──');
-        log(ws, 'Calling Gemini...', 'info');
         const batch = await generateAllScenarioSteps([s], docContext, browserCtx);
         plan = batch[0];
         validatePlan(plan);
         log(ws, `Plan ready: ${plan.steps?.length} steps`, 'success');
-        phase(ws, '── Saving to memory ──');
         saveToMemory(plan);
-        log(ws, `Saved: "${plan.module}__${plan.scenario}"`, 'success');
       }
       const confirmed = await confirmExecution(ws, s, plan);
-      if (!confirmed) { send(ws, 'agent_message', 'Test cancelled. Let me know when you want to run it.'); sendState(ws, STATE.IDLE); return; }
+      if (!confirmed) { send(ws, 'agent_message', 'No problem — just say the word when you\'re ready.'); sendState(ws, STATE.IDLE); return; }
       browserInstance = await chromium.launch({ headless: false });
       const { result, healCount, healMeta } = await executePlan(ws, plan, s, userInput, baseUrl, browserInstance);
       send(ws, 'report', { status: result.status, healCount, scenarios: [{ scenario: s, result, healCount, healMeta }], summary: { total: 1, passed: result.status === 'success' ? 1 : 0, failed: result.status === 'failed' ? 1 : 0, skipped: 0, healed: healCount } });
@@ -431,7 +522,7 @@ async function orchestrate(ws, userInput) {
       return;
     }
 
-    // ── Route C: Module ───────────────────────────────────────────────────────
+    // ── Route: Module ─────────────────────────────────────────────────────────
     if (route === 'MODULE') {
       phase(ws, '── Checking memory ──');
       const memoryCheck = docScenarios.map(s => ({ scenario: s, cached: findSimilarPlan(module, s.id, userInput) }));
@@ -441,11 +532,9 @@ async function orchestrate(ws, userInput) {
       if (uncached.length > 0) {
         phase(ws, '── Capturing browser state ──');
         const browserCtx = await captureBrowserContext(baseUrl);
-        log(ws, `DOM captured at ${baseUrl}`, 'info');
         phase(ws, '── Generating missing plans ──');
-        log(ws, `Generating: ${uncached.map(s => s.name).join(', ')}`, 'info');
         const batch = await generateAllScenarioSteps(uncached, docContext, browserCtx);
-        batch.forEach(p => { validatePlan(p); saveToMemory(p); log(ws, `Saved: "${p.module}__${p.scenario}"`, 'success'); const m = memoryCheck.find(r => r.scenario.id === p.id); if (m) m.cached = p; });
+        batch.forEach(p => { validatePlan(p); saveToMemory(p); const m = memoryCheck.find(r => r.scenario.id === p.id); if (m) m.cached = p; });
       }
       sendState(ws, STATE.PLANNING);
       send(ws, 'scenarios', { scenarios: docScenarios, module: docScenarios[0]?.module || userInput });
@@ -461,33 +550,30 @@ async function orchestrate(ws, userInput) {
       const passed = scenarioResults.filter(r => r.result.status === 'success').length;
       const failed = scenarioResults.filter(r => r.result.status === 'failed').length;
       const skipped = scenarioResults.filter(r => r.result.status === 'skipped').length;
-      send(ws, 'report', { status: failed === 0 ? 'success' : 'failed', healCount: totalHealed, scenarios: scenarioResults, summary: { total: toRun.length, passed, failed, skipped, healed: totalHealed } });
+      send(ws, 'report', { status: failed === 0 ? 'success' : 'failed', healCount: totalHealed, scenarios: scenarioResults, summary: { total: scenarioResults.length, passed, failed, skipped, healed: totalHealed } });
       sendState(ws, STATE.IDLE);
       return;
     }
 
-    // ── Route D: LLM analysis ─────────────────────────────────────────────────
+    // ── Route: LLM Analysis ───────────────────────────────────────────────────
     phase(ws, '── Analyzing request ──');
     const browserCtx = await captureBrowserContext(baseUrl);
     const { enrichedInput } = await gatherContext(userInput, null, (q) => askUser(ws, q), (t, l) => log(ws, t, l));
-    log(ws, 'Sending to Gemini...', 'info');
     const analysis = await analyzeRequest(enrichedInput, docContext, browserCtx);
     send(ws, 'intent', { intent: analysis.intent, confidence: 'high' });
-    log(ws, `Intent: ${analysis.intent}`, 'info');
     if (analysis.intent === 'OUT_OF_SCOPE') { send(ws, 'agent_message', outOfScopeResponse(userInput)); return; }
     if (analysis.intent === 'EXPLORE' || analysis.intent === 'UNDERSTAND') { send(ws, 'agent_message', buildExploreResponse(docScenarios, allDocs, userInput)); return; }
     const scenarios = docScenarios.length > 0 ? docScenarios : (analysis.scenarios || []);
-    if (!scenarios.length) { send(ws, 'agent_message', 'Could not identify scenarios. Try being more specific.'); return; }
+    if (!scenarios.length) { send(ws, 'agent_message', 'Could not identify scenarios. Try being more specific — e.g. "test login with invalid password".'); return; }
     sendState(ws, STATE.PLANNING);
     const planMap = {};
     const stillUncached = scenarios.filter(s => { const p = findSimilarPlan(module, s.id); if (p) { planMap[s.id] = p; return false; } return true; });
     if (stillUncached.length > 0) {
       const batch = await generateAllScenarioSteps(stillUncached, docContext, browserCtx);
-      batch.forEach(p => { validatePlan(p); saveToMemory(p); planMap[p.id] = p; log(ws, `Saved: "${p.module}__${p.scenario}"`, 'success'); });
+      batch.forEach(p => { validatePlan(p); saveToMemory(p); planMap[p.id] = p; });
     }
     send(ws, 'scenarios', { scenarios, module: scenarios[0]?.module || userInput });
     const choice2 = await waitForAnswer(ws);
-    send(ws, 'answer_received', choice2);
     const finalToRun = choice2.toLowerCase().includes('all') ? scenarios : (() => {
       const indices = [...choice2.matchAll(/\d+/g)].map(m => parseInt(m[0]) - 1);
       return indices.length > 0 ? indices.filter(i => i >= 0 && i < scenarios.length).map(i => scenarios[i]) : scenarios;
@@ -498,7 +584,7 @@ async function orchestrate(ws, userInput) {
     const rp = rr.filter(r => r.result.status === 'success').length;
     const rf = rr.filter(r => r.result.status === 'failed').length;
     const rs = rr.filter(r => r.result.status === 'skipped').length;
-    send(ws, 'report', { status: rf === 0 ? 'success' : 'failed', healCount: rh, scenarios: rr, summary: { total: finalToRun.length, passed: rp, failed: rf, skipped: rs, healed: rh } });
+    send(ws, 'report', { status: rf === 0 ? 'success' : 'failed', healCount: rh, scenarios: rr, summary: { total: rr.length, passed: rp, failed: rf, skipped: rs, healed: rh } });
     sendState(ws, STATE.IDLE);
 
   } catch (err) {

@@ -3,1028 +3,673 @@
 <head>
   <meta charset="UTF-8" />
   <title>AI QA Agent</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
   <style>
-    @keyframes bounce  { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-4px)} }
-    @keyframes pulse   { 0%,100%{opacity:1} 50%{opacity:0.3} }
-    @keyframes fadeIn  { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
-    @keyframes spin    { to{transform:rotate(360deg)} }
-    @keyframes slideUp { from{transform:translateY(100%)} to{transform:translateY(0)} }
-    @keyframes toast-in { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
-    .typing-dot { animation:bounce 1s infinite; display:inline-block; }
-    .typing-dot:nth-child(2){animation-delay:0.15s}
-    .typing-dot:nth-child(3){animation-delay:0.30s}
-    .dot-busy   { animation:pulse 1s infinite }
-    .sdot-idle    { background:#d1d5db }
-    .sdot-running { background:#60a5fa; animation:pulse 0.8s infinite }
-    .sdot-success { background:#22c55e }
-    .sdot-failed  { background:#ef4444 }
-    .sdot-healed  { background:#f59e0b }
-    .sdot-skipped { background:#9ca3af }
-    textarea { resize:none }
-    .msg-in   { animation:fadeIn 0.2s ease both }
-    .log-phase { color:#6366f1; font-weight:600; letter-spacing:0.02em; border-top:1px solid #e0e7ff; margin-top:2px; padding-top:4px; }
-    .spinner   { animation:spin 0.8s linear infinite; display:inline-block; }
-    #reportDrawer { transform:translateY(100%); transition:transform 0.3s cubic-bezier(.4,0,.2,1); }
-    #reportDrawer.open { transform:translateY(0); }
-    .tab-btn.active { border-bottom:2px solid #6366f1; color:#6366f1; font-weight:600; }
-    #chatInput:disabled { opacity:0.5; cursor:not-allowed; }
-    /* Scenario block — NO overflow-hidden so content isn't clipped */
-    .scenario-block { border:1px solid #e5e7eb; border-radius:10px; margin-bottom:8px; background:white; }
-    .scenario-header { width:100%; display:flex; align-items:center; gap:10px; padding:10px 14px; text-align:left; cursor:pointer; border:none; background:transparent; border-radius:10px; }
-    .scenario-header:hover { filter:brightness(0.97); }
-    .scenario-table { border-top:1px solid #f3f4f6; }
-    .scenario-table-row { display:flex; align-items:center; gap:10px; padding:7px 14px; font-size:11px; border-bottom:1px solid #f9fafb; }
-    .scenario-table-row:last-child { border-bottom:none; }
-    .scenario-heal { border-top:1px solid #fde68a; padding:10px 14px; background:#fffbeb; border-radius:0 0 10px 10px; }
-    /* Toast */
-    .toast { position:fixed; bottom:24px; right:24px; z-index:9999; background:#1f2937; color:white; padding:10px 16px; border-radius:10px; font-size:13px; font-weight:500; animation:toast-in 0.2s ease both; pointer-events:none; }
-    /* History panel */
-    #historyPanel { display:none; }
-    #historyPanel.open { display:flex; }
-    /* Kbd shortcut */
-    kbd { display:inline-block; padding:1px 5px; background:#f3f4f6; border:1px solid #d1d5db; border-radius:4px; font-size:10px; font-family:monospace; color:#6b7280; }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{
+      --bg:#0f1117;--surface:#171b26;--surface2:#1e2333;
+      --border:rgba(255,255,255,0.07);--border-h:rgba(255,255,255,0.13);
+      --t1:#f0f2f5;--t2:#8b90a0;--t3:#555a6a;
+      --accent:#5b6ef5;--accent-h:#7181ff;
+      --green:#22c55e;--red:#ef4444;--amber:#f59e0b;--sky:#38bdf8;
+      --mono:'JetBrains Mono',monospace;--sans:'Inter',system-ui,sans-serif;
+      --r:6px;--rl:10px;
+    }
+    html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--sans);color:var(--t1);font-size:13px}
+    #root{display:grid;grid-template-columns:1fr 1fr;height:100vh}
+
+    /* LEFT */
+    #chat-col{display:flex;flex-direction:column;border-right:1px solid var(--border);background:var(--surface);min-height:0}
+    #chat-hdr{display:flex;align-items:center;gap:10px;padding:13px 18px;border-bottom:1px solid var(--border);flex-shrink:0}
+    .logo-mark{width:28px;height:28px;border-radius:var(--r);background:var(--accent);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+    #app-name{font-size:13px;font-weight:600;letter-spacing:-0.01em}
+    #agent-pill{display:flex;align-items:center;gap:5px;margin-left:auto;padding:3px 9px;border-radius:20px;background:rgba(255,255,255,0.04);border:1px solid var(--border)}
+    #status-dot{width:6px;height:6px;border-radius:50%;background:var(--green);transition:background 0.3s}
+    #state-lbl{font-size:11px;color:var(--t2);font-weight:500}
+    #hist-btn{width:26px;height:26px;border-radius:var(--r);background:transparent;border:1px solid var(--border);cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--t3);transition:all 0.15s;flex-shrink:0}
+    #hist-btn:hover{border-color:var(--border-h);color:var(--t2);background:rgba(255,255,255,0.04)}
+
+    #msgs{flex:1;overflow-y:auto;padding:20px 18px;display:flex;flex-direction:column;gap:14px;min-height:0}
+    #msgs::-webkit-scrollbar{width:3px}
+    #msgs::-webkit-scrollbar-thumb{background:var(--border-h);border-radius:2px}
+    .mw{display:flex;flex-direction:column;gap:3px;max-width:84%;animation:fu 0.18s ease both}
+    .mw.user{align-self:flex-end;align-items:flex-end}
+    .mw.agent{align-self:flex-start;align-items:flex-start}
+    @keyframes fu{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+    .bub{padding:9px 13px;border-radius:var(--rl);line-height:1.55;font-size:13px}
+    .bub.user{background:var(--accent);color:#fff;border-bottom-right-radius:3px}
+    .bub.agent{background:rgba(255,255,255,0.06);color:var(--t1);border-bottom-left-radius:3px;border:1px solid var(--border)}
+    .bub.question{background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.25);color:#fcd34d;border-bottom-left-radius:3px}
+    .mts{font-size:10px;color:var(--t3);font-family:var(--mono)}
+    #typing-bub{display:flex;gap:4px;align-items:center;padding:10px 14px;background:rgba(255,255,255,0.06);border:1px solid var(--border);border-radius:var(--rl);border-bottom-left-radius:3px;width:fit-content}
+    .td{width:5px;height:5px;border-radius:50%;background:var(--t3);animation:tdb 1s infinite}
+    .td:nth-child(2){animation-delay:0.15s}.td:nth-child(3){animation-delay:0.3s}
+    @keyframes tdb{0%,80%,100%{transform:translateY(0)}40%{transform:translateY(-4px)}}
+
+    #chips{padding:0 18px 10px;display:flex;gap:6px;overflow-x:auto;flex-shrink:0}
+    #chips::-webkit-scrollbar{display:none}
+    .chip{white-space:nowrap;padding:5px 11px;border-radius:20px;font-size:11px;font-weight:500;border:1px solid var(--border);color:var(--t2);background:transparent;cursor:pointer;transition:all 0.15s}
+    .chip:hover{border-color:var(--border-h);color:var(--t1)}
+    .chip.primary{border-color:rgba(91,110,245,0.4);color:var(--accent-h);background:rgba(91,110,245,0.08)}
+
+    #input-bar{padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;align-items:flex-end;flex-shrink:0}
+    #chat-input{flex:1;background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:var(--rl);padding:8px 12px;color:var(--t1);font-family:var(--sans);font-size:13px;outline:none;resize:none;min-height:36px;max-height:80px;line-height:1.5;transition:border-color 0.15s}
+    #chat-input:focus{border-color:var(--border-h)}
+    #chat-input::placeholder{color:var(--t3)}
+    #chat-input:disabled{opacity:0.4;cursor:not-allowed}
+    #send-btn{width:34px;height:34px;flex-shrink:0;border-radius:var(--r);background:var(--accent);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background 0.15s,transform 0.1s}
+    #send-btn:hover{background:var(--accent-h)}
+    #send-btn:active{transform:scale(0.95)}
+    #send-btn:disabled{opacity:0.4;cursor:not-allowed}
+
+    /* RIGHT */
+    #exec-col{display:flex;flex-direction:column;background:var(--bg);min-height:0}
+    #exec-hdr{display:flex;align-items:center;justify-content:space-between;padding:13px 18px;border-bottom:1px solid var(--border);flex-shrink:0}
+    #exec-title{font-size:11px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:0.07em}
+    #exec-badge{font-size:11px;font-weight:600;padding:2px 8px;border-radius:4px;background:rgba(255,255,255,0.05);color:var(--t3);transition:all 0.2s}
+    #exec-badge.running{background:rgba(56,189,248,0.12);color:var(--sky)}
+    #exec-badge.passed{background:rgba(34,197,94,0.12);color:var(--green)}
+    #exec-badge.failed{background:rgba(239,68,68,0.12);color:var(--red)}
+    #scen-lbl{font-size:11px;color:var(--t3)}
+
+    /* Plan */
+    #plan-section{background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;display:none}
+    #plan-toggle{width:100%;display:flex;align-items:center;gap:8px;padding:9px 18px;background:transparent;border:none;cursor:pointer;color:var(--t2);font-size:11px;font-weight:500;text-align:left}
+    #plan-toggle:hover{color:var(--t1)}
+    #plan-chev{transition:transform 0.2s;color:var(--t3);display:inline-block}
+    #plan-chev.open{transform:rotate(90deg)}
+    #plan-cnt{margin-left:auto;font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(255,255,255,0.05);color:var(--t3)}
+    #plan-body{overflow:hidden;max-height:160px;transition:max-height 0.25s ease}
+    #plan-inner{padding:2px 18px 10px;display:flex;flex-direction:column;gap:1px;overflow-y:auto;max-height:150px;font-family:var(--mono)}
+    #plan-inner::-webkit-scrollbar{width:3px}
+    #plan-inner::-webkit-scrollbar-thumb{background:var(--border-h)}
+    .prow{display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.03)}
+    .prow:last-child{border-bottom:none}
+    .sdot{width:6px;height:6px;border-radius:50%;background:var(--t3);flex-shrink:0;transition:background 0.2s}
+    .sdot.running{background:var(--sky);animation:pulse 0.8s infinite}
+    .sdot.success{background:var(--green)}.sdot.failed{background:var(--red)}
+    .sdot.healed{background:var(--amber)}.sdot.skipped{background:var(--t3)}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+    .pact{font-size:10px;font-weight:500;color:var(--t2);width:72px;flex-shrink:0}
+    .ptgt{font-size:10px;color:var(--t3);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .pst{font-size:10px;font-weight:600;color:var(--t3);flex-shrink:0}
+    .pst.pass{color:var(--green)}.pst.fail{color:var(--red)}.pst.heal{color:var(--amber)}
+
+    /* Log */
+    #log-area{flex:1;overflow:hidden;display:flex;flex-direction:column;padding:14px 18px;min-height:0}
+    #log-lbl{font-size:10px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;flex-shrink:0}
+    #log-stream{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:1px;font-family:var(--mono);font-size:11px;min-height:0}
+    #log-stream::-webkit-scrollbar{width:3px}
+    #log-stream::-webkit-scrollbar-thumb{background:var(--border-h)}
+    .lrow{display:flex;gap:10px;padding:2px 0}
+    .lts{color:var(--t3);flex-shrink:0}
+    .ltxt.info{color:var(--t2)}.ltxt.success{color:var(--green)}.ltxt.error{color:var(--red)}.ltxt.warn{color:var(--amber)}.ltxt.user{color:var(--accent-h)}
+    .lphase{color:var(--accent);font-weight:600;letter-spacing:0.03em;padding:5px 0 2px;border-top:1px solid rgba(91,110,245,0.2);margin-top:3px}
+
+    /* Stats */
+    #stats-bar{display:none;flex-shrink:0;border-top:1px solid var(--border);padding:12px 18px 8px;background:var(--surface)}
+    #stats-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:8px}
+    .scard{padding:8px 10px;border-radius:var(--r);border:1px solid var(--border);background:rgba(255,255,255,0.02);cursor:pointer;text-align:center;transition:border-color 0.15s,background 0.15s}
+    .scard:hover{border-color:var(--border-h);background:rgba(255,255,255,0.04)}
+    .sval{font-size:18px;font-weight:600;line-height:1}
+    .slbl{font-size:10px;color:var(--t3);margin-top:2px;font-weight:500}
+    .scard.total .sval{color:var(--t1)}.scard.passed .sval{color:var(--green)}.scard.failed .sval{color:var(--red)}.scard.skipped .sval{color:var(--t2)}.scard.healed .sval{color:var(--amber)}
+    #view-rep{width:100%;padding:6px;border-radius:var(--r);background:transparent;border:1px solid var(--border);color:var(--t2);font-size:11px;font-weight:500;cursor:pointer;transition:all 0.15s;display:flex;align-items:center;justify-content:center;gap:5px}
+    #view-rep:hover{border-color:var(--border-h);color:var(--t1);background:rgba(255,255,255,0.03)}
+
+    /* Drawer */
+    #dbackdrop{display:none;position:fixed;inset:0;z-index:40;background:rgba(0,0,0,0.6)}
+    #drawer{position:fixed;bottom:0;left:0;right:0;z-index:50;background:var(--surface);border-top:1px solid var(--border);border-radius:14px 14px 0 0;display:flex;flex-direction:column;max-height:80vh;transform:translateY(100%);transition:transform 0.28s cubic-bezier(.4,0,.2,1)}
+    #drawer.open{transform:translateY(0)}
+    #dhdr{flex-shrink:0;display:flex;align-items:center;gap:10px;padding:15px 22px;border-bottom:1px solid var(--border)}
+    #dsdot{width:8px;height:8px;border-radius:50%;background:var(--t3)}
+    #dtitle{font-size:13px;font-weight:600}
+    #dprate{font-size:11px;padding:2px 8px;border-radius:20px;background:rgba(91,110,245,0.15);color:var(--accent-h);font-weight:600;display:none}
+    .dacts{margin-left:auto;display:flex;gap:6px}
+    .dbtn{display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:var(--r);background:transparent;border:1px solid var(--border);color:var(--t2);font-size:11px;font-weight:500;cursor:pointer;transition:all 0.15s}
+    .dbtn:hover{border-color:var(--border-h);color:var(--t1)}
+    #dclose{width:26px;height:26px;border-radius:var(--r);background:transparent;border:1px solid var(--border);color:var(--t3);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;transition:all 0.15s}
+    #dclose:hover{border-color:var(--border-h);color:var(--t1)}
+    #rbar-wrap{flex-shrink:0;padding:8px 22px;border-bottom:1px solid var(--border);display:none}
+    #rbar-track{height:3px;background:rgba(255,255,255,0.08);border-radius:2px;overflow:hidden}
+    #rbar-fill{height:100%;border-radius:2px;transition:width 0.7s ease,background 0.3s;width:0%}
+    #dtabs{flex-shrink:0;display:flex;padding:0 22px;border-bottom:1px solid var(--border)}
+    .tab{padding:10px 14px;font-size:11px;font-weight:500;color:var(--t3);background:transparent;border:none;border-bottom:2px solid transparent;cursor:pointer;transition:color 0.15s;white-space:nowrap}
+    .tab:hover{color:var(--t2)}.tab.active{color:var(--accent-h);border-bottom-color:var(--accent)}
+    #dcontent{flex:1;overflow-y:auto;padding:16px 22px;display:flex;flex-direction:column;gap:6px;min-height:0}
+    #dcontent::-webkit-scrollbar{width:4px}
+    #dcontent::-webkit-scrollbar-thumb{background:var(--border-h);border-radius:2px}
+
+    /* Scenario block */
+    .scb{border:1px solid var(--border);border-radius:var(--rl);margin-bottom:2px}
+    .sch{width:100%;display:flex;align-items:center;gap:8px;padding:9px 13px;background:transparent;border:none;cursor:pointer;text-align:left;transition:background 0.12s}
+    .sch:hover{background:rgba(255,255,255,0.03)}
+    .scdot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+    .scname{font-size:12px;font-weight:500;flex:1}
+    .scbadge{font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px}
+    .scbadge.pass{color:var(--green);background:rgba(34,197,94,0.1)}
+    .scbadge.fail{color:var(--red);background:rgba(239,68,68,0.1)}
+    .scbadge.skip{color:var(--t3);background:rgba(255,255,255,0.05)}
+    .scchev{color:var(--t3);font-size:14px;transition:transform 0.2s;flex-shrink:0;line-height:1}
+    .scchev.open{transform:rotate(90deg)}
+    .scheal-badge{font-size:10px;padding:2px 7px;border-radius:20px;background:rgba(245,158,11,0.12);color:var(--amber);border:1px solid rgba(245,158,11,0.2)}
+    .sctable{border-top:1px solid var(--border);font-family:var(--mono)}
+    .scrow{display:flex;align-items:center;gap:8px;padding:5px 13px;border-bottom:1px solid rgba(255,255,255,0.03)}
+    .scrow:last-child{border-bottom:none}
+    .scrn{color:var(--t3);width:16px;text-align:right;font-size:10px;flex-shrink:0}
+    .scrd{width:5px;height:5px;border-radius:50%;flex-shrink:0}
+    .scra{font-size:10px;font-weight:500;color:var(--t2);width:64px;flex-shrink:0}
+    .scrt{font-size:10px;color:var(--t3);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .scrs{font-size:10px;font-weight:700;flex-shrink:0}
+    .scre{padding:4px 13px 6px 37px;font-size:10px;color:var(--red);background:rgba(239,68,68,0.06);word-break:break-all;font-family:var(--mono)}
+
+    /* Heal section — the star of the show */
+    .sc-heal{border-top:1px solid rgba(245,158,11,0.18);background:rgba(245,158,11,0.03);border-radius:0 0 var(--rl) var(--rl)}
+    .heal-hdr{display:flex;align-items:center;gap:8px;padding:9px 13px 5px}
+    .heal-ico{width:16px;height:16px;border-radius:50%;background:rgba(245,158,11,0.15);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+    .heal-ttl{font-size:11px;font-weight:600;color:var(--amber)}
+    .heal-meta{font-size:10px;color:var(--t3);margin-left:auto;font-family:var(--mono)}
+    .heal-diff{padding:0 13px 10px;display:flex;flex-direction:column;gap:3px;font-family:var(--mono)}
+    .diff-lbl{font-size:9px;color:var(--t3);text-transform:uppercase;letter-spacing:0.06em;font-weight:600;margin-bottom:4px;padding:0 1px}
+    .dr{display:flex;align-items:flex-start;gap:8px;padding:5px 8px;border-radius:var(--r);font-size:10px}
+    .dr.changed{background:rgba(245,158,11,0.07);border:1px solid rgba(245,158,11,0.18)}
+    .dr.added{background:rgba(34,197,94,0.07);border:1px solid rgba(34,197,94,0.18)}
+    .dr.removed{background:rgba(239,68,68,0.07);border:1px solid rgba(239,68,68,0.18)}
+    .dm{width:12px;font-weight:700;flex-shrink:0;margin-top:1px}
+    .dm.changed{color:var(--amber)}.dm.added{color:var(--green)}.dm.removed{color:var(--red)}
+    .dc{flex:1}.dci{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px}
+    .dbefore{color:var(--red);opacity:0.7;text-decoration:line-through}.dafter{color:var(--green)}
+
+    /* Mod header */
+    .mod-hdr{font-size:10px;font-weight:700;color:var(--accent-h);text-transform:uppercase;letter-spacing:0.08em;margin:12px 0 5px}
+    .mod-hdr:first-child{margin-top:0}
+
+    /* History */
+    #hbackdrop{display:none;position:fixed;inset:0;z-index:40;background:rgba(0,0,0,0.5)}
+    #hpanel{position:fixed;top:0;left:0;bottom:0;z-index:50;background:var(--surface);border-right:1px solid var(--border);display:none;flex-direction:column;width:272px}
+    #hpanel.open{display:flex}
+    #hhdr{display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--border);flex-shrink:0}
+    #hhdr span{font-size:12px;font-weight:600}
+    #hlist{flex:1;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:5px}
+    .hcard{padding:10px;border-radius:var(--r);border:1px solid var(--border);cursor:pointer;transition:all 0.15s}
+    .hcard:hover{border-color:var(--border-h);background:rgba(255,255,255,0.03)}
+    .htop{display:flex;align-items:center;gap:6px;margin-bottom:3px}
+    .htype{font-size:11px;font-weight:500;color:var(--t1);flex:1}
+    .hpct{font-size:11px;font-weight:700}
+    .hts{font-size:10px;color:var(--t3);margin-bottom:5px;font-family:var(--mono)}
+    .hstats{display:flex;gap:8px;font-size:10px}
+
+    /* Buttons */
+    .brow{display:flex;gap:6px;flex-wrap:wrap}
+    .btn{padding:6px 14px;border-radius:var(--r);font-size:11px;font-weight:600;cursor:pointer;transition:all 0.15s;border:none;display:flex;align-items:center;gap:5px}
+    .btn.primary{background:var(--accent);color:#fff}.btn.primary:hover{background:var(--accent-h)}
+    .btn.ghost{background:rgba(255,255,255,0.06);color:var(--t2);border:1px solid var(--border)}.btn.ghost:hover{background:rgba(255,255,255,0.09);color:var(--t1)}
+    .btn.heal{background:rgba(245,158,11,0.12);color:var(--amber);border:1px solid rgba(245,158,11,0.25)}.btn.heal:hover{background:rgba(245,158,11,0.2)}
+
+    /* Picker / confirm / fail cards */
+    .picker-card{border:1px solid var(--border);border-radius:var(--rl);padding:9px 13px;max-width:84%}
+    .picker-card-t{font-size:12px;font-weight:500;color:var(--t1);margin-bottom:2px}
+    .picker-card-d{font-size:11px;color:var(--t3)}
+    .confirm-card{border:1px solid rgba(91,110,245,0.3);border-radius:var(--rl);background:rgba(91,110,245,0.05);padding:12px 14px;max-width:84%}
+    .confirm-t{font-size:12px;font-weight:600;color:var(--accent-h);margin-bottom:6px;display:flex;align-items:center;gap:6px}
+    .confirm-steps{font-family:var(--mono);font-size:10px;color:var(--t2);background:rgba(255,255,255,0.04);border-radius:var(--r);padding:8px 10px;margin:7px 0;white-space:pre-wrap;line-height:1.7}
+    .confirm-meta{font-size:10px;color:var(--t3)}
+    .fail-card{border:1px solid rgba(239,68,68,0.3);border-radius:var(--rl);background:rgba(239,68,68,0.05);padding:12px 14px;max-width:84%}
+    .fail-t{font-size:11px;font-weight:700;color:var(--red);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;display:flex;align-items:center;gap:6px}
+    .fail-err{font-family:var(--mono);font-size:10px;color:#fca5a5;background:rgba(239,68,68,0.08);border-radius:var(--r);padding:7px 10px;margin:5px 0;word-break:break-all}
+    .heal-hint{font-size:10px;color:#fcd34d;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.18);border-radius:var(--r);padding:7px 10px;margin-top:7px}
+    .reg-card{border:1px solid var(--border);border-radius:var(--rl);padding:12px 14px;max-width:90%}
+    .reg-mn{font-size:10px;font-weight:700;color:var(--accent-h);text-transform:uppercase;letter-spacing:0.07em;margin-bottom:3px;margin-top:8px}
+    .reg-mn:first-child{margin-top:0}
+    .reg-s{font-size:11px;color:var(--t3);padding:1px 0;display:flex;gap:6px}
+
+    .spin{animation:spinA 0.8s linear infinite;display:inline-block}
+    @keyframes spinA{to{transform:rotate(360deg)}}
+    @keyframes blink{0%,100%{opacity:1}50%{opacity:0.25}}
+    .blk{animation:blink 1s infinite}
+    .toast{position:fixed;bottom:22px;right:22px;z-index:9999;background:var(--t1);color:var(--bg);padding:8px 14px;border-radius:var(--r);font-size:12px;font-weight:600;animation:fu 0.2s ease both;pointer-events:none}
   </style>
 </head>
-<body class="bg-gray-100 h-screen flex items-center justify-center p-4 overflow-hidden">
+<body>
+<div id="root">
 
-<div class="w-full max-w-6xl h-[92vh] grid grid-cols-2 border border-gray-200 rounded-2xl overflow-hidden bg-white shadow-sm">
-
-  <!-- ── LEFT: Chat ─────────────────────────────────────────────────────── -->
-  <div class="flex flex-col border-r border-gray-100 min-h-0">
-    <div class="flex items-center gap-3 px-4 py-3 border-b border-gray-100 flex-shrink-0">
-      <div class="w-8 h-8 rounded-full bg-indigo-50 flex items-center justify-center text-xs font-semibold text-indigo-600 flex-shrink-0">QA</div>
-      <div class="text-sm font-medium text-gray-700">QA Agent</div>
-      <div id="statusDot" class="w-2 h-2 rounded-full bg-green-500 ml-auto flex-shrink-0"></div>
-      <div id="agentState" class="text-xs text-gray-400">ready</div>
-      <!-- History button -->
-      <button onclick="toggleHistory()" title="Test history" class="ml-1 w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 transition text-gray-400 hover:text-gray-600 flex-shrink-0">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" stroke="currentColor" stroke-width="1.3"/><path d="M7 4v3.5l2 1.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+  <!-- LEFT: Chat -->
+  <div id="chat-col">
+    <div id="chat-hdr">
+      <div class="logo-mark">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7C2 4.24 4.24 2 7 2s5 2.24 5 5-2.24 5-5 5-5-2.24-5-5z" stroke="white" stroke-width="1.3"/><path d="M5 7l1.5 1.5L9.5 5" stroke="white" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <span id="app-name">QA Sentinel</span>
+      <div id="agent-pill">
+        <div id="status-dot"></div>
+        <span id="state-lbl">ready</span>
+      </div>
+      <button id="hist-btn" onclick="toggleHistory()" title="History">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="5" stroke="currentColor" stroke-width="1.2"/><path d="M6 3.5V6.5l2 1.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
       </button>
     </div>
-
-    <div id="chatMessages" class="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-3 min-h-0">
-      <div class="flex flex-col gap-1 max-w-[85%] msg-in">
-        <div class="bg-gray-100 text-gray-700 text-sm px-3 py-2 rounded-xl rounded-bl-sm leading-relaxed">
-          Hi! I can test your web app. Try "test login", ask "tell me about dashboard", or pick a module below. <span class="text-gray-400 text-xs">(<kbd>⌘↵</kbd> to send)</span>
-        </div>
-        <div class="text-xs text-gray-300">now</div>
+    <div id="msgs">
+      <div class="mw agent">
+        <div class="bub agent">Welcome. I'm your QA partner — I can run tests, explain modules, and guide you through the application. Try <em>test login</em>, <em>run regression</em>, or just ask a question.</div>
+        <span class="mts">now</span>
       </div>
     </div>
-
-    <div id="suggestionChips" class="px-4 pb-2 flex gap-2 overflow-x-auto flex-shrink-0"></div>
-
-    <div class="px-4 py-3 border-t border-gray-100 flex gap-2 items-end flex-shrink-0">
-      <div class="flex-1 border border-gray-200 rounded-xl overflow-hidden focus-within:border-gray-400 transition">
-        <textarea id="chatInput" rows="1"
-          class="w-full px-3 py-2 text-sm bg-transparent outline-none text-gray-700 transition"
-          placeholder="Describe a test or ask about a module..."></textarea>
-      </div>
-      <button id="sendBtn" onclick="handleSend()"
-        class="w-8 h-8 flex-shrink-0 border border-gray-200 rounded-lg flex items-center justify-center hover:bg-gray-50 active:scale-95 transition">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-          <path d="M7 1L13 7L7 13M1 7H13" stroke="#888" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
+    <div id="chips"></div>
+    <div id="input-bar">
+      <textarea id="chat-input" rows="1" placeholder="Ask anything or describe a test…"></textarea>
+      <button id="send-btn" onclick="handleSend()">
+        <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M6.5 1L12 6.5L6.5 12M1 6.5H12" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
     </div>
   </div>
 
-  <!-- ── RIGHT: Execution ───────────────────────────────────────────────── -->
-  <div class="flex flex-col bg-gray-50 min-h-0">
-    <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-white flex-shrink-0">
-      <span class="text-sm font-medium text-gray-700">Execution</span>
-      <div class="flex items-center gap-2">
-        <span id="scenarioLabel" class="text-xs text-gray-400 hidden"></span>
-        <span id="execBadge" class="text-xs px-2 py-0.5 rounded-md bg-gray-100 text-gray-400 font-medium">idle</span>
-      </div>
+  <!-- RIGHT: Execution -->
+  <div id="exec-col">
+    <div id="exec-hdr">
+      <span id="exec-title">Execution</span>
+      <span id="scen-lbl" style="display:none"></span>
+      <span id="exec-badge">idle</span>
     </div>
-
-    <!-- Test plan -->
-    <div id="planSection" class="bg-white border-b border-gray-100 flex-shrink-0 hidden">
-      <button onclick="togglePlan()"
-        class="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-medium text-gray-500 hover:bg-gray-50 transition text-left select-none">
-        <svg id="planChevron" width="10" height="10" viewBox="0 0 10 10" style="transition:transform 0.2s;transform:rotate(90deg)">
-          <path d="M3 2L7 5L3 8" stroke="#9ca3af" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-        </svg>
+    <div id="plan-section">
+      <button id="plan-toggle" onclick="togglePlan()">
+        <span id="plan-chev">›</span>
         Test plan
-        <span id="planSpinner" class="spinner hidden" style="width:10px;height:10px;border:1.5px solid #e0e7ff;border-top-color:#6366f1;border-radius:50%;"></span>
-        <span id="planCount" class="ml-auto text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-400">0 steps</span>
+        <div id="plan-spin" class="spin" style="width:10px;height:10px;border:1.5px solid rgba(91,110,245,0.2);border-top-color:var(--accent);border-radius:50%;display:none;flex-shrink:0"></div>
+        <span id="plan-cnt">0 steps</span>
       </button>
-      <div id="planBody" style="overflow:hidden;transition:max-height 0.25s ease;max-height:180px">
-        <div id="planInner" class="px-4 pb-3 flex flex-col gap-1 overflow-y-auto" style="max-height:170px">
-          <p class="text-xs text-gray-300 py-1 flex items-center gap-2">
-            <span class="spinner" style="width:10px;height:10px;border:1.5px solid #e0e7ff;border-top-color:#6366f1;border-radius:50%;display:inline-block;"></span>
-            Preparing plan...
-          </p>
-        </div>
-      </div>
+      <div id="plan-body"><div id="plan-inner"></div></div>
     </div>
-
-    <!-- Live log -->
-    <div class="flex-1 overflow-hidden flex flex-col px-4 py-3 min-h-0">
-      <p class="text-xs font-medium text-gray-400 uppercase tracking-widest mb-2 flex-shrink-0">Live log</p>
-      <div id="logStream" class="flex-1 overflow-y-auto flex flex-col gap-0 font-mono text-xs min-h-0"></div>
+    <div id="log-area">
+      <div id="log-lbl">Live log</div>
+      <div id="log-stream"></div>
     </div>
-
-    <!-- Report bar -->
-    <div id="reportBar" class="hidden flex-shrink-0 border-t border-gray-100 bg-white">
-      <div class="grid grid-cols-5 gap-1.5 px-4 pt-3 pb-1">
-        <button onclick="openDrawer('all')" class="report-stat bg-gray-50 rounded-lg p-2 text-center hover:bg-gray-100 transition cursor-pointer">
-          <div id="mTotal" class="text-base font-bold text-gray-700">0</div>
-          <div class="text-xs text-gray-400">total</div>
-        </button>
-        <button onclick="openDrawer('passed')" class="report-stat bg-green-50 rounded-lg p-2 text-center hover:bg-green-100 transition cursor-pointer">
-          <div id="mPass" class="text-base font-bold text-green-600">0</div>
-          <div class="text-xs text-green-400">passed</div>
-        </button>
-        <button onclick="openDrawer('failed')" class="report-stat bg-red-50 rounded-lg p-2 text-center hover:bg-red-100 transition cursor-pointer">
-          <div id="mFail" class="text-base font-bold text-red-500">0</div>
-          <div class="text-xs text-red-400">failed</div>
-        </button>
-        <button onclick="openDrawer('skipped')" class="report-stat bg-gray-50 rounded-lg p-2 text-center hover:bg-gray-100 transition cursor-pointer">
-          <div id="mSkip" class="text-base font-bold text-gray-500">0</div>
-          <div class="text-xs text-gray-400">skipped</div>
-        </button>
-        <button onclick="openDrawer('healed')" class="report-stat bg-amber-50 rounded-lg p-2 text-center hover:bg-amber-100 transition cursor-pointer">
-          <div id="mHeal" class="text-base font-bold text-amber-500">0</div>
-          <div class="text-xs text-amber-400">healed</div>
-        </button>
+    <div id="stats-bar">
+      <div id="stats-grid">
+        <div class="scard total" onclick="openDrawer('all')"><div class="sval" id="m-total">0</div><div class="slbl">total</div></div>
+        <div class="scard passed" onclick="openDrawer('passed')"><div class="sval" id="m-pass">0</div><div class="slbl">passed</div></div>
+        <div class="scard failed" onclick="openDrawer('failed')"><div class="sval" id="m-fail">0</div><div class="slbl">failed</div></div>
+        <div class="scard skipped" onclick="openDrawer('skipped')"><div class="sval" id="m-skip">0</div><div class="slbl">skipped</div></div>
+        <div class="scard healed" onclick="openDrawer('healed')"><div class="sval" id="m-heal">0</div><div class="slbl">healed</div></div>
       </div>
-      <button onclick="openDrawer('all')" class="w-full flex items-center justify-center gap-1 pb-2 pt-0.5 text-xs text-indigo-500 hover:text-indigo-700 transition font-medium">
-        View full report
-        <svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 3L5 7L8 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" fill="none"/></svg>
-      </button>
+      <button id="view-rep" onclick="openDrawer('all')">View full report <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 4L5 7L8 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
     </div>
   </div>
 </div>
 
-<!-- ── History Panel ─────────────────────────────────────────────────────── -->
-<div id="historyBackdrop" class="hidden fixed inset-0 z-40" style="background:rgba(0,0,0,0.2)" onclick="toggleHistory()"></div>
-<div id="historyPanel" class="fixed top-0 left-0 bottom-0 z-50 bg-white flex-col shadow-2xl" style="width:300px;border-right:1px solid #e5e7eb;">
-  <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-    <span class="text-sm font-semibold text-gray-800">Test History</span>
-    <button onclick="toggleHistory()" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
-  </div>
-  <div id="historyList" class="flex-1 overflow-y-auto p-3 flex flex-col gap-2">
-    <p class="text-xs text-gray-400 text-center py-4">No runs yet</p>
-  </div>
-  <div class="px-3 pb-3">
-    <button onclick="clearHistory()" class="w-full text-xs text-gray-400 hover:text-red-500 transition py-1">Clear history</button>
-  </div>
+<!-- History -->
+<div id="hbackdrop" onclick="toggleHistory()"></div>
+<div id="hpanel">
+  <div id="hhdr"><span>Test History</span><button class="btn ghost" style="padding:3px 8px;" onclick="toggleHistory()">✕</button></div>
+  <div id="hlist"><p style="color:var(--t3);font-size:11px;text-align:center;padding:24px 0">No runs yet</p></div>
+  <div style="padding:8px 10px 12px"><button class="btn ghost" style="width:100%;justify-content:center;font-size:11px" onclick="clearHistory()">Clear history</button></div>
 </div>
 
-<!-- ── Report Drawer ─────────────────────────────────────────────────────── -->
-<div id="drawerBackdrop" class="hidden fixed inset-0 z-40" style="background:rgba(0,0,0,0.3)" onclick="closeDrawer()"></div>
-
-<div id="reportDrawer" class="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl shadow-2xl" style="max-height:80vh;display:flex;flex-direction:column;">
-  <!-- Drawer header -->
-  <div class="flex-shrink-0 flex items-center justify-between px-6 py-4 border-b border-gray-100">
-    <div class="flex items-center gap-3">
-      <div id="drawerStatusDot" class="w-2.5 h-2.5 rounded-full bg-gray-300"></div>
-      <span id="drawerTitle" class="text-sm font-semibold text-gray-800">Test Report</span>
-      <span id="drawerPassRate" class="hidden text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 font-medium"></span>
-    </div>
-    <div class="flex items-center gap-2">
-      <!-- Export button -->
-      <button onclick="exportReport()" title="Export JSON report" class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 transition">
-        <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M5.5 1v6M2.5 5l3 3 3-3M1 9.5h9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        Export
-      </button>
-      <button onclick="copyReportSummary()" title="Copy summary" class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 transition">
-        <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><rect x="1" y="3" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M3 3V2a1 1 0 011-1h5a1 1 0 011 1v5a1 1 0 01-1 1H9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
-        Copy
-      </button>
-      <button onclick="closeDrawer()" class="text-gray-400 hover:text-gray-600 text-xl leading-none ml-1">&times;</button>
+<!-- Drawer -->
+<div id="dbackdrop" onclick="closeDrawer()"></div>
+<div id="drawer">
+  <div id="dhdr">
+    <div id="dsdot"></div>
+    <span id="dtitle">Test Report</span>
+    <span id="dprate"></span>
+    <div class="dacts">
+      <button class="dbtn" onclick="exportReport()"><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M5 1v5M2.5 4.5L5 7l2.5-2.5M1 8.5h8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>Export</button>
+      <button class="dbtn" onclick="copyReport()"><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><rect x="1" y="3" width="6" height="6" rx="1.2" stroke="currentColor" stroke-width="1.3"/><path d="M3 3V2a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>Copy</button>
+      <button id="dclose" onclick="closeDrawer()">✕</button>
     </div>
   </div>
-
-  <!-- Pass rate bar -->
-  <div id="drawerRateBar" class="hidden flex-shrink-0 px-6 py-2 border-b border-gray-100">
-    <div class="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
-      <div id="drawerRateFill" class="h-full rounded-full transition-all duration-700" style="width:0%"></div>
-    </div>
+  <div id="rbar-wrap"><div id="rbar-track"><div id="rbar-fill"></div></div></div>
+  <div id="dtabs">
+    <button class="tab active" data-tab="all" onclick="switchTab('all')">All</button>
+    <button class="tab" data-tab="passed" onclick="switchTab('passed')">Passed</button>
+    <button class="tab" data-tab="failed" onclick="switchTab('failed')">Failed</button>
+    <button class="tab" data-tab="skipped" onclick="switchTab('skipped')">Skipped</button>
+    <button class="tab" data-tab="healed" onclick="switchTab('healed')">Healed</button>
   </div>
-
-  <!-- Tab bar -->
-  <div id="drawerTabs" class="flex-shrink-0 flex border-b border-gray-100 px-6">
-    <button class="tab-btn active py-2.5 mr-5 text-xs" data-tab="all" onclick="switchTab('all')">All</button>
-    <button class="tab-btn py-2.5 mr-5 text-xs text-gray-400" data-tab="passed" onclick="switchTab('passed')">Passed</button>
-    <button class="tab-btn py-2.5 mr-5 text-xs text-gray-400" data-tab="failed" onclick="switchTab('failed')">Failed</button>
-    <button class="tab-btn py-2.5 mr-5 text-xs text-gray-400" data-tab="skipped" onclick="switchTab('skipped')">Skipped</button>
-    <button class="tab-btn py-2.5 text-xs text-gray-400" data-tab="healed" onclick="switchTab('healed')">Healed</button>
-  </div>
-
-  <!-- ── FIXED: drawer content with min-height:0 and explicit overflow ── -->
-  <div id="drawerContent" class="px-6 py-4 flex flex-col gap-2" style="overflow-y:auto;flex:1;min-height:0;"></div>
+  <div id="dcontent"></div>
 </div>
 
 <script>
-  const ws = new WebSocket('ws://localhost:4000');
-  let mode = 'prompt';
-  let allScenarioData = [];
-  let currentTab = 'all';
-  let drawerOpen = false;
-  let lastReportData = null;
-  let testHistory = JSON.parse(localStorage.getItem('qa_history') || '[]');
+const ws=new WebSocket('ws://localhost:4000');
+let mode='prompt',allScenarioData=[],currentTab='all',drawerOpen=false,lastReportData=null,pendingHealDiff=null;
+let testHistory=[];try{testHistory=JSON.parse(localStorage.getItem('qa_sentinel_h')||'[]')}catch{}
 
-  const ta = document.getElementById('chatInput');
-  ta.addEventListener('input', () => { ta.style.height='auto'; ta.style.height=Math.min(ta.scrollHeight,80)+'px'; });
-  ta.addEventListener('keydown', e => {
-    if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
+const ta=document.getElementById('chat-input');
+ta.addEventListener('input',()=>{ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,80)+'px'});
+ta.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();handleSend()}});
+
+ws.onmessage=({data})=>{
+  const{type,data:d}=JSON.parse(data);
+  if(type==='plan')renderPlan(d.steps);
+  else if(type==='step')updateStep(d.index,d.status);
+  else if(type==='log')addLog(d.text,d.level);
+  else if(type==='scenarios')showPicker(d);
+  else if(type==='regression_plan')showRegPlan(d);
+  else if(type==='scenario_start')onScenStart(d);
+  else if(type==='question')enterAnswerMode(d);
+  else if(type==='answer_received')addLog('→ '+d,'user');
+  else if(type==='report')showReport(d);
+  else if(type==='agent_message'){addMsg(d,'agent');resetInput()}
+  else if(type==='agent_state')setStateBadge(d);
+  else if(type==='intent')addLog('Intent: '+d.intent,'info');
+  else if(type==='error'){addLog('Error: '+d,'error');resetInput()}
+  else if(type==='suggestions')renderChips(d.payload);
+  else if(type==='heal_diff')pendingHealDiff=d;
+  else if(type==='heal_failed')addLog('Heal failed: '+d.error,'error');
+};
+
+function handleSend(){
+  const val=ta.value.trim();if(!val||ta.disabled)return;
+  ta.value='';ta.style.height='auto';
+  if(mode==='answer'||mode==='scenario_choice'){addMsg(val,'user');ws.send(JSON.stringify({type:'answer',data:val}));mode='running';lockInput(true);setAgent('running',true)}
+  else if(mode==='confirm'){addMsg(val,'user');ws.send(JSON.stringify({type:'answer',data:val}));mode='running';lockInput(false);setAgent('running',true)}
+  else{if(mode==='running')return;mode='running';pendingHealDiff=null;addMsg(val,'user');lockInput(true);resetExec();setBadge('running','running');setAgent('thinking',true);showTyping();allScenarioData=[];ws.send(JSON.stringify({type:'prompt',data:val}))}
+}
+function lockInput(on){ta.disabled=on;document.getElementById('send-btn').disabled=on;ta.placeholder=on?'Use the buttons above…':'Ask anything or describe a test…'}
+
+function renderChips(items){
+  const row=document.getElementById('chips');row.innerHTML='';
+  (items||[]).forEach((t,i)=>{const b=document.createElement('button');b.className='chip'+(i===0?' primary':'');b.textContent=t;b.onclick=()=>{if(!ta.disabled){ta.value=t;ta.focus();ta.dispatchEvent(new Event('input'))}};row.appendChild(b)});
+}
+
+function now(){const d=new Date();return`${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`}
+function esc(s){return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function removeTyping(){document.getElementById('typing-bub')?.remove()}
+function addMsg(text,who,cls=''){
+  removeTyping();
+  const msgs=document.getElementById('msgs');
+  const w=document.createElement('div');w.className=`mw ${who}`;
+  const b=document.createElement('div');b.className=`bub ${who} ${cls}`;
+  if(who==='agent'&&text.includes('\n'))b.innerHTML=text.split('\n').map(l=>esc(l)||'<br>').join('<br>');
+  else b.textContent=text;
+  const ts=document.createElement('span');ts.className='mts';ts.textContent=now();
+  w.appendChild(b);w.appendChild(ts);msgs.appendChild(w);msgs.scrollTop=msgs.scrollHeight;
+}
+function showTyping(){
+  removeTyping();
+  const msgs=document.getElementById('msgs');
+  const w=document.createElement('div');w.className='mw agent';
+  const tb=document.createElement('div');tb.id='typing-bub';tb.innerHTML='<div class="td"></div><div class="td"></div><div class="td"></div>';
+  w.appendChild(tb);msgs.appendChild(w);msgs.scrollTop=msgs.scrollHeight;
+}
+
+function addLog(text,level='info'){
+  if(!text?.trim())return;
+  const s=document.getElementById('log-stream');
+  const el=document.createElement('div');
+  if(level==='phase'){el.className='lphase';el.textContent=text}
+  else{el.className='lrow';el.innerHTML=`<span class="lts">${now()}</span><span class="ltxt ${level}">${esc(text)}</span>`}
+  s.appendChild(el);s.scrollTop=s.scrollHeight;
+}
+
+let planOpen=true;
+function renderPlan(steps){
+  if(!steps?.length)return;
+  document.getElementById('plan-spin').style.display='none';
+  document.getElementById('plan-section').style.display='block';
+  const inner=document.getElementById('plan-inner');inner.innerHTML='';
+  steps.forEach((s,i)=>{
+    const row=document.createElement('div');row.className='prow';row.id=`pr-${i}`;
+    row.innerHTML=`<div id="sd-${i}" class="sdot"></div><span class="pact">${esc(s.action)}</span><span class="ptgt">${esc(s.selector||s.value||'')}</span><span id="sl-${i}" class="pst">—</span>`;
+    inner.appendChild(row);
   });
+  const cnt=document.getElementById('plan-cnt');
+  cnt.textContent=`${steps.length} steps`;
+  cnt.style.cssText='margin-left:auto;font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(91,110,245,0.12);color:var(--accent-h)';
+  document.getElementById('plan-chev').classList.add('open');
+}
+function updateStep(idx,status){
+  const dot=document.getElementById(`sd-${idx}`);const lbl=document.getElementById(`sl-${idx}`);
+  if(!dot||!lbl)return;
+  dot.className=`sdot ${status}`;
+  const m={running:'—',success:'pass',failed:'fail',healed:'heal',skipped:'skip'};
+  const c={success:'pass',failed:'fail',healed:'heal'};
+  lbl.textContent=m[status]||'—';lbl.className=`pst ${c[status]||''}`;
+  document.getElementById(`pr-${idx}`)?.scrollIntoView({block:'nearest'});
+}
+function togglePlan(){planOpen=!planOpen;document.getElementById('plan-body').style.maxHeight=planOpen?'160px':'0';document.getElementById('plan-chev').classList.toggle('open',planOpen)}
 
-  // ── WebSocket ──────────────────────────────────────────────────────────────
-  ws.onmessage = (event) => {
-    const { type, data } = JSON.parse(event.data);
-    if      (type==='plan')            renderSteps(data.steps);
-    else if (type==='step')            updateStep(data.index, data.status);
-    else if (type==='log')             addLog(data.text, data.level);
-    else if (type==='scenarios')       showScenarioPicker(data);
-    else if (type==='regression_plan') showRegressionPlan(data);
-    else if (type==='scenario_start')  onScenarioStart(data);
-    else if (type==='question')        enterAnswerMode(data);
-    else if (type==='answer_received') addLog('→ '+data, 'user');
-    else if (type==='report')          showReport(data);
-    else if (type==='agent_message')   { addChatMsg(data,'agent'); resetInput(); }
-    else if (type==='agent_state')     setAgentStateBadge(data);
-    else if (type==='intent')          addLog('Intent: '+data.intent, 'info');
-    else if (type==='error')           { addLog('Error: '+data,'error'); resetInput(); }
-    else if (type==='suggestions')     renderSuggestions(data.payload);
-  };
+function showPicker({scenarios,module:mod}){
+  removeTyping();const msgs=document.getElementById('msgs');
+  const w=document.createElement('div');w.className='mw agent';
+  const b=document.createElement('div');b.className='bub agent';b.textContent=`Found ${scenarios.length} scenario${scenarios.length>1?'s':''} for "${mod}"`;w.appendChild(b);
+  const list=document.createElement('div');list.style.cssText='display:flex;flex-direction:column;gap:5px;';
+  scenarios.forEach((s,i)=>{const c=document.createElement('div');c.className='picker-card';c.innerHTML=`<div class="picker-card-t">${i+1}. ${esc(s.name)}</div><div class="picker-card-d">${esc(s.description)}</div>`;list.appendChild(c)});
+  w.appendChild(list);
+  const br=document.createElement('div');br.className='brow';
+  const ab=document.createElement('button');ab.className='btn primary';ab.textContent='Run all';ab.onclick=()=>{sendChoice('all');br.remove()};br.appendChild(ab);
+  scenarios.forEach((s,i)=>{const b=document.createElement('button');b.className='btn ghost';b.textContent=`Run ${i+1} only`;b.onclick=()=>{sendChoice(String(i+1));br.remove()};br.appendChild(b)});
+  w.appendChild(br);const ts=document.createElement('span');ts.className='mts';ts.textContent=now();w.appendChild(ts);
+  msgs.appendChild(w);msgs.scrollTop=msgs.scrollHeight;mode='scenario_choice';lockInput(false);setAgent('waiting',true);
+}
+function showRegPlan({modules,total}){
+  removeTyping();const msgs=document.getElementById('msgs');
+  const w=document.createElement('div');w.className='mw agent';
+  const b=document.createElement('div');b.className='bub agent';b.textContent=`Regression suite — ${total} scenarios across ${modules.length} modules`;w.appendChild(b);
+  const rc=document.createElement('div');rc.className='reg-card';
+  modules.forEach(m=>{const s=document.createElement('div');s.innerHTML=`<div class="reg-mn">${esc(m.name)}</div>${m.scenarios.map((sc,i)=>`<div class="reg-s"><span style="color:var(--t3);font-family:var(--mono)">${i+1}.</span><span>${esc(sc.name)}</span></div>`).join('')}`;rc.appendChild(s)});
+  w.appendChild(rc);
+  const br=document.createElement('div');br.className='brow';
+  const rb=document.createElement('button');rb.className='btn primary';rb.textContent=`Run all ${total}`;rb.onclick=()=>{sendChoice('all');br.remove()};
+  const cb=document.createElement('button');cb.className='btn ghost';cb.textContent='Cancel';cb.onclick=()=>{sendChoice('cancel');br.remove()};
+  br.appendChild(rb);br.appendChild(cb);w.appendChild(br);
+  const ts=document.createElement('span');ts.className='mts';ts.textContent=now();w.appendChild(ts);
+  msgs.appendChild(w);msgs.scrollTop=msgs.scrollHeight;mode='scenario_choice';lockInput(false);setAgent('waiting',true);
+}
+function sendChoice(val){ws.send(JSON.stringify({type:'answer',data:val}));mode='running';lockInput(true);setAgent('running',true)}
+function onScenStart(s){
+  const lbl=document.getElementById('scen-lbl');lbl.textContent=s.name;lbl.style.display='';
+  document.getElementById('plan-section').style.display='block';document.getElementById('plan-spin').style.display='block';
+  document.getElementById('plan-inner').innerHTML=`<div style="font-size:10px;color:var(--accent);display:flex;align-items:center;gap:6px;padding:6px 0;font-family:var(--mono)"><div class="spin" style="width:9px;height:9px;border:1.5px solid rgba(91,110,245,0.2);border-top-color:var(--accent);border-radius:50%;"></div>Loading: ${esc(s.name)}</div>`;
+  document.getElementById('plan-cnt').textContent='…';
+}
 
-  // ── Send ───────────────────────────────────────────────────────────────────
-  function handleSend() {
-    const val = ta.value.trim();
-    if (!val || ta.disabled) return;
-    ta.value=''; ta.style.height='auto';
-    if (mode==='answer'||mode==='scenario_choice') {
-      addChatMsg(val,'user');
-      ws.send(JSON.stringify({type:'answer',data:val}));
-      mode='running'; lockInput(true); setAgent('running',true);
-    } else if (mode==='confirm') {
-      addChatMsg(val,'user');
-      ws.send(JSON.stringify({type:'answer',data:val}));
-      mode='running'; lockInput(false); setAgent('running',true);
-    } else {
-      if (mode==='running') return;
-      mode='running';
-      addChatMsg(val,'user');
-      lockInput(true); resetExecPanel(); setBadge('running','blue');
-      setAgent('thinking',true); showTyping();
-      allScenarioData=[];
-      ws.send(JSON.stringify({type:'prompt',data:val}));
-    }
-  }
+function enterAnswerMode(payload){
+  const question=typeof payload==='string'?payload:payload.text;
+  const qType=typeof payload==='object'?payload.type:'text';
+  const meta=typeof payload==='object'?payload.meta:null;
+  setAgent('waiting',true);
+  if(qType==='confirm_run')showConfirmRun(question,meta);
+  else if(qType==='heal_choice')showHealChoice(question,meta);
+  else{mode='answer';addMsg(question,'agent','question');lockInput(false);ta.placeholder='Type your answer…'}
+}
+function showConfirmRun(question,meta){
+  removeTyping();mode='confirm';lockInput(true);
+  const msgs=document.getElementById('msgs');
+  const w=document.createElement('div');w.className='mw agent';
+  const card=document.createElement('div');card.className='confirm-card';
+  const steps=question.split('\n').slice(2).filter(Boolean);
+  card.innerHTML=`<div class="confirm-t"><svg width="11" height="11" viewBox="0 0 11 11" fill="none"><circle cx="5.5" cy="5.5" r="4.5" stroke="var(--accent-h)" stroke-width="1.2"/><path d="M3.5 5.5l1.5 1.5L7.5 4" stroke="var(--accent-h)" stroke-width="1.2" stroke-linecap="round"/></svg>Ready to run</div><div style="font-size:12px;font-weight:500;color:var(--accent-h);margin-bottom:6px">${esc(meta?.scenarioName||'')}</div>${steps.length?`<div class="confirm-steps">${esc(steps.join('\n'))}</div>`:''} ${meta?.totalSteps?`<div class="confirm-meta">${meta.totalSteps} steps</div>`:''}`;
+  w.appendChild(card);
+  const br=document.createElement('div');br.className='brow';
+  const rb=document.createElement('button');rb.className='btn primary';rb.innerHTML='<svg width="9" height="9" viewBox="0 0 9 9" fill="none"><path d="M2.5 2l5 2.5-5 2.5V2z" fill="white"/></svg>Run test';
+  rb.onclick=()=>{addMsg('Run test','user');sendAnswer('yes');br.remove()};
+  const sb=document.createElement('button');sb.className='btn ghost';sb.textContent='Skip';sb.onclick=()=>{addMsg('Skip','user');sendAnswer('skip');br.remove()};
+  br.appendChild(rb);br.appendChild(sb);w.appendChild(br);
+  const ts=document.createElement('span');ts.className='mts';ts.textContent=now();w.appendChild(ts);
+  msgs.appendChild(w);msgs.scrollTop=msgs.scrollHeight;
+}
+function showHealChoice(errorMsg,meta){
+  removeTyping();lockInput(true);
+  const msgs=document.getElementById('msgs');
+  const w=document.createElement('div');w.className='mw agent';
+  const card=document.createElement('div');card.className='fail-card';
+  card.innerHTML=`<div class="fail-t"><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><circle cx="5" cy="5" r="4" stroke="var(--red)" stroke-width="1.2"/><path d="M5 3v2.5" stroke="var(--red)" stroke-width="1.2" stroke-linecap="round"/><circle cx="5" cy="7" r="0.5" fill="var(--red)"/></svg>Step failed</div><div class="fail-err">${esc(errorMsg)}</div>${meta?.failedStep?`<div style="font-size:10px;color:var(--t3);font-family:var(--mono)">at: ${esc(meta.failedStep.action)} ${esc(meta.failedStep.selector||meta.failedStep.value||'')}</div>`:''}${meta?.passedCount!=null?`<div style="font-size:10px;color:var(--t3);margin-top:4px">${meta.passedCount} of ${meta.totalSteps} passed before failure</div>`:''}<div class="heal-hint">Auto-heal captures the live DOM and uses LLM to regenerate corrected steps — showing you exactly what changed.</div>`;
+  w.appendChild(card);
+  const br=document.createElement('div');br.className='brow';
+  const hb=document.createElement('button');hb.className='btn heal';
+  hb.innerHTML='<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M5 1a4 4 0 100 8A4 4 0 005 1" stroke="var(--amber)" stroke-width="1.2" stroke-linecap="round"/><path d="M3.5 5h3M5 3.5v3" stroke="var(--amber)" stroke-width="1.2" stroke-linecap="round"/></svg>Auto-heal';
+  hb.onclick=()=>{addMsg('Auto-heal','user');sendAnswer('heal');br.remove()};
+  const stb=document.createElement('button');stb.className='btn ghost';stb.textContent='Stop';stb.onclick=()=>{addMsg('Stop','user');sendAnswer('stop');br.remove()};
+  br.appendChild(hb);br.appendChild(stb);w.appendChild(br);
+  const ts=document.createElement('span');ts.className='mts';ts.textContent=now();w.appendChild(ts);
+  msgs.appendChild(w);msgs.scrollTop=msgs.scrollHeight;
+}
+function sendAnswer(val){ws.send(JSON.stringify({type:'answer',data:val}));mode='running';lockInput(true);setAgent('running',true)}
 
-  function lockInput(locked) {
-    ta.disabled = locked;
-    document.getElementById('sendBtn').disabled = locked;
-    if (locked) {
-      ta.placeholder = 'Use the buttons above to respond...';
-      ta.style.opacity = '0.5';
-    } else {
-      ta.placeholder = 'Describe a test or ask about a module...';
-      ta.style.opacity = '';
-    }
-  }
+function showReport(data){
+  lastReportData=data;const s=data.summary||{};
+  document.getElementById('m-total').textContent=s.total??0;
+  document.getElementById('m-pass').textContent=s.passed??0;
+  document.getElementById('m-fail').textContent=s.failed??0;
+  document.getElementById('m-skip').textContent=s.skipped??0;
+  document.getElementById('m-heal').textContent=s.healed??0;
+  document.getElementById('stats-bar').style.display='block';
+  setBadge(data.status==='success'?'passed':'failed',data.status==='success'?'passed':'failed');
+  setAgent('done');document.getElementById('scen-lbl').style.display='none';
+  allScenarioData=data.scenarios||[];buildDrawerContent(data);saveHistory(data);
+  const msg=data.status==='success'?`${data.type==='regression'?'Regression: ':''}All ${s.total} scenario${s.total>1?'s':''} passed.${s.healed?` (${s.healed} auto-healed)`:''}`:`${s.failed} failed${s.skipped?`, ${s.skipped} skipped`:''}. Click a stat to review.`;
+  addMsg(msg,'agent');resetInput();
+}
 
-  // ── Suggestion chips ───────────────────────────────────────────────────────
-  function renderSuggestions(items) {
-    const row = document.getElementById('suggestionChips');
-    row.innerHTML = '';
-    if (!items?.length) return;
-    items.forEach((text, i) => {
-      const btn = document.createElement('button');
-      btn.className = `whitespace-nowrap px-3 py-1.5 rounded-full text-xs border transition ${i===0?'border-indigo-100 bg-indigo-50 text-indigo-600 hover:bg-indigo-100':'border-gray-100 bg-gray-50 text-gray-600 hover:bg-gray-100'}`;
-      btn.textContent = text;
-      btn.addEventListener('click', () => { if (!ta.disabled) { ta.value=text; ta.focus(); ta.dispatchEvent(new Event('input')); } });
-      row.appendChild(btn);
+function buildDrawerContent(data){
+  const s=data.summary||{},scens=data.scenarios||[];
+  const pct=s.total>0?Math.round((s.passed/s.total)*100):0;
+  document.getElementById('dsdot').style.background=s.failed===0?'var(--green)':s.failed>0?'var(--red)':'var(--amber)';
+  document.getElementById('dtitle').textContent=data.type==='regression'?'Regression Report':'Test Report';
+  const pr=document.getElementById('dprate');
+  if(s.total>1){pr.textContent=`${pct}% passed`;pr.style.display=''}
+  const rb=document.getElementById('rbar-wrap');
+  if(s.total>1){rb.style.display='block';const f=document.getElementById('rbar-fill');f.style.width=pct+'%';f.style.background=pct===100?'var(--green)':pct>=50?'var(--amber)':'var(--red)'}
+  const counts={all:scens.length,passed:scens.filter(r=>r.result?.status==='success'&&!r.healCount).length,failed:scens.filter(r=>r.result?.status==='failed').length,skipped:scens.filter(r=>r.result?.status==='skipped').length,healed:scens.filter(r=>r.healCount>0).length};
+  document.querySelectorAll('.tab').forEach(b=>{const t=b.dataset.tab;const n=counts[t]??0;b.textContent=t.charAt(0).toUpperCase()+t.slice(1)+(n>0?` (${n})`:'')}); 
+  renderDrawerTab('all');
+}
+function renderDrawerTab(tab){
+  currentTab=tab;
+  document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
+  const content=document.getElementById('dcontent');content.innerHTML='';
+  let items=allScenarioData;
+  if(tab==='passed')items=allScenarioData.filter(r=>r.result?.status==='success'&&!r.healCount);
+  if(tab==='failed')items=allScenarioData.filter(r=>r.result?.status==='failed');
+  if(tab==='skipped')items=allScenarioData.filter(r=>r.result?.status==='skipped');
+  if(tab==='healed')items=allScenarioData.filter(r=>r.healCount>0);
+  if(!items.length){content.innerHTML=`<p style="color:var(--t3);font-size:12px;text-align:center;padding:32px 0">No ${tab==='all'?'':tab+' '}scenarios</p>`;return}
+  const multi=new Set(items.map(r=>r.scenario?.module)).size>1;
+  if(multi){const bm={};items.forEach(r=>{const m=r.scenario?.module||'general';(bm[m]=bm[m]||[]).push(r)});Object.entries(bm).forEach(([mod,arr])=>{const h=document.createElement('div');h.className='mod-hdr';h.textContent=mod;content.appendChild(h);arr.forEach(r=>content.appendChild(buildBlock(r)))})}
+  else items.forEach(r=>content.appendChild(buildBlock(r)));
+}
+
+function buildBlock({scenario,result,healCount=0,healMeta=null}){
+  const status=result?.status,passed=status==='success',skipped=status==='skipped',steps=result?.results||[];
+  const dotC=passed?'var(--green)':skipped?'var(--t3)':'var(--red)';
+  const nameC=passed?'var(--t1)':skipped?'var(--t3)':'var(--t1)';
+  const badC=passed?'pass':skipped?'skip':'fail',badT=passed?'PASS':skipped?'SKIP':'FAIL';
+  const block=document.createElement('div');block.className='scb';
+  const hdr=document.createElement('div');hdr.className='sch';
+  hdr.style.borderRadius=steps.length>0?'var(--rl) var(--rl) 0 0':'var(--rl)';
+  const dot=document.createElement('div');dot.className='scdot';dot.style.background=dotC;
+  const name=document.createElement('span');name.className='scname';name.style.color=nameC;name.textContent=scenario?.name||'Scenario';
+  const badge=document.createElement('span');badge.className=`scbadge ${badC}`;badge.textContent=badT;
+  hdr.appendChild(dot);hdr.appendChild(name);
+  if(healCount>0){const hb=document.createElement('span');hb.className='scheal-badge';hb.textContent=`${healCount} healed`;hdr.appendChild(hb)}
+  if(skipped){const sb=document.createElement('span');sb.style.cssText='font-size:10px;color:var(--t3);background:rgba(255,255,255,0.05);padding:2px 7px;border-radius:4px;';sb.textContent='no plan cached';hdr.appendChild(sb)}
+  hdr.appendChild(badge);
+  if(steps.length>0){
+    const chev=document.createElement('span');chev.className='scchev open';chev.textContent='›';hdr.appendChild(chev);
+    block.appendChild(hdr);
+    const table=document.createElement('div');table.className='sctable';
+    steps.forEach((r,i)=>{
+      const ok=r.status==='success';
+      const row=document.createElement('div');row.className='scrow';
+      row.innerHTML=`<span class="scrn">${i+1}</span><div class="scrd" style="background:${ok?'var(--green)':'var(--red)'}"></div><span class="scra">${esc(r.step?.action||'')}</span><span class="scrt">${esc(r.step?.selector||r.step?.value||'')}</span><span class="scrs" style="color:${ok?'var(--green)':'var(--red)'}">${ok?'pass':'fail'}</span>`;
+      table.appendChild(row);
+      if(!ok&&r.error){const er=document.createElement('div');er.className='scre';er.textContent=r.error;table.appendChild(er)}
     });
-  }
-
-  // ── Scenario picker ────────────────────────────────────────────────────────
-  function showScenarioPicker({ scenarios, module: mod }) {
-    removeTyping();
-    const msgs = document.getElementById('chatMessages');
-    const wrap = document.createElement('div');
-    wrap.className = 'flex flex-col gap-2 max-w-[90%] msg-in';
-    const bubble = document.createElement('div');
-    bubble.className = 'bg-gray-100 text-gray-700 text-sm px-3 py-2 rounded-xl rounded-bl-sm leading-relaxed';
-    bubble.textContent = `I found ${scenarios.length} scenario${scenarios.length>1?'s':''} for "${mod}":`;
-    wrap.appendChild(bubble);
-    const list = document.createElement('div');
-    list.className = 'flex flex-col gap-1.5 pl-1';
-    scenarios.forEach((s, i) => {
-      const row = document.createElement('div');
-      row.className = 'flex items-start gap-2 text-xs text-gray-600';
-      row.innerHTML = `<span class="text-gray-400 font-mono mt-0.5">${i+1}.</span><div><div class="font-medium text-gray-700">${esc(s.name)}</div><div class="text-gray-400">${esc(s.description)}</div></div>`;
-      list.appendChild(row);
-    });
-    wrap.appendChild(list);
-    const btnRow = document.createElement('div');
-    btnRow.className = 'flex gap-2 flex-wrap';
-    const allBtn = document.createElement('button');
-    allBtn.className = 'px-3 py-1.5 text-xs font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition';
-    allBtn.textContent = 'Run all';
-    allBtn.addEventListener('click', () => { sendChoice('all'); btnRow.remove(); });
-    btnRow.appendChild(allBtn);
-    scenarios.forEach((s, i) => {
-      const btn = document.createElement('button');
-      btn.className = 'px-3 py-1.5 text-xs font-medium border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 transition';
-      btn.textContent = `Run ${i + 1} only`;
-      btn.addEventListener('click', () => { sendChoice(String(i+1)); btnRow.remove(); });
-      btnRow.appendChild(btn);
-    });
-    wrap.appendChild(btnRow);
-    addTime(wrap);
-    msgs.appendChild(wrap); msgs.scrollTop=msgs.scrollHeight;
-    mode='scenario_choice'; lockInput(false); setAgent('waiting for you',true);
-  }
-
-  function showRegressionPlan({ modules, total }) {
-    removeTyping();
-    const msgs = document.getElementById('chatMessages');
-    const wrap = document.createElement('div');
-    wrap.className = 'flex flex-col gap-2 max-w-[95%] msg-in';
-    const bubble = document.createElement('div');
-    bubble.className = 'bg-gray-100 text-gray-700 text-sm px-3 py-2 rounded-xl rounded-bl-sm leading-relaxed';
-    bubble.textContent = `Regression suite ready — ${total} scenarios across ${modules.length} modules:`;
-    wrap.appendChild(bubble);
-    modules.forEach(mod => {
-      const section = document.createElement('div');
-      section.className = 'pl-1';
-      const header = document.createElement('div');
-      header.className = 'text-xs font-semibold text-indigo-600 mb-1 uppercase tracking-wide';
-      header.textContent = mod.name;
-      section.appendChild(header);
-      mod.scenarios.forEach((s, i) => {
-        const row = document.createElement('div');
-        row.className = 'text-xs text-gray-500 flex gap-2';
-        row.innerHTML = `<span class="text-gray-300 font-mono">${i+1}.</span><span>${esc(s.name)}</span>`;
-        section.appendChild(row);
-      });
-      wrap.appendChild(section);
-    });
-    const btnRow = document.createElement('div');
-    btnRow.className = 'flex gap-2';
-    const runBtn = document.createElement('button');
-    runBtn.className = 'px-4 py-2 text-xs font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition';
-    runBtn.textContent = `Run all ${total} scenarios`;
-    runBtn.addEventListener('click', () => { sendChoice('all'); btnRow.remove(); });
-    const cancelBtn = document.createElement('button');
-    cancelBtn.className = 'px-4 py-2 text-xs font-medium border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 transition';
-    cancelBtn.textContent = 'Cancel';
-    cancelBtn.addEventListener('click', () => { sendChoice('cancel'); btnRow.remove(); });
-    btnRow.appendChild(runBtn); btnRow.appendChild(cancelBtn);
-    wrap.appendChild(btnRow);
-    addTime(wrap);
-    msgs.appendChild(wrap); msgs.scrollTop=msgs.scrollHeight;
-    mode='scenario_choice'; lockInput(false); setAgent('waiting for you',true);
-  }
-
-  function sendChoice(val) {
-    ws.send(JSON.stringify({type:'answer',data:val}));
-    mode='running'; lockInput(true); setAgent('running',true);
-  }
-
-  function onScenarioStart(scenario) {
-    const lbl = document.getElementById('scenarioLabel');
-    lbl.textContent = scenario.name; lbl.classList.remove('hidden');
-    document.getElementById('planSection').classList.remove('hidden');
-    document.getElementById('planSpinner').classList.remove('hidden');
-    const inner = document.getElementById('planInner');
-    inner.innerHTML = `<p class="text-xs text-indigo-600 font-medium py-1 flex items-center gap-2">
-      <span class="spinner" style="width:10px;height:10px;border:1.5px solid #e0e7ff;border-top-color:#6366f1;border-radius:50%;display:inline-block;"></span>
-      Loading plan for: ${esc(scenario.name)}
-    </p>`;
-    document.getElementById('planCount').textContent = '...';
-  }
-
-  // ── Chat helpers ───────────────────────────────────────────────────────────
-  function now() { const d=new Date(); return d.getHours()+':'+String(d.getMinutes()).padStart(2,'0'); }
-  function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-  function removeTyping() { document.getElementById('typingBubble')?.remove(); }
-  function addTime(wrap) { const t=document.createElement('div'); t.className='text-xs text-gray-300'; t.textContent=now(); wrap.appendChild(t); }
-
-  function addChatMsg(text, who, isQuestion=false) {
-    removeTyping();
-    const msgs=document.getElementById('chatMessages');
-    const isUser=who==='user';
-    const wrap=document.createElement('div');
-    wrap.className='flex flex-col gap-1 msg-in '+(isUser?'items-end self-end max-w-[85%] ml-auto':'items-start max-w-[85%]');
-    const bubble=document.createElement('div');
-    bubble.className='text-sm px-3 py-2 rounded-xl leading-relaxed '+(isUser?'bg-indigo-50 text-indigo-800 rounded-br-sm':isQuestion?'bg-amber-50 text-amber-900 border border-amber-200 rounded-bl-sm':'bg-gray-100 text-gray-700 rounded-bl-sm');
-    if (!isUser && text.includes('\n')) bubble.innerHTML=text.split('\n').map(l=>esc(l)||'&nbsp;').join('<br>');
-    else bubble.textContent=text;
-    addTime(wrap);
-    wrap.insertBefore(bubble, wrap.firstChild);
-    msgs.appendChild(wrap); msgs.scrollTop=msgs.scrollHeight;
-  }
-
-  function showTyping() {
-    removeTyping();
-    const msgs=document.getElementById('chatMessages');
-    const el=document.createElement('div');
-    el.id='typingBubble';
-    el.className='flex items-center gap-1 px-3 py-2.5 bg-gray-100 rounded-xl rounded-bl-sm w-fit msg-in';
-    el.innerHTML='<span class="typing-dot w-1.5 h-1.5 rounded-full bg-gray-400 inline-block"></span><span class="typing-dot w-1.5 h-1.5 rounded-full bg-gray-400 inline-block"></span><span class="typing-dot w-1.5 h-1.5 rounded-full bg-gray-400 inline-block"></span>';
-    msgs.appendChild(el); msgs.scrollTop=msgs.scrollHeight;
-  }
-
-  // ── Log ────────────────────────────────────────────────────────────────────
-  const levelColor={info:'text-gray-400',success:'text-green-600',error:'text-red-500',warn:'text-amber-500',user:'text-indigo-500'};
-  function addLog(text, level='info') {
-    if (!text?.trim()) return;
-    const stream=document.getElementById('logStream');
-    const el=document.createElement('div');
-    if (level==='phase') { el.className='log-phase py-1 font-mono text-xs'; el.textContent=text; }
-    else { el.className='flex gap-2 py-0.5 border-b border-gray-50'; el.innerHTML=`<span class="text-gray-300 flex-shrink-0 select-none">${now()}</span><span class="${levelColor[level]||levelColor.info}">${esc(text)}</span>`; }
-    stream.appendChild(el); stream.scrollTop=stream.scrollHeight;
-  }
-
-  // ── Plan ───────────────────────────────────────────────────────────────────
-  let planOpen = true;
-  function renderSteps(steps) {
-    if (!steps?.length) return;
-    document.getElementById('planSpinner').classList.add('hidden');
-    document.getElementById('planSection').classList.remove('hidden');
-    const inner=document.getElementById('planInner');
-    inner.innerHTML='';
-    steps.forEach((step,i)=>{
-      const row=document.createElement('div');
-      row.className='flex items-center gap-2 py-1 text-xs border-b border-gray-50 last:border-0';
-      row.id='row-'+i;
-      row.innerHTML=`<div id="sd-${i}" class="w-2 h-2 rounded-full flex-shrink-0 sdot-idle"></div>
-        <span class="font-mono font-medium text-gray-500 w-16 flex-shrink-0">${esc(step.action)}</span>
-        <span class="font-mono text-gray-400 truncate flex-1">${esc(step.selector||step.value||'')}</span>
-        <span id="sl-${i}" class="flex-shrink-0 text-gray-300 text-xs">—</span>`;
-      inner.appendChild(row);
-    });
-    const count=document.getElementById('planCount');
-    count.textContent=steps.length+' steps';
-    count.className='ml-auto text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-500';
-    if(!planOpen) togglePlan();
-  }
-
-  function updateStep(index, status) {
-    const dot=document.getElementById('sd-'+index);
-    const lbl=document.getElementById('sl-'+index);
-    if(!dot||!lbl) return;
-    const dotClass={running:'sdot-running',success:'sdot-success',failed:'sdot-failed',healed:'sdot-healed',skipped:'sdot-skipped'}[status]||'sdot-idle';
-    const lblText={running:'running',success:'pass',failed:'fail',healed:'healed',skipped:'skip'}[status]||'—';
-    const lblColor={running:'text-blue-400',success:'text-green-500 font-semibold',failed:'text-red-500 font-semibold',healed:'text-amber-500 font-semibold',skipped:'text-gray-400'}[status]||'text-gray-300';
-    dot.className='w-2 h-2 rounded-full flex-shrink-0 '+dotClass;
-    lbl.className='flex-shrink-0 text-xs '+lblColor;
-    lbl.textContent=lblText;
-    document.getElementById('row-'+index)?.scrollIntoView({block:'nearest'});
-  }
-
-  function togglePlan(){ planOpen=!planOpen; document.getElementById('planBody').style.maxHeight=planOpen?'180px':'0px'; document.getElementById('planChevron').style.transform=planOpen?'rotate(90deg)':'rotate(0deg)'; }
-
-  // ── Answer / confirm modes ─────────────────────────────────────────────────
-  function enterAnswerMode(payload){
-    const question = typeof payload==='string' ? payload : payload.text;
-    const qType    = typeof payload==='object'  ? payload.type : 'text';
-    const meta     = typeof payload==='object'  ? payload.meta : null;
-    setAgent('waiting for you',true);
-    if (qType==='confirm_run')  showConfirmRun(question, meta);
-    else if (qType==='heal_choice') showHealChoice(question, meta);
-    else {
-      mode='answer';
-      addChatMsg(question,'agent',true);
-      lockInput(false);
-      ta.placeholder='Type your answer...';
-    }
-  }
-
-  function showConfirmRun(question, meta) {
-    removeTyping();
-    mode='confirm';
-    lockInput(true);
-    const msgs=document.getElementById('chatMessages');
-    const wrap=document.createElement('div');
-    wrap.className='flex flex-col gap-2 max-w-[85%] msg-in';
-    const bubble=document.createElement('div');
-    bubble.className='bg-indigo-50 border border-indigo-100 rounded-xl rounded-bl-sm px-3 py-2.5';
-    const title=document.createElement('div');
-    title.className='font-semibold text-indigo-700 text-sm mb-1 flex items-center gap-2';
-    title.innerHTML=`<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="5" stroke="#6366f1" stroke-width="1.5"/><path d="M4 6l1.5 1.5L8 4" stroke="#6366f1" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Ready to run`;
-    bubble.appendChild(title);
-    const scenName = document.createElement('div');
-    scenName.className = 'text-xs text-indigo-600 font-medium mb-1';
-    scenName.textContent = meta?.scenarioName || question.split('\n')[0].replace('Ready to run: ','');
-    bubble.appendChild(scenName);
-    const steps = question.split('\n').slice(2).filter(Boolean);
-    if (steps.length) {
-      const pre=document.createElement('pre');
-      pre.className='text-xs text-indigo-700 font-mono whitespace-pre-wrap bg-indigo-100 rounded px-2 py-1.5 mt-1 leading-relaxed';
-      pre.textContent=steps.join('\n');
-      bubble.appendChild(pre);
-    }
-    if (meta?.totalSteps) {
-      const hint = document.createElement('div');
-      hint.className = 'text-xs text-indigo-400 mt-1';
-      hint.textContent = `${meta.totalSteps} total steps · take your time`;
-      bubble.appendChild(hint);
-    }
-    wrap.appendChild(bubble);
-    const btnRow=document.createElement('div');
-    btnRow.className='flex gap-2';
-    const runBtn=document.createElement('button');
-    runBtn.className='px-4 py-2 text-xs font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition flex items-center gap-1.5';
-    runBtn.innerHTML=`<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M3 2l5 3-5 3V2z" fill="white"/></svg>Run test`;
-    runBtn.addEventListener('click', () => { addChatMsg('Run test','user'); sendAnswer('yes'); btnRow.remove(); });
-    const skipBtn=document.createElement('button');
-    skipBtn.className='px-4 py-2 text-xs font-medium border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 transition';
-    skipBtn.textContent='Skip';
-    skipBtn.addEventListener('click', () => { addChatMsg('Skip','user'); sendAnswer('skip'); btnRow.remove(); });
-    btnRow.appendChild(runBtn); btnRow.appendChild(skipBtn);
-    wrap.appendChild(btnRow);
-    addTime(wrap);
-    msgs.appendChild(wrap); msgs.scrollTop=msgs.scrollHeight;
-  }
-
-  function showHealChoice(errorMsg, meta) {
-    removeTyping();
-    lockInput(true);
-    const msgs=document.getElementById('chatMessages');
-    const wrap=document.createElement('div');
-    wrap.className='flex flex-col gap-2 max-w-[85%] msg-in';
-    const bubble=document.createElement('div');
-    bubble.className='bg-red-50 border border-red-200 rounded-xl rounded-bl-sm px-3 py-2.5';
-    const title=document.createElement('div');
-    title.className='font-semibold text-red-700 text-xs uppercase tracking-wide mb-1 flex items-center gap-1.5';
-    title.innerHTML=`<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><circle cx="5" cy="5" r="4" stroke="#ef4444" stroke-width="1.5"/><path d="M5 3v2.5M5 7h.01" stroke="#ef4444" stroke-width="1.5" stroke-linecap="round"/></svg>Step failed`;
-    bubble.appendChild(title);
-    const errText=document.createElement('div');
-    errText.className='text-red-700 text-xs font-mono bg-red-100 rounded px-2 py-1.5 mt-1 break-all';
-    errText.textContent=errorMsg;
-    bubble.appendChild(errText);
-    if (meta?.failedStep) {
-      const stepInfo=document.createElement('div');
-      stepInfo.className='text-red-500 text-xs mt-1';
-      stepInfo.textContent=`Failed at: ${meta.failedStep.action} ${meta.failedStep.selector||meta.failedStep.value||''}`;
-      bubble.appendChild(stepInfo);
-    }
-    const healHint=document.createElement('div');
-    healHint.className='text-amber-700 text-xs mt-2 bg-amber-50 border border-amber-200 rounded px-2 py-1.5';
-    healHint.innerHTML='<strong>Auto-heal</strong> captures the current DOM and asks Gemini to regenerate corrected steps.';
-    bubble.appendChild(healHint);
-    wrap.appendChild(bubble);
-    const btnRow=document.createElement('div');
-    btnRow.className='flex gap-2';
-    const healBtn=document.createElement('button');
-    healBtn.className='px-4 py-2 text-xs font-medium bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition flex items-center gap-1.5';
-    healBtn.innerHTML=`<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M5 1a4 4 0 100 8A4 4 0 005 1" stroke="white" stroke-width="1.2" stroke-linecap="round"/></svg>Auto-heal`;
-    healBtn.addEventListener('click', () => { addChatMsg('Auto-heal','user'); sendAnswer('heal'); btnRow.remove(); });
-    const stopBtn=document.createElement('button');
-    stopBtn.className='px-4 py-2 text-xs font-medium border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 transition';
-    stopBtn.textContent='Stop';
-    stopBtn.addEventListener('click', () => { addChatMsg('Stop','user'); sendAnswer('stop'); btnRow.remove(); });
-    btnRow.appendChild(healBtn); btnRow.appendChild(stopBtn);
-    wrap.appendChild(btnRow);
-    addTime(wrap);
-    msgs.appendChild(wrap); msgs.scrollTop=msgs.scrollHeight;
-  }
-
-  function sendAnswer(val) {
-    ws.send(JSON.stringify({type:'answer',data:val}));
-    mode='running'; lockInput(true); setAgent('running',true);
-  }
-
-  // ── Report ─────────────────────────────────────────────────────────────────
-  function showReport(data) {
-    lastReportData = data;
-    const s=data.summary||{};
-    const total  = s.total  ?? 1;
-    const passed = s.passed ?? (data.status==='success'?1:0);
-    const failed = s.failed ?? (data.status==='failed'?1:0);
-    const skipped= s.skipped ?? 0;
-    const healed = s.healed ?? 0;
-
-    document.getElementById('mTotal').textContent=total;
-    document.getElementById('mPass').textContent=passed;
-    document.getElementById('mFail').textContent=failed;
-    document.getElementById('mSkip').textContent=skipped;
-    document.getElementById('mHeal').textContent=healed;
-    document.getElementById('reportBar').classList.remove('hidden');
-
-    setBadge(data.status==='success'?'passed':'failed', data.status==='success'?'green':'red');
-    setAgent('done');
-    document.getElementById('scenarioLabel').classList.add('hidden');
-    allScenarioData = data.scenarios || [];
-
-    buildDrawerContent(data);
-
-    // Save to history
-    saveToHistory(data);
-
-    const isReg = data.type==='regression';
-    const msg = data.status==='success'
-      ? `${isReg?'Regression: ':''}${total} scenario${total>1?'s':''} passed.${healed?` (${healed} healed)`:''}`
-      : `${failed} failed${skipped?`, ${skipped} skipped`:''}. Click a stat to view details.`;
-    addChatMsg(msg,'agent');
-    resetInput();
-  }
-
-  // ── ═══════════════════════════════════════════════════════════════════════
-  // FIXED Drawer — buildDrawerContent & buildScenarioBlock
-  // ══════════════════════════════════════════════════════════════════════════
-  let drawerSummary = {};
-
-  function buildDrawerContent(data) {
-    const s = data.summary || {};
-    drawerSummary = { ...s, status: data.status, type: data.type };
-    const scenarios = data.scenarios || [];
-
-    document.getElementById('drawerStatusDot').className = 'w-2.5 h-2.5 rounded-full ' + (s.passed === s.total ? 'bg-green-500' : s.failed > 0 ? 'bg-red-500' : 'bg-amber-500');
-    document.getElementById('drawerTitle').textContent = data.type==='regression' ? 'Regression Report' : 'Test Report';
-
-    const pct = s.total > 0 ? Math.round((s.passed/s.total)*100) : 0;
-    if (s.total > 1) {
-      document.getElementById('drawerPassRate').textContent = pct+'% passed';
-      document.getElementById('drawerPassRate').classList.remove('hidden');
-      document.getElementById('drawerRateBar').classList.remove('hidden');
-      const fill = document.getElementById('drawerRateFill');
-      fill.style.width = pct+'%';
-      fill.className = `h-full rounded-full transition-all duration-700 ${pct===100?'bg-green-500':pct>=50?'bg-amber-400':'bg-red-500'}`;
-    }
-
-    const tabCounts = {
-      all: scenarios.length,
-      passed:  scenarios.filter(r => r.result?.status==='success' && !r.healCount).length,
-      failed:  scenarios.filter(r => r.result?.status==='failed').length,
-      skipped: scenarios.filter(r => r.result?.status==='skipped').length,
-      healed:  scenarios.filter(r => r.healCount > 0).length,
-    };
-    document.querySelectorAll('.tab-btn').forEach(btn => {
-      const tab = btn.dataset.tab;
-      const count = tabCounts[tab] ?? 0;
-      btn.textContent = tab.charAt(0).toUpperCase()+tab.slice(1) + (count > 0 ? ` (${count})` : '');
-    });
-
-    renderDrawerTab('all');
-  }
-
-  function renderDrawerTab(tab) {
-    currentTab = tab;
-    document.querySelectorAll('.tab-btn').forEach(b => {
-      b.classList.toggle('active', b.dataset.tab === tab);
-      b.classList.toggle('text-gray-400', b.dataset.tab !== tab);
-    });
-
-    const content = document.getElementById('drawerContent');
-    content.innerHTML = '';
-
-    let items = allScenarioData;
-    if (tab === 'passed')  items = allScenarioData.filter(r => r.result?.status === 'success' && !r.healCount);
-    if (tab === 'failed')  items = allScenarioData.filter(r => r.result?.status === 'failed');
-    if (tab === 'skipped') items = allScenarioData.filter(r => r.result?.status === 'skipped');
-    if (tab === 'healed')  items = allScenarioData.filter(r => r.healCount > 0);
-
-    if (!items.length) {
-      const empty = document.createElement('p');
-      empty.className = 'text-sm text-gray-400 text-center py-8';
-      empty.textContent = `No ${tab === 'all' ? '' : tab + ' '}scenarios`;
-      content.appendChild(empty);
-      return;
-    }
-
-    const hasMultipleModules = new Set(items.map(r => r.scenario?.module)).size > 1;
-
-    if (hasMultipleModules) {
-      const byModule = {};
-      items.forEach(r => { const m = r.scenario?.module||'general'; (byModule[m]=byModule[m]||[]).push(r); });
-      Object.entries(byModule).forEach(([mod, modItems]) => {
-        const header = document.createElement('div');
-        header.style.cssText = 'font-size:11px;font-weight:700;letter-spacing:0.08em;color:#6366f1;text-transform:uppercase;margin-top:12px;margin-bottom:6px;';
-        header.textContent = mod;
-        content.appendChild(header);
-        modItems.forEach(r => content.appendChild(buildScenarioBlock(r)));
-      });
-    } else {
-      items.forEach(r => content.appendChild(buildScenarioBlock(r)));
-    }
-  }
-
-  // ── FIXED buildScenarioBlock ───────────────────────────────────────────────
-  // Key fixes:
-  // 1. Uses plain CSS classes (scenario-block etc) instead of Tailwind overflow-hidden
-  //    which was collapsing the button height
-  // 2. Appends header → table → healSection in correct DOM order
-  // 3. Toggle collapse via JS closure (no DOM query needed for table)
-  function buildScenarioBlock({ scenario, result, healCount=0, healMeta=null }) {
-    const status  = result?.status;
-    const passed  = status === 'success';
-    const skipped = status === 'skipped';
-    const steps   = result?.results || [];
-
-    const bgColor   = passed ? '#f0fdf4' : skipped ? '#f9fafb' : '#fef2f2';
-    const dotColor  = passed ? '#22c55e' : skipped ? '#9ca3af' : '#ef4444';
-    const textColor = passed ? '#166534' : skipped ? '#4b5563' : '#991b1b';
-    const badgeColor= passed ? '#16a34a' : skipped ? '#6b7280' : '#dc2626';
-    const badgeText = passed ? 'PASS'    : skipped ? 'SKIP'   : 'FAIL';
-
-    // ── block: no overflow:hidden — that was collapsing button height ──────
-    const block = document.createElement('div');
-    block.className = 'scenario-block';
-
-    // ── header button ──────────────────────────────────────────────────────
-    const header = document.createElement('div');
-    header.className = 'scenario-header';
-    header.style.background = bgColor;
-    header.style.borderRadius = steps.length > 0 ? '10px 10px 0 0' : '10px';
-
-    const dot = document.createElement('div');
-    dot.style.cssText = `width:8px;height:8px;border-radius:50%;background:${dotColor};flex-shrink:0;`;
-
-    const nameSpan = document.createElement('span');
-    nameSpan.style.cssText = `font-size:13px;font-weight:600;flex:1;color:${textColor};`;
-    nameSpan.textContent = scenario?.name || 'Scenario';
-
-    const badgeSpan = document.createElement('span');
-    badgeSpan.style.cssText = `font-size:10px;font-weight:700;color:${badgeColor};`;
-    badgeSpan.textContent = badgeText;
-
-    const chevron = document.createElement('span');
-    chevron.style.cssText = 'display:inline-block;transition:transform 0.2s;transform:rotate(90deg);margin-left:4px;color:#9ca3af;font-size:10px;';
-    chevron.textContent = '›';
-
-    header.appendChild(dot);
-    header.appendChild(nameSpan);
-
-    if (healCount > 0) {
-      const healBadge = document.createElement('span');
-      healBadge.style.cssText = 'font-size:10px;color:#d97706;background:#fef3c7;border:1px solid #fde68a;padding:2px 7px;border-radius:20px;';
-      healBadge.textContent = `${healCount} healed`;
-      header.appendChild(healBadge);
-    }
-
-    if (skipped) {
-      const skipBadge = document.createElement('span');
-      skipBadge.style.cssText = 'font-size:10px;color:#6b7280;background:#f3f4f6;padding:2px 7px;border-radius:20px;';
-      skipBadge.textContent = 'No plan cached';
-      header.appendChild(skipBadge);
-    }
-
-    header.appendChild(badgeSpan);
-
-    if (steps.length > 0) {
-      header.appendChild(chevron);
-    }
-
-    // ── CORRECT append order: header first, always ─────────────────────────
-    block.appendChild(header);
-
-    if (steps.length > 0) {
-      // ── step table ───────────────────────────────────────────────────────
-      const table = document.createElement('div');
-      table.className = 'scenario-table';
-
-      steps.forEach((r, i) => {
-        const ok = r.status === 'success';
-        const row = document.createElement('div');
-        row.className = 'scenario-table-row';
-        row.innerHTML = `
-          <span style="color:#d1d5db;width:18px;text-align:right;font-family:monospace;">${i+1}</span>
-          <div style="width:6px;height:6px;border-radius:50%;background:${ok?'#4ade80':'#f87171'};flex-shrink:0;"></div>
-          <span style="font-family:monospace;font-weight:600;color:#6b7280;width:72px;flex-shrink:0;">${esc(r.step?.action||'')}</span>
-          <span style="font-family:monospace;color:#9ca3af;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(r.step?.selector||r.step?.value||'')}</span>
-          <span style="font-weight:700;font-size:10px;color:${ok?'#16a34a':'#dc2626'};">${ok?'pass':'fail'}</span>`;
-        table.appendChild(row);
-
-        if (!ok && r.error) {
-          const errRow = document.createElement('div');
-          errRow.style.cssText = 'padding:4px 14px 8px;font-size:10px;font-family:monospace;color:#ef4444;background:#fff5f5;word-break:break-all;';
-          errRow.textContent = r.error;
-          table.appendChild(errRow);
-        }
-      });
-
-      // ── append table AFTER header ─────────────────────────────────────
-      block.appendChild(table);
-
-      // ── heal section AFTER table ──────────────────────────────────────
-      if (healCount > 0 && healMeta) {
-        const healSection = document.createElement('div');
-        healSection.className = 'scenario-heal';
-
-        const healTitle = document.createElement('div');
-        healTitle.style.cssText = 'font-size:11px;font-weight:600;color:#d97706;margin-bottom:6px;';
-        healTitle.textContent = '✦ Auto-heal applied';
-        healSection.appendChild(healTitle);
-
-        if (healMeta.failedStep) {
-          const r = document.createElement('div');
-          r.style.cssText = 'display:flex;gap:8px;font-size:10px;margin-bottom:4px;';
-          r.innerHTML = `<span style="color:#ef4444;font-weight:600;width:44px;flex-shrink:0;">Failed</span><span style="font-family:monospace;color:#dc2626;">${esc(healMeta.failedStep.action)} ${esc(healMeta.failedStep.selector||healMeta.failedStep.value||'')}</span>`;
-          healSection.appendChild(r);
-        }
-        if (healMeta.originalError) {
-          const r = document.createElement('div');
-          r.style.cssText = 'display:flex;gap:8px;font-size:10px;margin-bottom:4px;';
-          r.innerHTML = `<span style="color:#f87171;font-weight:600;width:44px;flex-shrink:0;">Error</span><span style="font-family:monospace;color:#f87171;word-break:break-all;">${esc(healMeta.originalError)}</span>`;
-          healSection.appendChild(r);
-        }
-        if (healMeta.fixedStep) {
-          const r = document.createElement('div');
-          r.style.cssText = 'display:flex;gap:8px;font-size:10px;';
-          r.innerHTML = `<span style="color:#16a34a;font-weight:600;width:44px;flex-shrink:0;">Fixed</span><span style="font-family:monospace;color:#15803d;">${esc(healMeta.fixedStep.action)} ${esc(healMeta.fixedStep.selector||healMeta.fixedStep.value||'')}</span>`;
-          healSection.appendChild(r);
-        }
-
-        block.appendChild(healSection);
+    block.appendChild(table);
+    // ── ENHANCED HEAL DIFF ──────────────────────────────────────────────────
+    if(healCount>0){
+      const hs=document.createElement('div');hs.className='sc-heal';
+      const hm=healMeta||{};const diff=hm.diff||pendingHealDiff;
+      hs.innerHTML=`<div class="heal-hdr"><div class="heal-ico"><svg width="9" height="9" viewBox="0 0 9 9" fill="none"><path d="M4.5 1a3.5 3.5 0 100 7 3.5 3.5 0 000-7" stroke="var(--amber)" stroke-width="1.1" stroke-linecap="round"/><path d="M3 4.5h3M4.5 3v3" stroke="var(--amber)" stroke-width="1.1" stroke-linecap="round"/></svg></div><span class="heal-ttl">Auto-heal applied</span><span class="heal-meta">${diff&&diff.changes?.length?`${diff.changes.length} change${diff.changes.length!==1?'s':''}`:hm.fixedStep?'1 step fixed':''}</span></div>`;
+      const dw=document.createElement('div');dw.className='heal-diff';
+      if(diff&&diff.changes&&diff.changes.length>0){
+        const dl=document.createElement('div');dl.className='diff-lbl';dl.textContent='Plan diff';dw.appendChild(dl);
+        diff.changes.forEach(ch=>{
+          const r=document.createElement('div');r.className=`dr ${ch.type}`;
+          const m=document.createElement('span');m.className=`dm ${ch.type}`;m.textContent=ch.type==='added'?'+':ch.type==='removed'?'−':'~';
+          const c=document.createElement('div');c.className='dc';
+          if(ch.type==='changed'){c.innerHTML=`<div class="dci" style="color:var(--amber)">Step ${ch.index+1} changed</div><div class="dbefore">${esc(ch.original.action)} ${esc(ch.original.selector||ch.original.value||'')}</div><div class="dafter">${esc(ch.healed.action)} ${esc(ch.healed.selector||ch.healed.value||'')}</div>`}
+          else if(ch.type==='added'){c.innerHTML=`<div class="dci" style="color:var(--green)">Step ${ch.index+1} added</div><div class="dafter">${esc(ch.step.action)} ${esc(ch.step.selector||ch.step.value||'')}</div>`}
+          else{c.innerHTML=`<div class="dci" style="color:var(--red)">Step ${ch.index+1} removed</div><div class="dbefore">${esc(ch.step.action)} ${esc(ch.step.selector||ch.step.value||'')}</div>`}
+          r.appendChild(m);r.appendChild(c);dw.appendChild(r);
+        });
+      } else {
+        const dl=document.createElement('div');dl.className='diff-lbl';dl.textContent='Step fix';dw.appendChild(dl);
+        if(hm.failedStep){const r=document.createElement('div');r.className='dr removed';r.innerHTML=`<span class="dm removed">−</span><div class="dc"><div class="dci" style="color:var(--red)">Original (failed)</div><div class="dbefore">${esc(hm.failedStep.action)} ${esc(hm.failedStep.selector||hm.failedStep.value||'')}</div></div>`;dw.appendChild(r)}
+        if(hm.fixedStep){const r=document.createElement('div');r.className='dr added';r.innerHTML=`<span class="dm added">+</span><div class="dc"><div class="dci" style="color:var(--green)">Healed (working)</div><div class="dafter">${esc(hm.fixedStep.action)} ${esc(hm.fixedStep.selector||hm.fixedStep.value||'')}</div></div>`;dw.appendChild(r)}
       }
-
-      // ── collapse toggle (closure over table & healSection via block query) ──
-      let expanded = true;
-      header.style.cursor = 'pointer';
-      header.addEventListener('click', () => {
-        expanded = !expanded;
-        table.style.display = expanded ? '' : 'none';
-        const hs = block.querySelector('.scenario-heal');
-        if (hs) hs.style.display = expanded ? '' : 'none';
-        chevron.style.transform = expanded ? 'rotate(90deg)' : 'rotate(0deg)';
-        header.style.borderRadius = expanded ? '10px 10px 0 0' : '10px';
-      });
+      hs.appendChild(dw);block.appendChild(hs);
     }
+    let expanded=true;
+    hdr.addEventListener('click',()=>{expanded=!expanded;table.style.display=expanded?'':'none';const hs2=block.querySelector('.sc-heal');if(hs2)hs2.style.display=expanded?'':'none';block.querySelector('.scchev').classList.toggle('open',expanded);hdr.style.borderRadius=expanded?'var(--rl) var(--rl) 0 0':'var(--rl)'});
+  } else {block.appendChild(hdr)}
+  return block;
+}
 
-    return block;
-  }
+function switchTab(tab){renderDrawerTab(tab)}
+function openDrawer(tab='all'){if(!allScenarioData.length)return;renderDrawerTab(tab);document.getElementById('dbackdrop').style.display='block';document.getElementById('drawer').classList.add('open');drawerOpen=true}
+function closeDrawer(){document.getElementById('drawer').classList.remove('open');document.getElementById('dbackdrop').style.display='none';drawerOpen=false}
 
-  function switchTab(tab) { renderDrawerTab(tab); }
+function exportReport(){
+  if(!lastReportData)return;
+  const ts=new Date().toISOString().replace(/[:.]/g,'-').slice(0,19);
+  const blob=new Blob([JSON.stringify(lastReportData,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`qa-sentinel-${ts}.json`;a.click();URL.revokeObjectURL(url);toast('Report exported');
+}
+function copyReport(){
+  if(!lastReportData)return;
+  const s=lastReportData.summary||{};const pct=s.total>0?Math.round((s.passed/s.total)*100):0;
+  const lines=[`QA Sentinel — ${new Date().toLocaleString()}`,`Pass rate: ${pct}% (${s.passed}/${s.total})`,`Passed: ${s.passed}  Failed: ${s.failed}  Skipped: ${s.skipped}  Healed: ${s.healed}`,'',...(lastReportData.scenarios||[]).map(r=>`${r.result?.status==='success'?'✓':r.result?.status==='skipped'?'○':'✗'} ${r.scenario?.name} [${r.scenario?.module}]${r.healCount?` (healed ×${r.healCount})`:''}`)];
+  navigator.clipboard.writeText(lines.join('\n'));toast('Copied to clipboard');
+}
+function toast(msg){const t=document.createElement('div');t.className='toast';t.textContent=msg;document.body.appendChild(t);setTimeout(()=>t.remove(),2200)}
 
-  function openDrawer(tab='all') {
-    if (!allScenarioData.length) return;
-    renderDrawerTab(tab);
-    document.getElementById('drawerBackdrop').classList.remove('hidden');
-    document.getElementById('reportDrawer').classList.add('open');
-    drawerOpen = true;
-  }
+function saveHistory(data){
+  testHistory.unshift({id:Date.now(),ts:new Date().toLocaleString(),type:data.type||'single',status:data.status,summary:data.summary,data});
+  if(testHistory.length>20)testHistory=testHistory.slice(0,20);
+  try{localStorage.setItem('qa_sentinel_h',JSON.stringify(testHistory))}catch{}renderHistory();
+}
+function renderHistory(){
+  const list=document.getElementById('hlist');list.innerHTML='';
+  if(!testHistory.length){list.innerHTML='<p style="color:var(--t3);font-size:11px;text-align:center;padding:24px 0">No runs yet</p>';return}
+  testHistory.forEach(e=>{
+    const s=e.summary||{};const pct=s.total>0?Math.round((s.passed/s.total)*100):0;
+    const color=e.status==='success'?'var(--green)':'var(--red)';
+    const card=document.createElement('div');card.className='hcard';
+    card.innerHTML=`<div class="htop"><div style="width:6px;height:6px;border-radius:50%;background:${color};flex-shrink:0"></div><span class="htype">${e.type==='regression'?'Regression':'Module test'}</span><span class="hpct" style="color:${color}">${pct}%</span></div><div class="hts">${e.ts}</div><div class="hstats"><span style="color:var(--green)">${s.passed||0} pass</span><span style="color:var(--red)">${s.failed||0} fail</span>${s.skipped?`<span style="color:var(--t3)">${s.skipped} skip</span>`:''} ${s.healed?`<span style="color:var(--amber)">${s.healed} healed</span>`:''}</div>`;
+    card.onclick=()=>{allScenarioData=e.data.scenarios||[];lastReportData=e.data;buildDrawerContent(e.data);toggleHistory();openDrawer('all')};
+    list.appendChild(card);
+  });
+}
+function toggleHistory(){const p=document.getElementById('hpanel'),b=document.getElementById('hbackdrop'),open=p.classList.contains('open');p.classList.toggle('open',!open);b.style.display=open?'none':'block'}
+function clearHistory(){testHistory=[];try{localStorage.removeItem('qa_sentinel_h')}catch{}renderHistory()}
 
-  function closeDrawer() {
-    document.getElementById('reportDrawer').classList.remove('open');
-    document.getElementById('drawerBackdrop').classList.add('hidden');
-    drawerOpen = false;
-  }
-
-  // ── Export report ──────────────────────────────────────────────────────────
-  function exportReport() {
-    if (!lastReportData) return;
-    const ts = new Date().toISOString().replace(/[:.]/g,'-').slice(0,19);
-    const blob = new Blob([JSON.stringify(lastReportData, null, 2)], {type:'application/json'});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = `qa-report-${ts}.json`;
-    a.click(); URL.revokeObjectURL(url);
-    showToast('Report exported');
-  }
-
-  function copyReportSummary() {
-    if (!lastReportData) return;
-    const s = lastReportData.summary || {};
-    const pct = s.total > 0 ? Math.round((s.passed/s.total)*100) : 0;
-    const type = lastReportData.type === 'regression' ? 'Regression' : 'Test';
-    const lines = [
-      `${type} Report — ${new Date().toLocaleString()}`,
-      `Pass rate: ${pct}% (${s.passed}/${s.total})`,
-      `Passed: ${s.passed} | Failed: ${s.failed} | Skipped: ${s.skipped} | Healed: ${s.healed}`,
-      '',
-      ...(lastReportData.scenarios||[]).map(r => {
-        const icon = r.result?.status==='success'?'✓':r.result?.status==='skipped'?'○':'✗';
-        return `${icon} ${r.scenario?.name} (${r.scenario?.module})`;
-      })
-    ];
-    navigator.clipboard.writeText(lines.join('\n'));
-    showToast('Summary copied to clipboard');
-  }
-
-  // ── Toast ──────────────────────────────────────────────────────────────────
-  function showToast(msg) {
-    const t = document.createElement('div');
-    t.className = 'toast';
-    t.textContent = msg;
-    document.body.appendChild(t);
-    setTimeout(() => t.remove(), 2500);
-  }
-
-  // ── History ────────────────────────────────────────────────────────────────
-  function saveToHistory(data) {
-    const entry = {
-      id: Date.now(),
-      ts: new Date().toLocaleString(),
-      type: data.type || 'single',
-      status: data.status,
-      summary: data.summary,
-      data,
-    };
-    testHistory.unshift(entry);
-    if (testHistory.length > 20) testHistory = testHistory.slice(0, 20);
-    try { localStorage.setItem('qa_history', JSON.stringify(testHistory)); } catch {}
-    renderHistory();
-  }
-
-  function renderHistory() {
-    const list = document.getElementById('historyList');
-    list.innerHTML = '';
-    if (!testHistory.length) {
-      list.innerHTML = '<p class="text-xs text-gray-400 text-center py-4">No runs yet</p>';
-      return;
-    }
-    testHistory.forEach(entry => {
-      const s = entry.summary || {};
-      const pct = s.total > 0 ? Math.round((s.passed/s.total)*100) : 0;
-      const color = entry.status === 'success' ? 'text-green-600' : 'text-red-500';
-      const dot   = entry.status === 'success' ? 'bg-green-500'  : 'bg-red-500';
-      const card = document.createElement('div');
-      card.className = 'border border-gray-100 rounded-lg p-3 cursor-pointer hover:bg-gray-50 transition';
-      card.innerHTML = `
-        <div class="flex items-center gap-2 mb-1">
-          <div class="w-2 h-2 rounded-full ${dot} flex-shrink-0"></div>
-          <span class="text-xs font-medium text-gray-700 flex-1">${entry.type === 'regression' ? 'Regression' : 'Module test'}</span>
-          <span class="text-xs ${color} font-bold">${pct}%</span>
-        </div>
-        <div class="text-xs text-gray-400 mb-1.5">${entry.ts}</div>
-        <div class="flex gap-2 text-xs">
-          <span class="text-green-600 font-medium">${s.passed||0} pass</span>
-          <span class="text-red-500 font-medium">${s.failed||0} fail</span>
-          ${s.skipped ? `<span class="text-gray-400">${s.skipped} skip</span>` : ''}
-          ${s.healed  ? `<span class="text-amber-500">${s.healed} healed</span>` : ''}
-        </div>`;
-      card.addEventListener('click', () => {
-        allScenarioData = entry.data.scenarios || [];
-        lastReportData = entry.data;
-        buildDrawerContent(entry.data);
-        toggleHistory();
-        openDrawer('all');
-      });
-      list.appendChild(card);
-    });
-  }
-
-  function toggleHistory() {
-    const panel = document.getElementById('historyPanel');
-    const backdrop = document.getElementById('historyBackdrop');
-    const open = panel.classList.contains('open');
-    if (open) {
-      panel.classList.remove('open');
-      backdrop.classList.add('hidden');
-    } else {
-      renderHistory();
-      panel.classList.add('open');
-      backdrop.classList.remove('hidden');
-    }
-  }
-
-  function clearHistory() {
-    testHistory = [];
-    try { localStorage.removeItem('qa_history'); } catch {}
-    renderHistory();
-  }
-
-  // ── Helpers ────────────────────────────────────────────────────────────────
-  function resetExecPanel(){
-    document.getElementById('logStream').innerHTML='';
-    document.getElementById('planSection').classList.add('hidden');
-    document.getElementById('planInner').innerHTML='<p class="text-xs text-gray-300 py-1">Preparing plan...</p>';
-    document.getElementById('planCount').textContent='0 steps';
-    document.getElementById('planCount').className='ml-auto text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-400';
-    document.getElementById('reportBar').classList.add('hidden');
-    document.getElementById('drawerPassRate').classList.add('hidden');
-    document.getElementById('drawerRateBar').classList.add('hidden');
-    planOpen=true;
-    if (drawerOpen) closeDrawer();
-  }
-
-  function setBadge(text,color){
-    const b=document.getElementById('execBadge');
-    const cls={blue:'bg-blue-50 text-blue-600',green:'bg-green-50 text-green-700',red:'bg-red-50 text-red-600',gray:'bg-gray-100 text-gray-400'}[color]||'bg-gray-100 text-gray-400';
-    b.className=`text-xs px-2 py-0.5 rounded-md font-medium ${cls}`; b.textContent=text;
-  }
-
-  function setAgent(state,busy=false){
-    document.getElementById('agentState').textContent=state;
-    document.getElementById('statusDot').className='w-2 h-2 rounded-full flex-shrink-0 '+(busy?'bg-amber-400 dot-busy':'bg-green-500');
-  }
-
-  function resetInput(){
-    mode='prompt'; lockInput(false);
-  }
-
-  const STATE_LABELS = {
-    IDLE:              { label:'ready',    dot:'bg-green-500' },
-    GATHERING_CONTEXT: { label:'scanning', dot:'bg-amber-400 dot-busy' },
-    PLANNING:          { label:'planning', dot:'bg-indigo-400 dot-busy' },
-    EXECUTING:         { label:'running',  dot:'bg-blue-400 dot-busy' },
-  };
-  function setAgentStateBadge(state) {
-    const s=STATE_LABELS[state]||STATE_LABELS.IDLE;
-    document.getElementById('agentState').textContent=s.label;
-    document.getElementById('statusDot').className=`w-2 h-2 rounded-full flex-shrink-0 ${s.dot}`;
-  }
-
-  // ── Init ───────────────────────────────────────────────────────────────────
-  renderHistory();
+function resetExec(){
+  document.getElementById('log-stream').innerHTML='';document.getElementById('plan-section').style.display='none';
+  document.getElementById('plan-inner').innerHTML='';document.getElementById('plan-cnt').textContent='0 steps';
+  document.getElementById('stats-bar').style.display='none';document.getElementById('dprate').style.display='none';
+  document.getElementById('rbar-wrap').style.display='none';planOpen=true;if(drawerOpen)closeDrawer();
+}
+function setBadge(text,cls=''){const b=document.getElementById('exec-badge');b.textContent=text;b.className=cls;b.id='exec-badge'}
+function setAgent(state,busy=false){
+  document.getElementById('state-lbl').textContent=state;
+  const dot=document.getElementById('status-dot');
+  dot.style.background=busy?'var(--amber)':state==='done'?'var(--green)':'var(--green)';
+  busy?dot.classList.add('blk'):dot.classList.remove('blk');
+}
+const SM={IDLE:{l:'ready',c:'var(--green)',b:false},GATHERING_CONTEXT:{l:'scanning',c:'var(--amber)',b:true},PLANNING:{l:'planning',c:'var(--accent-h)',b:true},EXECUTING:{l:'running',c:'var(--sky)',b:true}};
+function setStateBadge(state){
+  const s=SM[state]||SM.IDLE;
+  document.getElementById('state-lbl').textContent=s.l;
+  const dot=document.getElementById('status-dot');dot.style.background=s.c;
+  s.b?dot.classList.add('blk'):dot.classList.remove('blk');
+  const eb=document.getElementById('exec-badge');
+  if(state==='EXECUTING'){eb.textContent='running';eb.className='running';eb.id='exec-badge'}
+  else if(state==='IDLE'){eb.textContent='idle';eb.className='';eb.id='exec-badge'}
+}
+function resetInput(){mode='prompt';lockInput(false)}
+renderHistory();
 </script>
 </body>
 </html>
