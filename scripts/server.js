@@ -31,8 +31,9 @@ app.use((req, res, next) => {
     "default-src 'self'",
     "connect-src 'self' ws:",
     "script-src 'self' https://cdn.tailwindcss.com 'unsafe-inline'",
-    "style-src 'self' 'unsafe-inline'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "img-src 'self' data:",
+    "font-src 'self' https://fonts.gstatic.com",
   ].join('; '));
   next();
 });
