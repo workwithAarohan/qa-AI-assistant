@@ -18,6 +18,7 @@ import { STATE, outOfScopeResponse } from './classifier.js';
 import { gatherContext } from './context-gatherer.js';
 import { generate as llmGenerate } from './llm.js';
 import { IDENTITY_ANCHOR } from './guard.js';
+import { classifyFailure, DECISION_META } from './failure-classifier.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -225,93 +226,121 @@ async function executePlan(ws, plan, scenario, userInput, baseUrl, browser) {
   send(ws, 'plan', { ...finalPlan, scenarioId: scenario.id });
   sendState(ws, STATE.EXECUTING);
   phase(ws, '── Executing steps ──');
-
+ 
   let result = await runSteps(finalPlan.steps, {
     browser, baseUrl,
     onStep: (index, step, status) => send(ws, 'step', { index, status }),
     onLog:  (text, level) => log(ws, text, level),
   });
-
+ 
   let healCount = 0;
-  let healMeta = null;
-
+  let healMeta  = null;
+ 
   if (result.status === 'failed') {
-    phase(ws, '── Step failed ──');
-    log(ws, `Error: ${result.error}`, 'error');
+    phase(ws, '── Analysing failure ──');
+ 
     const failedStepResult = result.results?.find(r => r.status === 'failed');
-
-    // ── Enhanced heal — send richer context including DOM diff ──────────────
     const failedIndex = failedStepResult ? result.results.indexOf(failedStepResult) : -1;
+ 
+    // ── Classify the failure BEFORE asking the user anything ─────────────────
+    const classification = classifyFailure(
+      failedStepResult?.step,
+      result.error,
+      result.results
+    );
+ 
+    log(ws, `Failure type: ${classification.type} — ${classification.reason}`, 'warn');
+ 
+    // ── Emit classification so the UI can show the right card ─────────────────
+    send(ws, 'failure_classified', {
+      type:       classification.type,
+      decision:   classification.decision,
+      confidence: classification.confidence,
+      reason:     classification.reason,
+      canHeal:    DECISION_META[classification.decision].canHeal,
+      error:      result.error,
+      failedStep: failedStepResult?.step,
+      failedIndex,
+      passedCount: result.results?.filter(r => r.status === 'success').length || 0,
+      totalSteps:  finalPlan.steps.length,
+    });
+ 
+    // ── Only send heal_choice if healing is actually relevant ─────────────────
     send(ws, 'question', {
       text: result.error,
       type: 'heal_choice',
       meta: {
+        classification,
+        canHeal:    DECISION_META[classification.decision].canHeal,
         failedStep: failedStepResult?.step,
         failedIndex,
-        error: result.error,
-        totalSteps: finalPlan.steps.length,
+        error:      result.error,
         passedCount: result.results?.filter(r => r.status === 'success').length || 0,
+        totalSteps:  finalPlan.steps.length,
       },
     });
+ 
     const choice = await waitForAnswer(ws);
-
+ 
     if (/yes|heal|try|fix|retry/i.test(choice)) {
-      phase(ws, '── Auto-healing ──');
-      log(ws, 'Capturing fresh browser snapshot...', 'info');
-
-      // Capture both DOM snapshot and a screenshot hint
-      const freshCtx = await captureBrowserContext(baseUrl);
-      log(ws, `DOM captured: ${freshCtx.split('\n').length} elements`, 'info');
-      log(ws, 'Asking LLM for corrected steps...', 'info');
-
-      // Build rich heal context
-      const healContext = buildHealContext(finalPlan, result, failedStepResult, freshCtx);
-      const fixedPlan = await fixSteps(finalPlan, result.error, userInput, healContext);
-      validatePlan(fixedPlan);
-
-      const fixedWithUrl = injectDocUrl(fixedPlan, baseUrl);
-
-      // Emit diff between original and healed plan
-      const diffData = computePlanDiff(finalPlan.steps, fixedWithUrl.steps);
-      send(ws, 'heal_diff', diffData);
-
-      send(ws, 'plan', { ...fixedWithUrl, scenarioId: scenario.id });
-      phase(ws, '── Retrying healed plan ──');
-      result = await runSteps(fixedWithUrl.steps, {
-        browser, baseUrl,
-        onStep: (index, step, status) => send(ws, 'step', { index, status }),
-        onLog:  (text, level) => log(ws, text, level),
-      });
-      healCount++;
-
-      if (result.status === 'success') {
-        log(ws, 'Heal succeeded ✓', 'success');
-        phase(ws, '── Saving healed plan ──');
-        saveToMemory(fixedPlan);
-        log(ws, `Cached: "${fixedPlan.module}__${fixedPlan.scenario}"`, 'success');
-        const fixedStep = fixedPlan.steps[failedStepResult?.index];
-        healMeta = {
-          originalError: result.error || failedStepResult?.error,
-          failedStep: failedStepResult?.step,
-          failedIndex,
-          fixedStep,
-          stepIndex: failedStepResult?.index,
-          diff: diffData,
-        };
+      // Double-check: only proceed if classification allows healing
+      if (!DECISION_META[classification.decision].canHeal && !/force/i.test(choice)) {
+        log(ws, 'Heal skipped — classified as real bug, not an automation issue.', 'warn');
       } else {
-        log(ws, 'Heal also failed', 'error');
-        // Emit second-pass failure for the UI to show
-        send(ws, 'heal_failed', { error: result.error, attempts: 1 });
+        phase(ws, '── Auto-healing ──');
+        log(ws, 'Capturing fresh DOM snapshot...', 'info');
+        const freshCtx = await captureBrowserContext(baseUrl);
+        log(ws, 'Asking LLM for corrected steps...', 'info');
+ 
+        const healContext = buildHealContext(finalPlan, result, failedStepResult, freshCtx);
+        const fixedPlan   = await fixSteps(finalPlan, result.error, userInput, healContext);
+        validatePlan(fixedPlan);
+ 
+        const fixedWithUrl = injectDocUrl(fixedPlan, baseUrl);
+        const diffData     = computePlanDiff(finalPlan.steps, fixedWithUrl.steps);
+        send(ws, 'heal_diff', diffData);
+        send(ws, 'plan', { ...fixedWithUrl, scenarioId: scenario.id });
+ 
+        phase(ws, '── Retrying healed plan ──');
+        result = await runSteps(fixedWithUrl.steps, {
+          browser, baseUrl,
+          onStep: (index, step, status) => send(ws, 'step', { index, status }),
+          onLog:  (text, level) => log(ws, text, level),
+        });
+ 
+        healCount++;
+ 
+        if (result.status === 'success') {
+          log(ws, 'Heal succeeded ✓', 'success');
+          phase(ws, '── Saving healed plan ──');
+          saveToMemory(fixedPlan);
+          log(ws, `Cached: "${fixedPlan.module}__${fixedPlan.scenario}"`, 'success');
+          healMeta = {
+            originalError: result.error || failedStepResult?.error,
+            failedStep:    failedStepResult?.step,
+            failedIndex,
+            fixedStep:     fixedPlan.steps[failedIndex],
+            diff:          diffData,
+            classification,
+          };
+        } else {
+          log(ws, 'Heal also failed — this may be a real application bug.', 'error');
+          send(ws, 'heal_failed', { error: result.error, attempts: 1, classification });
+        }
       }
     } else {
-      log(ws, 'Stopped by user', 'warn');
+      log(ws, 'Stopped by user.', 'warn');
     }
+ 
+    // ── Tag result with classification for report ─────────────────────────────
+    result._classification = classification;
+ 
   } else {
     phase(ws, '── Saving to memory ──');
     saveToMemory(finalPlan);
     log(ws, `Cached: "${finalPlan.module}__${finalPlan.scenario}"`, 'success');
   }
-
+ 
   return { result, healCount, healMeta };
 }
 

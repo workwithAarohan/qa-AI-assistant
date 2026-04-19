@@ -161,7 +161,7 @@
     #dclose{width:26px;height:26px;border-radius:var(--r);background:transparent;border:1px solid var(--border);color:var(--t3);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;transition:all 0.15s}
     #dclose:hover{border-color:var(--border-h);color:var(--t1);background:var(--surface2)}
 
-    #rbar-wrap{flex-shrink:0;padding:8px 22px;border-bottom:1px solid var(--border);display:none}
+    #rbar-wrap{flex-shrink:0;padding:10px 22px;border-bottom:1px solid var(--border);display:none}
     #rbar-track{height:3px;background:var(--surface2);border-radius:2px;overflow:hidden;border:1px solid var(--border)}
     #rbar-fill{height:100%;border-radius:2px;transition:width 0.7s ease,background 0.3s;width:0%}
 
@@ -394,6 +394,7 @@
 const ws=new WebSocket('ws://localhost:4000');
 let mode='prompt',allScenarioData=[],currentTab='all',drawerOpen=false,lastReportData=null,pendingHealDiff=null;
 let testHistory=[];try{testHistory=JSON.parse(localStorage.getItem('qa_sentinel_h')||'[]')}catch{}
+let lastClassification=null;
 
 const ta=document.getElementById('chat-input');
 ta.addEventListener('input',()=>{ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,80)+'px'});
@@ -417,6 +418,7 @@ ws.onmessage=({data})=>{
   else if(type==='suggestions')renderChips(d.payload);
   else if(type==='heal_diff')pendingHealDiff=d;
   else if(type==='heal_failed')addLog('Heal attempt failed: '+d.error,'error');
+  else if(type==='failure_classified')lastClassification=d;
 };
 
 function handleSend(){
@@ -509,10 +511,36 @@ function showPicker({scenarios,module:mod}){
 function showRegPlan({modules,total}){
   removeTyping();const msgs=document.getElementById('msgs');
   const w=document.createElement('div');w.className='mw agent';
-  const b=document.createElement('div');b.className='bub agent';b.textContent=`Regression suite — ${total} scenarios across ${modules.length} modules`;w.appendChild(b);
-  const rc=document.createElement('div');rc.className='reg-card';
-  modules.forEach(m=>{const s=document.createElement('div');s.innerHTML=`<div class="reg-mn">${esc(m.name)}</div>${m.scenarios.map((sc,i)=>`<div class="reg-s"><span style="color:var(--t3);font-family:var(--mono)">${i+1}.</span><span>${esc(sc.name)}</span></div>`).join('')}`;rc.appendChild(s)});
-  w.appendChild(rc);
+  const b=document.createElement('div');b.className='bub agent';
+  b.innerHTML=`Regression suite ready &mdash; <strong>${total} scenarios</strong> across ${modules.length} modules`;
+  w.appendChild(b);
+
+  // Spacious module grid — each module is its own card
+  const grid=document.createElement('div');
+  grid.style.cssText='display:flex;flex-direction:column;gap:8px;max-width:92%;';
+  modules.forEach(m=>{
+    const card=document.createElement('div');
+    card.style.cssText='border:1px solid var(--border);border-radius:var(--rl);overflow:hidden;background:var(--surface);';
+    // Module header
+    const mhdr=document.createElement('div');
+    mhdr.style.cssText='padding:7px 13px;background:rgba(79,70,229,0.05);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;';
+    mhdr.innerHTML=`<span style="font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.07em">${esc(m.name)}</span><span style="font-size:10px;color:var(--t3)">${m.scenarios.length} scenario${m.scenarios.length!==1?'s':''}</span>`;
+    card.appendChild(mhdr);
+    // Scenarios list
+    const slist=document.createElement('div');
+    slist.style.cssText='padding:4px 0;';
+    m.scenarios.forEach((sc,i)=>{
+      const row=document.createElement('div');
+      row.style.cssText='display:flex;align-items:center;gap:8px;padding:6px 13px;border-bottom:1px solid var(--border);';
+      row.style.borderBottom=i===m.scenarios.length-1?'none':'1px solid var(--border)';
+      row.innerHTML=`<span style="font-size:10px;color:var(--t3);font-family:var(--mono);width:16px;text-align:right">${i+1}</span><div style="width:5px;height:5px;border-radius:50%;background:var(--t3);flex-shrink:0"></div><span style="font-size:11px;color:var(--t2)">${esc(sc.name)}</span>`;
+      slist.appendChild(row);
+    });
+    card.appendChild(slist);
+    grid.appendChild(card);
+  });
+  w.appendChild(grid);
+
   const br=document.createElement('div');br.className='brow';
   const rb=document.createElement('button');rb.className='btn primary';rb.textContent=`Run all ${total}`;rb.onclick=()=>{sendChoice('all');br.remove()};
   const cb=document.createElement('button');cb.className='btn ghost';cb.textContent='Cancel';cb.onclick=()=>{sendChoice('cancel');br.remove()};
@@ -561,15 +589,63 @@ function showHealChoice(errorMsg,meta){
   removeTyping();lockInput(true);
   const msgs=document.getElementById('msgs');
   const w=document.createElement('div');w.className='mw agent';
-  const card=document.createElement('div');card.className='fail-card';
-  card.innerHTML=`<div class="fail-t"><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><circle cx="5" cy="5" r="4" stroke="var(--red)" stroke-width="1.2"/><path d="M5 3v2.5" stroke="var(--red)" stroke-width="1.2" stroke-linecap="round"/><circle cx="5" cy="7" r="0.5" fill="var(--red)"/></svg>Step failed</div><div class="fail-err">${esc(errorMsg)}</div>${meta?.failedStep?`<div style="font-size:10px;color:var(--t3);font-family:var(--mono);margin-top:3px">at: ${esc(meta.failedStep.action)} ${esc(meta.failedStep.selector||meta.failedStep.value||'')}</div>`:''}${meta?.passedCount!=null?`<div style="font-size:10px;color:var(--t3);margin-top:4px">${meta.passedCount} of ${meta.totalSteps} passed before failure</div>`:''}<div class="heal-hint">Auto-heal captures the live DOM and uses the LLM to regenerate corrected steps — showing you exactly what changed.</div>`;
+  const clf=meta?.classification||lastClassification||{};
+  const canHeal=meta?.canHeal!==false;
+  const decision=clf.decision||'UNKNOWN';
+
+  // ── Classification badge colours ──────────────────────────────────────────
+  const clrMap={
+    AUTOMATION: {bg:'rgba(217,119,6,0.08)',border:'rgba(217,119,6,0.25)',text:'var(--amber)',label:'Automation issue'},
+    FUNCTIONAL: {bg:'rgba(220,38,38,0.06)',border:'rgba(220,38,38,0.2)', text:'var(--red)',  label:'Application bug'},
+    ASSERTION:  {bg:'rgba(220,38,38,0.06)',border:'rgba(220,38,38,0.2)', text:'var(--red)',  label:'Assertion failed — real bug'},
+    NETWORK:    {bg:'rgba(2,132,199,0.06)', border:'rgba(2,132,199,0.2)',text:'var(--sky)',  label:'Network / connection error'},
+    UNKNOWN:    {bg:'rgba(107,114,128,0.06)',border:'rgba(107,114,128,0.2)',text:'var(--t2)',label:'Unknown cause'},
+  };
+  const c=clrMap[clf.type]||clrMap.UNKNOWN;
+
+  const card=document.createElement('div');
+  card.style.cssText=`border:1px solid ${c.border};border-radius:var(--rl);background:${c.bg};padding:12px 14px;max-width:88%`;
+
+  // Title row with classification type
+  card.innerHTML=`
+    <div style="display:flex;align-items:center;gap:7px;margin-bottom:8px">
+      <div style="width:6px;height:6px;border-radius:50%;background:${c.text};flex-shrink:0"></div>
+      <span style="font-size:11px;font-weight:700;color:${c.text};text-transform:uppercase;letter-spacing:0.05em">${c.label}</span>
+    </div>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--t2);background:rgba(0,0,0,0.04);border-radius:var(--r);padding:7px 10px;margin-bottom:8px;word-break:break-all">${esc(errorMsg)}</div>
+    ${meta?.failedStep?`<div style="font-size:10px;color:var(--t3);font-family:var(--mono);margin-bottom:4px">at: <strong>${esc(meta.failedStep.action)}</strong> ${esc(meta.failedStep.selector||meta.failedStep.value||'')}</div>`:''}
+    ${meta?.passedCount!=null?`<div style="font-size:10px;color:var(--t3);margin-bottom:8px">${meta.passedCount} of ${meta.totalSteps} steps passed before failure</div>`:''}
+    <div style="font-size:10px;padding:7px 10px;border-radius:var(--r);border:1px solid ${c.border};color:${c.text};line-height:1.5">${esc(clf.reason||'')}</div>`;
+
+  // If it's a real bug — show bug report hint, no heal button by default
+  if(!canHeal){
+    const bugNote=document.createElement('div');
+    bugNote.style.cssText='margin-top:8px;font-size:10px;color:var(--red);padding:6px 10px;background:rgba(220,38,38,0.05);border-radius:var(--r);border:1px solid rgba(220,38,38,0.15)';
+    bugNote.innerHTML='⚠ This looks like a <strong>real application bug</strong>. Auto-heal cannot fix incorrect application behaviour — this needs developer attention.';
+    card.appendChild(bugNote);
+  }
+
   w.appendChild(card);
   const br=document.createElement('div');br.className='brow';
-  const hb=document.createElement('button');hb.className='btn heal';
-  hb.innerHTML='<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M5 1a4 4 0 100 8A4 4 0 005 1" stroke="var(--amber)" stroke-width="1.2" stroke-linecap="round"/><path d="M3.5 5h3M5 3.5v3" stroke="var(--amber)" stroke-width="1.2" stroke-linecap="round"/></svg>Auto-heal';
-  hb.onclick=()=>{addMsg('Auto-heal','user');sendAnswer('heal');br.remove()};
-  const stb=document.createElement('button');stb.className='btn ghost';stb.textContent='Stop';stb.onclick=()=>{addMsg('Stop','user');sendAnswer('stop');br.remove()};
-  br.appendChild(hb);br.appendChild(stb);w.appendChild(br);
+
+  if(canHeal){
+    const hb=document.createElement('button');hb.className='btn heal';
+    hb.innerHTML='<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M5 1a4 4 0 100 8A4 4 0 005 1" stroke="var(--amber)" stroke-width="1.2" stroke-linecap="round"/><path d="M3.5 5h3M5 3.5v3" stroke="var(--amber)" stroke-width="1.2" stroke-linecap="round"/></svg>Auto-heal selector';
+    hb.onclick=()=>{addMsg('Auto-heal','user');sendAnswer('heal');br.remove()};
+    br.appendChild(hb);
+  } else {
+    // Still offer "force heal" as escape hatch but de-emphasised
+    const fh=document.createElement('button');fh.className='btn ghost';
+    fh.style.cssText='font-size:10px;opacity:0.65';
+    fh.textContent='Force heal anyway';
+    fh.onclick=()=>{addMsg('Force heal','user');sendAnswer('force heal');br.remove()};
+    br.appendChild(fh);
+  }
+
+  const stb=document.createElement('button');stb.className='btn ghost';stb.textContent='Stop & report bug';
+  stb.onclick=()=>{addMsg('Stop','user');sendAnswer('stop');br.remove()};
+  br.appendChild(stb);
+  w.appendChild(br);
   const ts=document.createElement('span');ts.className='mts';ts.textContent=now();w.appendChild(ts);
   msgs.appendChild(w);msgs.scrollTop=msgs.scrollHeight;
 }
@@ -595,10 +671,36 @@ function buildDrawerContent(data){
   const pct=s.total>0?Math.round((s.passed/s.total)*100):0;
   document.getElementById('dsdot').style.background=s.failed===0?'var(--green)':s.failed>0?'var(--red)':'var(--amber)';
   document.getElementById('dtitle').textContent=data.type==='regression'?'Regression Report':'Test Report';
+
+  // ── Pass % pill ───────────────────────────────────────────────────────────
   const pr=document.getElementById('dprate');
   if(s.total>1){pr.textContent=`${pct}% passed`;pr.style.display=''}
+
+  // ── SVG donut ring ────────────────────────────────────────────────────────
   const rb=document.getElementById('rbar-wrap');
-  if(s.total>1){rb.style.display='block';const f=document.getElementById('rbar-fill');f.style.width=pct+'%';f.style.background=pct===100?'var(--green)':pct>=50?'var(--amber)':'var(--red)'}
+  if(s.total>1){
+    rb.style.display='block';
+    const ringColor=pct===100?'var(--green)':pct>=50?'var(--amber)':'var(--red)';
+    const r=14,circ=2*Math.PI*r,dash=circ*(pct/100),gap=circ-dash;
+    rb.innerHTML=`
+      <div style="display:flex;align-items:center;gap:18px;padding:4px 0">
+        <svg width="40" height="40" viewBox="0 0 40 40">
+          <circle cx="20" cy="20" r="${r}" fill="none" stroke="var(--border)" stroke-width="4"/>
+          <circle cx="20" cy="20" r="${r}" fill="none" stroke="${ringColor}" stroke-width="4"
+            stroke-dasharray="${dash.toFixed(2)} ${gap.toFixed(2)}"
+            stroke-dashoffset="${(circ*0.25).toFixed(2)}" stroke-linecap="round"
+            style="transition:stroke-dasharray 0.7s ease"/>
+          <text x="20" y="24" text-anchor="middle" font-size="9" font-weight="700" fill="${ringColor}" font-family="var(--mono)">${pct}%</text>
+        </svg>
+        <div style="display:flex;gap:16px;font-size:11px">
+          <span><span style="font-weight:700;color:var(--green)">${s.passed}</span> <span style="color:var(--t3)">passed</span></span>
+          ${s.failed?`<span><span style="font-weight:700;color:var(--red)">${s.failed}</span> <span style="color:var(--t3)">failed</span></span>`:''}
+          ${s.skipped?`<span><span style="font-weight:700;color:var(--t2)">${s.skipped}</span> <span style="color:var(--t3)">skipped</span></span>`:''}
+          ${s.healed?`<span><span style="font-weight:700;color:var(--amber)">${s.healed}</span> <span style="color:var(--t3)">healed</span></span>`:''}
+        </div>
+      </div>`;
+  }
+
   const counts={all:scens.length,passed:scens.filter(r=>r.result?.status==='success'&&!r.healCount).length,failed:scens.filter(r=>r.result?.status==='failed').length,skipped:scens.filter(r=>r.result?.status==='skipped').length,healed:scens.filter(r=>r.healCount>0).length};
   document.querySelectorAll('.tab').forEach(b=>{const t=b.dataset.tab;const n=counts[t]??0;b.textContent=t.charAt(0).toUpperCase()+t.slice(1)+(n>0?` (${n})`:'')}); 
   renderDrawerTab('all');
