@@ -18,7 +18,7 @@ import { STATE, outOfScopeResponse } from './classifier.js';
 import { gatherContext } from './context-gatherer.js';
 import { generate as llmGenerate } from './llm.js';
 import { IDENTITY_ANCHOR } from './guard.js';
-import { classifyFailure, DECISION_META } from './failure-classifier.js';
+import { classifyFailure, HEAL_DECISION, DECISION_META } from './failure-classifier.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -52,7 +52,7 @@ function send(ws, type, data) {
   if (ws.readyState === 1) ws.send(JSON.stringify({ type, data }));
 }
 function log(ws, text, level = 'info') {
-  if (!text || !text.trim()) return;
+  if (!text?.trim()) return;
   console.log(`[${level.toUpperCase()}] ${text}`);
   send(ws, 'log', { text, level });
 }
@@ -92,278 +92,7 @@ function injectDocUrl(plan, baseUrl) {
   };
 }
 
-// ── Emotional / conversational intent detection ────────────────────────────────
-// Detects when user is NOT asking to run a test but having a human conversation
-const EMOTIONAL_PATTERNS = [
-  /\b(new (to|here|in)|just joined|just started|onboard|first (day|week|time))\b/i,
-  /\b(guide|help me understand|walk me through|show me|explain|teach me|how does|what should i|where do i start)\b/i,
-  /\b(confused|lost|overwhelmed|don'?t know|not sure|unsure|clueless)\b/i,
-  /\b(could you|can you|would you|please)\b.*\b(help|guide|explain|tell)\b/i,
-  /\b(what (is|are|does)|how (do|does|can|should)|why (is|does))\b/i,
-  /\b(nervous|excited|worried|anxious|scared|afraid)\b/i,
-  /\bi (am|'m) (a |an )?(new|junior|senior|lead|qa|tester|developer|engineer)/i,
-];
-
-const GREET_PHRASES = ['hi', 'hello', 'hey', 'help', 'what can you do', 'what do you do', 'who are you', 'good morning', 'good afternoon', 'good evening'];
-
-function isEmotionalOrConversational(input) {
-  const lower = input.toLowerCase().trim();
-  if (GREET_PHRASES.some(p => lower === p || lower.startsWith(p + ' ') || lower.startsWith(p + ','))) return true;
-  return EMOTIONAL_PATTERNS.some(p => p.test(lower));
-}
-
-// ── Warm conversational response using LLM ─────────────────────────────────────
-async function generateWarmResponse(userInput, allDocs) {
-  const modules = allDocs.map(d => d.name);
-  const scenarioSummary = allDocs.map(d => {
-    const section = d.content.match(/##\s*Test Scenarios\s*\n([\s\S]*?)(?=\n##|$)/i);
-    if (!section) return `${d.name}: (no scenarios documented)`;
-    const lines = section[1].trim().split('\n')
-      .map(l => { const m = l.match(/[-*]\s*([a-z_]+):\s*(.+)/i); return m ? `  • ${m[1].replace(/_/g,' ')}` : null; })
-      .filter(Boolean);
-    return `${d.name}:\n${lines.join('\n')}`;
-  }).join('\n\n');
-
-  const prompt = `${IDENTITY_ANCHOR}
-
-You are a warm, experienced QA team member — a partner and mentor, not just a tool.
-The new team member said: "${userInput}"
-
-The application has these testable modules and scenarios:
-${scenarioSummary}
-
-Respond conversationally and warmly in 3–5 sentences. 
-- Acknowledge their situation with empathy
-- Briefly orient them to what the app does and what we can test
-- Give 1–2 concrete suggestions for where to start (e.g. "test login" or "tell me about dashboard")
-- Keep it friendly and encouraging, like a colleague on Slack
-- Do NOT list every module exhaustively. Be concise and human.
-- Do NOT output JSON or markdown headers.`;
-
-  const result = await llmGenerate(prompt);
-  return result.response.text().trim();
-}
-
-// ── Specific scenario resolution ───────────────────────────────────────────────
-const SYNONYMS = {
-  correct: ['valid'], right: ['valid'], good: ['valid'],
-  wrong: ['invalid'], bad: ['invalid'], incorrect: ['invalid'],
-  blank: ['empty'],
-};
-
-function resolveSpecificScenario(input, docScenarios) {
-  const promptWords = input.toLowerCase().split(/\s+/).filter(w => w.length > 1);
-  const expanded = [...promptWords];
-  promptWords.forEach(w => { if (SYNONYMS[w]) expanded.push(...SYNONYMS[w]); });
-
-  const scored = docScenarios.map(s => {
-    const raw = [...s.id.split('_'), ...s.name.toLowerCase().split(/\s+/)].filter(w => w.length > 2);
-    const keywords = [...new Set(raw)];
-    const matches = keywords.filter(kw => expanded.some(pw => pw === kw));
-    return { scenario: s, score: matches.length };
-  }).filter(s => s.score > 0).sort((a, b) => b.score - a.score);
-
-  if (!scored.length) return null;
-  const top = scored[0], second = scored[1];
-  return (!second || top.score > second.score) && top.score >= 2 ? top.scenario : null;
-}
-
-function buildExploreResponse(docScenarios, docs, userInput) {
-  const lower = userInput.toLowerCase();
-  const matchedDoc = docs.find(d => lower.includes(d.name.toLowerCase()));
-  if (matchedDoc) {
-    const scenarios = matchedDoc.content.match(/##\s*Test Scenarios\s*\n([\s\S]*?)(?=\n##|$)/i)?.[1]?.trim().split('\n')
-      .map(line => { const m = line.match(/[-*]\s*([a-z_]+):\s*(.+)/i); return m ? { name: m[1].replace(/_/g,' '), description: m[2] } : null; })
-      .filter(Boolean) || [];
-    const urlMatch = matchedDoc.content.match(/##\s*URL\s*\n(https?:\/\/[^\s]+)/i);
-    const desc = matchedDoc.content.match(/##\s*Description\s*\n([\s\S]*?)(?=\n##|$)/i)?.[1]?.trim();
-    let msg = `Here's what I know about the ${matchedDoc.name} module:\n\n`;
-    if (urlMatch) msg += `URL: ${urlMatch[1]}\n\n`;
-    if (desc) msg += `${desc}\n\n`;
-    if (scenarios.length > 0) {
-      msg += `Test scenarios:\n${scenarios.map((s, i) => `${i+1}. ${s.name} — ${s.description}`).join('\n')}\n\n`;
-      msg += `Say "test ${matchedDoc.name}" to run all, or pick a specific one.`;
-    }
-    return msg;
-  }
-  const modules = [...new Set(docs.map(d => d.name))];
-  return `I can test these modules:\n${modules.map(m => `• ${m}`).join('\n')}\n\nAsk about any one to learn more, or say "test [module]" to run tests.`;
-}
-
-// ── Confirm execution ──────────────────────────────────────────────────────────
-async function confirmExecution(ws, scenario, plan) {
-  const finalPlan = { ...plan, scenarioId: scenario.id };
-  send(ws, 'plan', finalPlan);
-
-  const stepLines = plan.steps.slice(0, 6).map((s, i) => {
-    const target = s.selector || s.value || '';
-    const label = {
-      navigate: `Navigate to ${target}`,
-      type: `Type "${s.value}" into ${s.selector}`,
-      click: `Click ${s.selector}`,
-      expect: `Expect ${s.selector} to be visible`,
-      expecturl: `Expect URL to contain ${s.value}`,
-      waitfornavigation: `Wait for page to load`,
-      asserttext: `Verify text "${s.value}" in ${s.selector}`,
-    }[s.action?.toLowerCase()] || `${s.action} ${target}`;
-    return `${i+1}. ${label}`;
-  }).join('\n');
-  const extra = plan.steps.length > 6 ? `\n   ...+${plan.steps.length - 6} more` : '';
-
-  send(ws, 'question', {
-    text: `${scenario.name}\n\n${stepLines}${extra}`,
-    type: 'confirm_run',
-    meta: { scenarioName: scenario.name, totalSteps: plan.steps.length },
-  });
-
-  const answer = await waitForAnswer(ws);
-  return /yes|run|ok|confirm|go|start/i.test(answer);
-}
-
-// ── Execute one plan ───────────────────────────────────────────────────────────
-async function executePlan(ws, plan, scenario, userInput, baseUrl, browser) {
-  const finalPlan = injectDocUrl(plan, baseUrl);
-  send(ws, 'plan', { ...finalPlan, scenarioId: scenario.id });
-  sendState(ws, STATE.EXECUTING);
-  phase(ws, '── Executing steps ──');
- 
-  let liveDomAtFailure = null;
-  let liveUrlAtFailure = null;
- 
-  // Run steps — executor calls onFail(page) with the live Playwright page
-  let result = await runSteps(finalPlan.steps, {
-    browser, baseUrl,
-    onStep: (index, step, status) => send(ws, 'step', { index, status }),
-    onLog:  (text, level) => log(ws, text, level),
-    onFail: async (page) => {
-      try {
-        liveUrlAtFailure = page.url();
-        liveDomAtFailure = await captureLiveDom(page);
-        log(ws, `Live DOM captured at: ${liveUrlAtFailure}`, 'info');
-      } catch (e) {
-        log(ws, `Live DOM capture failed: ${e.message}`, 'warn');
-      }
-    },
-  });
- 
-  let healCount = 0, healMeta = null;
- 
-  if (result.status === 'failed') {
-    phase(ws, '── Analysing failure ──');
- 
-    const failedStepResult = result.results?.find(r => r.status === 'failed');
-    const failedIndex = failedStepResult ? result.results.indexOf(failedStepResult) : -1;
- 
-    const classification = classifyFailure(failedStepResult?.step, result.error, result.results);
-    log(ws, `Failure type: ${classification.type} — ${classification.reason}`, 'warn');
- 
-    send(ws, 'failure_classified', {
-      ...classification,
-      canHeal:     DECISION_META[classification.decision].canHeal,
-      error:       result.error,
-      failedStep:  failedStepResult?.step,
-      failedIndex,
-      passedCount: result.results?.filter(r => r.status === 'success').length || 0,
-      totalSteps:  finalPlan.steps.length,
-    });
- 
-    // ── Pre-analyse DOM to build heal preview BEFORE user decides ─────────────
-    let healPreview = null;
-    if (DECISION_META[classification.decision].canHeal) {
-      // Fallback if onFail didn't capture (very fast crash)
-      if (!liveDomAtFailure) {
-        try { liveDomAtFailure = await captureBrowserContext(liveUrlAtFailure || baseUrl); } catch {}
-      }
- 
-      if (liveDomAtFailure) {
-        const failedSelector = failedStepResult?.step?.selector || '';
-        // Find buttons/inputs that exist in the DOM — give user a preview
-        const candidates = liveDomAtFailure.split('\n')
-          .filter(l => /^\s+(button|input|\[type=submit\]|\[role=button\])/.test(l))
-          .map(l => l.trim())
-          .slice(0, 6);
- 
-        healPreview = {
-          failedSelector,
-          liveUrl:      liveUrlAtFailure || baseUrl,
-          candidates,
-          domElementCount: liveDomAtFailure.split('\n').filter(l => l.startsWith('  ')).length,
-        };
-      }
-    }
- 
-    send(ws, 'question', {
-      text: result.error,
-      type: 'heal_choice',
-      meta: {
-        classification,
-        canHeal:    DECISION_META[classification.decision].canHeal,
-        failedStep: failedStepResult?.step,
-        failedIndex,
-        error:      result.error,
-        passedCount: result.results?.filter(r => r.status === 'success').length || 0,
-        totalSteps:  finalPlan.steps.length,
-        healPreview,
-      },
-    });
- 
-    const choice = await waitForAnswer(ws);
- 
-    if (/yes|heal|try|fix|retry/i.test(choice) && DECISION_META[classification.decision].canHeal) {
-      phase(ws, '── Auto-healing ──');
- 
-      const healContext = buildHealContext(finalPlan, result, failedStepResult, liveDomAtFailure || '(no DOM captured)');
-      const fixedPlan   = await fixSteps(finalPlan, result.error, userInput, healContext);
-      validatePlan(fixedPlan);
- 
-      const fixedWithUrl = injectDocUrl(fixedPlan, baseUrl);
-      const diffData     = computePlanDiff(finalPlan.steps, fixedWithUrl.steps);
-      send(ws, 'heal_diff', diffData);
-      send(ws, 'plan', { ...fixedWithUrl, scenarioId: scenario.id });
- 
-      phase(ws, '── Retrying healed plan ──');
-      liveDomAtFailure = null; liveUrlAtFailure = null;
- 
-      result = await runSteps(fixedWithUrl.steps, {
-        browser, baseUrl,
-        onStep: (i, s, st) => send(ws, 'step', { index:i, status:st }),
-        onLog:  (t, l) => log(ws, t, l),
-        onFail: async (page) => {
-          try { liveUrlAtFailure = page.url(); liveDomAtFailure = await captureLiveDom(page); } catch {}
-        },
-      });
- 
-      healCount++;
- 
-      if (result.status === 'success') {
-        log(ws, 'Heal succeeded ✓', 'success');
-        saveToMemory(fixedPlan);
-        log(ws, `Cached: "${fixedPlan.module}__${fixedPlan.scenario}"`, 'success');
-        healMeta = {
-          originalError: failedStepResult?.error || result.error,
-          failedStep:    failedStepResult?.step,
-          failedIndex,
-          fixedStep:     fixedPlan.steps[failedIndex],
-          diff:          diffData,
-          classification,
-        };
-      } else {
-        log(ws, 'Heal also failed — likely a real application bug.', 'error');
-        send(ws, 'heal_failed', { error: result.error, attempts: 1, classification });
-      }
-    } else {
-      log(ws, 'Stopped by user.', 'warn');
-    }
- 
-    result._classification = classification;
-  } else {
-    saveToMemory(finalPlan);
-    log(ws, `Cached: "${finalPlan.module}__${finalPlan.scenario}"`, 'success');
-  }
- 
-  return { result, healCount, healMeta };
-}
-
+// ── Live DOM capture from Playwright page at failure point ────────────────────
 async function captureLiveDom(page) {
   try {
     const snapshot = await page.evaluate(() => {
@@ -371,14 +100,12 @@ async function captureLiveDom(page) {
         'button','input','select','textarea',
         '[type="submit"]','[role="button"]','[role="link"]',
         'a[href]:not([href^="#"])',
-        '[id]',   // ALL ids — essential for detecting id changes
+        '[id]',
         'h1','h2','h3',
         '[data-testid]','[data-cy]','[data-qa]',
         '[aria-label]',
       ].join(',');
- 
-      const seen = new Set();
-      const els = [];
+      const seen = new Set(), els = [];
       document.querySelectorAll(SELECTORS).forEach(el => {
         const r = el.getBoundingClientRect();
         if (r.width === 0 && r.height === 0) return;
@@ -394,15 +121,14 @@ async function captureLiveDom(page) {
           ariaLabel:  el.getAttribute('aria-label') || null,
           dataTestid: el.getAttribute('data-testid') || el.getAttribute('data-cy') || null,
           placeholder:el.getAttribute('placeholder') || null,
-          text:       el.innerText?.trim().slice(0,60) || null,
+          text:       el.innerText?.trim().slice(0, 60) || null,
           href:       el.getAttribute('href') || null,
         };
         Object.keys(e).forEach(k => e[k] === null && delete e[k]);
         els.push(e);
       });
-      return { url: location.href, title: document.title, elements: els.slice(0,80) };
+      return { url: location.href, title: document.title, elements: els.slice(0, 80) };
     });
- 
     const lines = [`URL: ${snapshot.url}`, `Title: ${snapshot.title}`, `Elements:`];
     for (const el of snapshot.elements) {
       const parts = [el.tag];
@@ -423,66 +149,340 @@ async function captureLiveDom(page) {
   }
 }
 
-// ── Heal helpers ───────────────────────────────────────────────────────────────
-
-function buildHealContext(plan, result, failedStep, freshDom) {
+// ── Build rich heal context for LLM ──────────────────────────────────────────
+function buildHealContext(plan, result, failedStepResult, liveDom) {
   const passed = (result.results || [])
     .filter(r => r.status === 'success')
-    .map((r,_,arr) => `  ✓ ${arr.indexOf(r)+1}. ${r.step?.action} ${r.step?.selector||r.step?.value||''}`);
+    .map((r, _, arr) => `  ✓ ${arr.indexOf(r) + 1}. ${r.step?.action} ${r.step?.selector || r.step?.value || ''}`);
   const failedLine = failedStepResult
-    ? `  ✗ ${result.results.indexOf(failedStepResult)+1}. ${failedStepResult.step?.action} ${failedStepResult.step?.selector||failedStepResult.step?.value||''}\n     ERROR: ${failedStepResult.error || result.error}`
-    : '';
- 
+    ? `  ✗ ${(result.results || []).indexOf(failedStepResult) + 1}. ${failedStepResult.step?.action} ${failedStepResult.step?.selector || failedStepResult.step?.value || ''}\n     ERROR: ${failedStepResult.error || result.error}`
+    : `  ✗ ERROR: ${result.error}`;
+
   return [
-    '## Live DOM at point of failure (use this to find correct selectors)',
-    liveDom,
+    '## Live DOM at point of failure — use this to find correct selectors',
+    liveDom || '(not captured)',
     '',
-    '## What passed before the failure',
+    '## Execution trace',
     ...passed,
     failedLine,
     '',
-    '## Original plan',
-    plan.steps.map((s,i) => `  ${i+1}. ${s.action} ${s.selector||s.value||''}`).join('\n'),
+    '## Original plan steps',
+    (plan.steps || []).map((s, i) => `  ${i + 1}. ${s.action} ${s.selector || s.value || ''}`).join('\n'),
     '',
-    '## Instructions',
-    `The selector "${failedStepResult?.step?.selector||''}" could not be found.`,
-    'Look at the Live DOM above. Find the element that serves the same purpose.',
-    'Use the actual id, aria-label, data-testid, or text visible in the DOM.',
-    'Fix ONLY the broken step(s). Keep everything else identical.',
-    'Return the complete corrected plan as valid JSON.',
+    '## Your task',
+    `The selector "${failedStepResult?.step?.selector || result.error}" could not be found.`,
+    'Look at the Live DOM above. Find the correct selector for the same element (button, input, etc.).',
+    'Use actual #id, [aria-label], [data-testid], or visible text from the DOM.',
+    'Fix ONLY the broken step(s). Return the complete corrected plan as valid JSON.',
   ].join('\n');
 }
 
 function computePlanDiff(original, healed) {
-  const changes = [];
-  const maxLen = Math.max(original.length, healed.length);
-  for (let i = 0; i < maxLen; i++) {
-    const orig = original[i];
-    const heal = healed[i];
-    if (!orig && heal) {
-      changes.push({ type: 'added', index: i, step: heal });
-    } else if (orig && !heal) {
-      changes.push({ type: 'removed', index: i, step: orig });
-    } else if (orig && heal) {
-      const origKey = `${orig.action}:${orig.selector||''}:${orig.value||''}`;
-      const healKey = `${heal.action}:${heal.selector||''}:${heal.value||''}`;
-      if (origKey !== healKey) {
-        changes.push({ type: 'changed', index: i, original: orig, healed: heal });
-      }
-    }
+  const changes = [], max = Math.max(original.length, healed.length);
+  for (let i = 0; i < max; i++) {
+    const o = original[i], h = healed[i];
+    if (!o && h)  { changes.push({ type: 'added',   index: i, step: h }); continue; }
+    if (o && !h)  { changes.push({ type: 'removed', index: i, step: o }); continue; }
+    const ok = `${o.action}:${o.selector||''}:${o.value||''}`;
+    const hk = `${h.action}:${h.selector||''}:${h.value||''}`;
+    if (ok !== hk) changes.push({ type: 'changed', index: i, original: o, healed: h });
   }
   return { changes, originalLength: original.length, healedLength: healed.length };
 }
 
-// ── Router ─────────────────────────────────────────────────────────────────────
-function routeRequest(userInput, docScenarios) {
+// ── Emotional / conversational patterns ──────────────────────────────────────
+const EMOTIONAL_PATTERNS = [
+  /\b(new (to|here|in)|just joined|just started|onboard|first (day|week|time))\b/i,
+  /\b(guide|help me understand|walk me through|show me|explain|teach me|how does|what should i|where do i start)\b/i,
+  /\b(confused|lost|overwhelmed|don'?t know|not sure|unsure|clueless)\b/i,
+  /\b(could you|can you|would you|please)\b.*\b(help|guide|explain|tell)\b/i,
+  /\b(what (is|are|does)|how (do|does|can|should)|why (is|does))\b/i,
+];
+
+// ── LLM-based intent detection — replaces brittle keyword routing ─────────────
+// Returns: EXPLORE | EXECUTE | GREET | REGRESSION | null (fall through)
+async function detectIntent(userInput, docScenarios, allDocs) {
   const lower = userInput.toLowerCase().trim();
-  if (isEmotionalOrConversational(userInput)) return 'EMOTIONAL';
-  if (/\b(what|tell me|show me|explain|describe|about|how does|info|information|learn)\b/.test(lower)) return 'EXPLORE';
-  const specific = resolveSpecificScenario(lower, docScenarios);
-  if (specific) return { route: 'SPECIFIC', scenario: specific };
-  if (docScenarios.length > 0) return 'MODULE';
-  return 'ANALYZE';
+
+  // Hard fast-paths that don't need LLM
+  if (/\bregression\b/i.test(lower)) return 'REGRESSION';
+
+  // Emotional/greeting — bypass LLM
+  const GREET = ['hi','hello','hey','help','good morning','good afternoon','good evening'];
+  if (GREET.some(g => lower === g || lower.startsWith(g + ' '))) return 'GREET';
+  if (EMOTIONAL_PATTERNS.some(p => p.test(lower))) return 'EMOTIONAL';
+
+  // Explicit listing/explore signals — LLM not needed, always EXPLORE
+  if (/\b(list|show|what|which|tell me about|available|all)\b.*(module|scenario|test|can you test|available)\b/i.test(lower)) return 'EXPLORE';
+
+  // Execute signals — strong enough to skip LLM
+  if (/^(test|run|execute|verify|check)\b/i.test(lower) && docScenarios.length > 0) return 'EXECUTE';
+
+  // Ambiguous — ask the LLM
+  const moduleList = allDocs.map(d => d.name).join(', ');
+  const prompt = `${IDENTITY_ANCHOR}
+
+User message: "${userInput}"
+Available test modules: ${moduleList}
+
+Classify this message into ONE of these intents:
+- EXPLORE: user wants to know what can be tested, list modules, understand the app
+- EXECUTE: user wants to run a test right now
+- GREET: greeting or small talk
+- EMOTIONAL: asking for guidance, onboarding, help understanding
+
+Return ONLY one word: EXPLORE, EXECUTE, GREET, or EMOTIONAL. Nothing else.`;
+
+  try {
+    const result = await llmGenerate(prompt, { maxAttempts: 1 });
+    const text = result.response.text().trim().toUpperCase();
+    if (['EXPLORE','EXECUTE','GREET','EMOTIONAL'].includes(text)) return text;
+  } catch {}
+
+  // Safe fallback
+  return docScenarios.length > 0 ? 'EXECUTE' : 'EXPLORE';
+}
+
+const SYNONYMS = {
+  correct: ['valid'], right: ['valid'], good: ['valid'],
+  wrong: ['invalid'], bad: ['invalid'], incorrect: ['invalid'],
+  blank: ['empty'],
+};
+
+function resolveSpecificScenario(input, docScenarios) {
+  const promptWords = input.toLowerCase().split(/\s+/).filter(w => w.length > 1);
+  const expanded = [...promptWords];
+  promptWords.forEach(w => { if (SYNONYMS[w]) expanded.push(...SYNONYMS[w]); });
+  const scored = docScenarios.map(s => {
+    const raw = [...s.id.split('_'), ...s.name.toLowerCase().split(/\s+/)].filter(w => w.length > 2);
+    const keywords = [...new Set(raw)];
+    const matches = keywords.filter(kw => expanded.some(pw => pw === kw));
+    return { scenario: s, score: matches.length };
+  }).filter(s => s.score > 0).sort((a, b) => b.score - a.score);
+  if (!scored.length) return null;
+  const top = scored[0], second = scored[1];
+  return (!second || top.score > second.score) && top.score >= 2 ? top.scenario : null;
+}
+
+function buildExploreResponse(docScenarios, docs, userInput) {
+  const lower = userInput.toLowerCase();
+  const matchedDoc = docs.find(d => lower.includes(d.name.toLowerCase()));
+  if (matchedDoc) {
+    const scenarios = matchedDoc.content.match(/##\s*Test Scenarios\s*\n([\s\S]*?)(?=\n##|$)/i)?.[1]?.trim().split('\n')
+      .map(line => { const m = line.match(/[-*]\s*([a-z_]+):\s*(.+)/i); return m ? { name: m[1].replace(/_/g,' '), description: m[2] } : null; })
+      .filter(Boolean) || [];
+    const urlMatch = matchedDoc.content.match(/##\s*URL\s*\n(https?:\/\/[^\s]+)/i);
+    const desc = matchedDoc.content.match(/##\s*Description\s*\n([\s\S]*?)(?=\n##|$)/i)?.[1]?.trim();
+    let msg = `Here's what I know about the **${matchedDoc.name}** module:\n\n`;
+    if (urlMatch) msg += `URL: ${urlMatch[1]}\n\n`;
+    if (desc) msg += `${desc}\n\n`;
+    if (scenarios.length > 0) {
+      msg += `Test scenarios:\n${scenarios.map((s, i) => `${i+1}. ${s.name} — ${s.description}`).join('\n')}\n\n`;
+      msg += `Say "test ${matchedDoc.name}" to run all, or name a specific one.`;
+    }
+    return msg;
+  }
+  // List ALL modules clearly
+  const modules = [...new Set(docs.map(d => d.name))];
+  const scenarioCounts = docs.map(d => {
+    const section = d.content.match(/##\s*Test Scenarios\s*\n([\s\S]*?)(?=\n##|$)/i);
+    const count = section ? (section[1].match(/[-*]\s*[a-z_]+:/gi) || []).length : 0;
+    return `• **${d.name}** — ${count} scenario${count !== 1 ? 's' : ''}`;
+  });
+  return `Here are all ${modules.length} testable modules:\n\n${scenarioCounts.join('\n')}\n\nSay "test [module name]" to run tests, or ask about any module for details.`;
+}
+
+async function generateWarmResponse(userInput, allDocs) {
+  const modules = allDocs.map(d => d.name);
+  const prompt = `${IDENTITY_ANCHOR}
+
+You are a warm, experienced QA team member.
+The person said: "${userInput}"
+Available modules to test: ${modules.join(', ')}
+
+Respond in 2-3 sentences, friendly and helpful. Suggest 1-2 concrete starting points.
+Do NOT list every module. Be conversational, like a colleague on Slack.`;
+
+  try {
+    const result = await llmGenerate(prompt, { maxAttempts: 1 });
+    return result.response.text().trim();
+  } catch {
+    const moduleList = modules.map(m => `• ${m}`).join('\n');
+    return `Welcome! I can help you test the application. Here are the available modules:\n${moduleList}\n\nTry "test login" or "run regression" to get started.`;
+  }
+}
+
+// ── Confirm execution — input is DISABLED, user uses buttons only ─────────────
+async function confirmExecution(ws, scenario, plan) {
+  send(ws, 'plan', { ...plan, scenarioId: scenario.id });
+  send(ws, 'question', {
+    text: scenario.name,
+    type: 'confirm_run',
+    meta: { scenarioName: scenario.name, totalSteps: plan.steps.length },
+  });
+  // Input is locked on the frontend during confirm_run mode
+  // waitForAnswer only resolves on ws type='answer' (button clicks)
+  const answer = await waitForAnswer(ws);
+  return /yes|run|ok|confirm|go|start/i.test(answer);
+}
+
+// ── Execute one plan — FIXED: all variables properly scoped ──────────────────
+async function executePlan(ws, plan, scenario, userInput, baseUrl, browser) {
+  const finalPlan = injectDocUrl(plan, baseUrl);
+  send(ws, 'plan', { ...finalPlan, scenarioId: scenario.id });
+  sendState(ws, STATE.EXECUTING);
+  phase(ws, '── Executing steps ──');
+
+  // These are declared HERE, in the outer scope, so they're accessible everywhere below
+  let liveDomAtFailure = null;
+  let liveUrlAtFailure = null;
+
+  let result = await runSteps(finalPlan.steps, {
+    browser, baseUrl,
+    onStep: (index, step, status) => send(ws, 'step', { index, status }),
+    onLog:  (text, level) => log(ws, text, level),
+    // onFail fires with live Playwright page before browser closes
+    onFail: async (page) => {
+      try {
+        liveUrlAtFailure = page.url();
+        liveDomAtFailure = await captureLiveDom(page);
+        log(ws, `Live DOM captured at: ${liveUrlAtFailure}`, 'info');
+      } catch (e) {
+        log(ws, `Live DOM capture failed: ${e.message}`, 'warn');
+      }
+    },
+  });
+
+  let healCount = 0;
+  let healMeta = null;
+
+  if (result.status === 'failed') {
+    phase(ws, '── Analysing failure ──');
+
+    // ── Declare and assign failedStepResult exactly once, here ───────────────
+    const failedStepResult = (result.results || []).find(r => r.status === 'failed') || null;
+    const failedIndex = failedStepResult ? result.results.indexOf(failedStepResult) : -1;
+
+    const classification = classifyFailure(
+      failedStepResult?.step,
+      result.error,
+      result.results
+    );
+    log(ws, `Failure type: ${classification.type} — ${classification.reason}`, 'warn');
+
+    send(ws, 'failure_classified', {
+      ...classification,
+      canHeal:     DECISION_META[classification.decision].canHeal,
+      error:       result.error,
+      failedStep:  failedStepResult?.step ?? null,
+      failedIndex,
+      passedCount: (result.results || []).filter(r => r.status === 'success').length,
+      totalSteps:  finalPlan.steps.length,
+    });
+
+    // ── Build heal preview from live DOM ──────────────────────────────────────
+    let healPreview = null;
+    if (DECISION_META[classification.decision].canHeal) {
+      // If onFail didn't fire (very fast crash), fall back to base URL capture
+      if (!liveDomAtFailure) {
+        try {
+          liveDomAtFailure = await captureBrowserContext(liveUrlAtFailure || baseUrl);
+        } catch {}
+      }
+      if (liveDomAtFailure) {
+        const candidates = liveDomAtFailure.split('\n')
+          .filter(l => /^\s+(button|input|\[type=submit\]|\[role=button\])/.test(l))
+          .map(l => l.trim())
+          .slice(0, 6);
+        healPreview = {
+          failedSelector:  failedStepResult?.step?.selector || '',
+          liveUrl:         liveUrlAtFailure || baseUrl,
+          candidates,
+          domElementCount: liveDomAtFailure.split('\n').filter(l => l.startsWith('  ')).length,
+        };
+      }
+    }
+
+    send(ws, 'question', {
+      text: result.error,
+      type: 'heal_choice',
+      meta: {
+        classification,
+        canHeal:    DECISION_META[classification.decision].canHeal,
+        failedStep: failedStepResult?.step ?? null,
+        failedIndex,
+        error:      result.error,
+        passedCount: (result.results || []).filter(r => r.status === 'success').length,
+        totalSteps:  finalPlan.steps.length,
+        healPreview,
+      },
+    });
+
+    const choice = await waitForAnswer(ws);
+
+    if (/yes|heal|try|fix|retry/i.test(choice) && DECISION_META[classification.decision].canHeal) {
+      phase(ws, '── Auto-healing ──');
+      log(ws, 'Sending live DOM to LLM for corrected steps...', 'info');
+
+      // failedStepResult is safely in scope here
+      const healContext = buildHealContext(finalPlan, result, failedStepResult, liveDomAtFailure);
+      const fixedPlan   = await fixSteps(finalPlan, result.error, userInput, healContext);
+      validatePlan(fixedPlan);
+
+      const fixedWithUrl = injectDocUrl(fixedPlan, baseUrl);
+      const diffData     = computePlanDiff(finalPlan.steps, fixedWithUrl.steps);
+      send(ws, 'heal_diff', diffData);
+      send(ws, 'plan', { ...fixedWithUrl, scenarioId: scenario.id });
+
+      phase(ws, '── Retrying healed plan ──');
+
+      // Reset for retry
+      liveDomAtFailure = null;
+      liveUrlAtFailure = null;
+
+      result = await runSteps(fixedWithUrl.steps, {
+        browser, baseUrl,
+        onStep: (i, s, st) => send(ws, 'step', { index: i, status: st }),
+        onLog:  (t, l) => log(ws, t, l),
+        onFail: async (page) => {
+          try {
+            liveUrlAtFailure = page.url();
+            liveDomAtFailure = await captureLiveDom(page);
+          } catch {}
+        },
+      });
+
+      healCount++;
+
+      if (result.status === 'success') {
+        log(ws, 'Heal succeeded ✓', 'success');
+        saveToMemory(fixedPlan);
+        log(ws, `Cached: "${fixedPlan.module}__${fixedPlan.scenario}"`, 'success');
+        healMeta = {
+          originalError: failedStepResult?.error || result.error,
+          failedStep:    failedStepResult?.step ?? null,
+          failedIndex,
+          fixedStep:     fixedPlan.steps[failedIndex] ?? null,
+          diff:          diffData,
+          classification,
+        };
+      } else {
+        log(ws, 'Heal also failed — likely a real application bug.', 'error');
+        send(ws, 'heal_failed', { error: result.error, attempts: 1, classification });
+      }
+    } else {
+      log(ws, 'Stopped by user.', 'warn');
+    }
+
+    result._classification = classification;
+
+  } else {
+    phase(ws, '── Saving to memory ──');
+    saveToMemory(finalPlan);
+    log(ws, `Cached: "${finalPlan.module}__${finalPlan.scenario}"`, 'success');
+  }
+
+  return { result, healCount, healMeta };
 }
 
 // ── Shared scenario runner ─────────────────────────────────────────────────────
@@ -492,7 +492,9 @@ async function runScenarios(ws, toRun, getPlan, userInput, baseUrl, browserInsta
 
   for (let i = 0; i < toRun.length; i++) {
     const s = toRun[i];
-    const plan = typeof getPlan === 'function' ? getPlan(s) : getPlan.find(r => r.scenario.id === s.id)?.cached;
+    const plan = typeof getPlan === 'function'
+      ? getPlan(s)
+      : getPlan.find(r => r.scenario.id === s.id)?.cached;
 
     if (!plan) {
       log(ws, `No plan for "${s.name}" — skipping`, 'warn');
@@ -523,7 +525,7 @@ async function runScenarios(ws, toRun, getPlan, userInput, baseUrl, browserInsta
   return { scenarioResults, totalHealed };
 }
 
-// ── MAIN ORCHESTRATION ─────────────────────────────────────────────────────────
+// ── MAIN ORCHESTRATION ────────────────────────────────────────────────────────
 async function orchestrate(ws, userInput) {
   let browserInstance = null;
 
@@ -534,6 +536,7 @@ async function orchestrate(ws, userInput) {
     sendState(ws, STATE.GATHERING_CONTEXT);
     phase(ws, '── Loading context ──');
     log(ws, 'Reading documentation...', 'info');
+
     const docContext   = getRelevantContext(userInput);
     const baseUrl      = extractBaseUrl(userInput) || process.env.BASE_URL || 'http://localhost:4000/testapp';
     const docScenarios = extractDocScenarios(userInput);
@@ -543,25 +546,35 @@ async function orchestrate(ws, userInput) {
     if (docContext) log(ws, `Docs loaded: ${module}`, 'success');
     else log(ws, 'No matching docs found', 'warn');
 
-    const route = routeRequest(userInput, docScenarios);
+    // ── LLM-based intent detection (replaces brittle keyword routing) ──────────
+    const intent = await detectIntent(userInput, docScenarios, allDocs);
+    log(ws, `Intent: ${intent}`, 'info');
 
-    // ── Route: Emotional / Conversational ─────────────────────────────────────
-    if (route === 'EMOTIONAL') {
-      log(ws, 'Conversational intent detected', 'info');
-      const warmReply = await generateWarmResponse(userInput, allDocs);
-      send(ws, 'agent_message', warmReply);
+    // ── GREET ─────────────────────────────────────────────────────────────────
+    if (intent === 'GREET') {
+      const modules = [...new Set(allDocs.map(d => d.name))];
+      send(ws, 'agent_message', `Hi! I'm your QA partner.\n\nI can test:\n${modules.map(m => `• ${m}`).join('\n')}\n\nTry "test login", "run regression", or ask about any module.`);
       sendState(ws, STATE.IDLE);
       return;
     }
 
-    // ── Route: Explore ────────────────────────────────────────────────────────
-    if (route === 'EXPLORE') {
-      send(ws, 'agent_message', buildExploreResponse(docScenarios, allDocs, userInput));
+    // ── EMOTIONAL ─────────────────────────────────────────────────────────────
+    if (intent === 'EMOTIONAL') {
+      const reply = await generateWarmResponse(userInput, allDocs);
+      send(ws, 'agent_message', reply);
+      sendState(ws, STATE.IDLE);
       return;
     }
 
-    // ── Route: Regression ────────────────────────────────────────────────────
-    if (/\bregression\b/i.test(userInput)) {
+    // ── EXPLORE — list modules or describe one ─────────────────────────────────
+    if (intent === 'EXPLORE') {
+      send(ws, 'agent_message', buildExploreResponse(docScenarios, allDocs, userInput));
+      sendState(ws, STATE.IDLE);
+      return;
+    }
+
+    // ── REGRESSION ────────────────────────────────────────────────────────────
+    if (intent === 'REGRESSION') {
       phase(ws, '── Regression Test Suite ──');
       log(ws, 'Loading all modules...', 'info');
       const allScenarios = [];
@@ -574,7 +587,6 @@ async function orchestrate(ws, userInput) {
         });
       }
       log(ws, `Found ${allScenarios.length} scenarios across ${allDocs.length} modules`, 'info');
-      phase(ws, '── Checking memory ──');
       const memoryCheck = allScenarios.map(s => ({ scenario: s, cached: findSimilarPlan(s.module, s.id) }));
       const uncached = memoryCheck.filter(r => !r.cached).map(r => r.scenario);
       const cachedCount = memoryCheck.length - uncached.length;
@@ -595,17 +607,18 @@ async function orchestrate(ws, userInput) {
           });
         }
       }
-      send(ws, 'regression_plan', { modules: allDocs.map(d => ({ name: d.name, scenarios: allScenarios.filter(s => s.module === d.name) })), total: allScenarios.length });
+      send(ws, 'regression_plan', {
+        modules: allDocs.map(d => ({ name: d.name, scenarios: allScenarios.filter(s => s.module === d.name) })),
+        total: allScenarios.length,
+      });
       const choice = await waitForAnswer(ws);
-
       if (!/yes|run|ok|confirm|go|start|all/i.test(choice)) {
         phase(ws, '── Regression cancelled ──');
-        log(ws, 'Regression cancelled by user.', 'warn');
+        log(ws, 'Cancelled by user.', 'warn');
         send(ws, 'agent_message', 'Regression cancelled. Let me know when you\'re ready.');
         sendState(ws, STATE.IDLE);
         return;
       }
-
       sendState(ws, STATE.EXECUTING);
       browserInstance = await chromium.launch({ headless: false });
       const { scenarioResults, totalHealed } = await runScenarios(ws, allScenarios, (s) => memoryCheck.find(r => r.scenario.id === s.id && r.scenario.module === s.module)?.cached, userInput, baseUrl, browserInstance, false);
@@ -617,80 +630,77 @@ async function orchestrate(ws, userInput) {
       return;
     }
 
-    // ── Route: Specific ───────────────────────────────────────────────────────
-    if (route?.route === 'SPECIFIC') {
-      const s = route.scenario;
-      log(ws, `Matched: "${s.name}"`, 'success');
-      log(ws, s.description, 'info');
-      send(ws, 'scenario_start', s);
-      phase(ws, '── Checking memory ──');
-      const cached = findSimilarPlan(s.module, s.id, userInput);
-      let plan = cached;
-      if (cached) {
-        log(ws, `Memory hit — ${cached.steps?.length} steps cached`, 'success');
-      } else {
-        log(ws, 'Cache miss — generating via LLM', 'info');
-        phase(ws, '── Capturing browser state ──');
-        const browserCtx = await captureBrowserContext(baseUrl);
-        phase(ws, '── Generating test plan ──');
-        const batch = await generateAllScenarioSteps([s], docContext, browserCtx);
-        plan = batch[0];
-        validatePlan(plan);
-        log(ws, `Plan ready: ${plan.steps?.length} steps`, 'success');
-        saveToMemory(plan);
+    // ── EXECUTE — try specific scenario first, then module ─────────────────────
+    if (intent === 'EXECUTE') {
+      const specific = resolveSpecificScenario(userInput.toLowerCase(), docScenarios);
+
+      if (specific) {
+        // Run one specific scenario
+        log(ws, `Matched: "${specific.name}"`, 'success');
+        send(ws, 'scenario_start', specific);
+        const cached = findSimilarPlan(specific.module, specific.id, userInput);
+        let plan = cached;
+        if (!cached) {
+          log(ws, 'Cache miss — generating via LLM', 'info');
+          const browserCtx = await captureBrowserContext(baseUrl);
+          const batch = await generateAllScenarioSteps([specific], docContext, browserCtx);
+          plan = batch[0];
+          validatePlan(plan);
+          saveToMemory(plan);
+        } else {
+          log(ws, `Memory hit — ${cached.steps?.length} steps`, 'success');
+        }
+        const confirmed = await confirmExecution(ws, specific, plan);
+        if (!confirmed) { send(ws, 'agent_message', 'No problem — let me know when you\'re ready.'); sendState(ws, STATE.IDLE); return; }
+        browserInstance = await chromium.launch({ headless: false });
+        const { result, healCount, healMeta } = await executePlan(ws, plan, specific, userInput, baseUrl, browserInstance);
+        send(ws, 'report', { status: result.status, healCount, scenarios: [{ scenario: specific, result, healCount, healMeta }], summary: { total: 1, passed: result.status === 'success' ? 1 : 0, failed: result.status === 'failed' ? 1 : 0, skipped: 0, healed: healCount } });
+        sendState(ws, STATE.IDLE);
+        return;
       }
-      const confirmed = await confirmExecution(ws, s, plan);
-      if (!confirmed) { send(ws, 'agent_message', 'No problem — just say the word when you\'re ready.'); sendState(ws, STATE.IDLE); return; }
-      browserInstance = await chromium.launch({ headless: false });
-      const { result, healCount, healMeta } = await executePlan(ws, plan, s, userInput, baseUrl, browserInstance);
-      send(ws, 'report', { status: result.status, healCount, scenarios: [{ scenario: s, result, healCount, healMeta }], summary: { total: 1, passed: result.status === 'success' ? 1 : 0, failed: result.status === 'failed' ? 1 : 0, skipped: 0, healed: healCount } });
-      sendState(ws, STATE.IDLE);
-      return;
+
+      if (docScenarios.length > 0) {
+        // Run module scenarios
+        const memoryCheck = docScenarios.map(s => ({ scenario: s, cached: findSimilarPlan(module, s.id, userInput) }));
+        const cachedCount = memoryCheck.filter(r => r.cached).length;
+        log(ws, `${cachedCount} of ${docScenarios.length} scenarios cached`, cachedCount === docScenarios.length ? 'success' : 'info');
+        const uncached = memoryCheck.filter(r => !r.cached).map(r => r.scenario);
+        if (uncached.length > 0) {
+          const browserCtx = await captureBrowserContext(baseUrl);
+          const batch = await generateAllScenarioSteps(uncached, docContext, browserCtx);
+          batch.forEach(p => { validatePlan(p); saveToMemory(p); const m = memoryCheck.find(r => r.scenario.id === p.id); if (m) m.cached = p; });
+        }
+        sendState(ws, STATE.PLANNING);
+        send(ws, 'scenarios', { scenarios: docScenarios, module: docScenarios[0]?.module || userInput });
+        const choice = await waitForAnswer(ws);
+        send(ws, 'answer_received', choice);
+        const toRun = choice.toLowerCase().includes('all') ? docScenarios : (() => {
+          const indices = [...choice.matchAll(/\d+/g)].map(m => parseInt(m[0]) - 1);
+          return indices.length > 0 ? indices.filter(i => i >= 0 && i < docScenarios.length).map(i => docScenarios[i]) : docScenarios;
+        })();
+        sendState(ws, STATE.EXECUTING);
+        browserInstance = await chromium.launch({ headless: false });
+        const { scenarioResults, totalHealed } = await runScenarios(ws, toRun, memoryCheck, userInput, baseUrl, browserInstance, true);
+        const passed = scenarioResults.filter(r => r.result.status === 'success').length;
+        const failed = scenarioResults.filter(r => r.result.status === 'failed').length;
+        const skipped = scenarioResults.filter(r => r.result.status === 'skipped').length;
+        send(ws, 'report', { status: failed === 0 ? 'success' : 'failed', healCount: totalHealed, scenarios: scenarioResults, summary: { total: scenarioResults.length, passed, failed, skipped, healed: totalHealed } });
+        sendState(ws, STATE.IDLE);
+        return;
+      }
+
+      // Nothing matched — fall through to LLM analysis
     }
 
-    // ── Route: Module ─────────────────────────────────────────────────────────
-    if (route === 'MODULE') {
-      phase(ws, '── Checking memory ──');
-      const memoryCheck = docScenarios.map(s => ({ scenario: s, cached: findSimilarPlan(module, s.id, userInput) }));
-      const cachedCount = memoryCheck.filter(r => r.cached).length;
-      log(ws, `${cachedCount} of ${docScenarios.length} scenarios cached`, cachedCount === docScenarios.length ? 'success' : 'info');
-      const uncached = memoryCheck.filter(r => !r.cached).map(r => r.scenario);
-      if (uncached.length > 0) {
-        phase(ws, '── Capturing browser state ──');
-        const browserCtx = await captureBrowserContext(baseUrl);
-        phase(ws, '── Generating missing plans ──');
-        const batch = await generateAllScenarioSteps(uncached, docContext, browserCtx);
-        batch.forEach(p => { validatePlan(p); saveToMemory(p); const m = memoryCheck.find(r => r.scenario.id === p.id); if (m) m.cached = p; });
-      }
-      sendState(ws, STATE.PLANNING);
-      send(ws, 'scenarios', { scenarios: docScenarios, module: docScenarios[0]?.module || userInput });
-      const choice = await waitForAnswer(ws);
-      send(ws, 'answer_received', choice);
-      const toRun = choice.toLowerCase().includes('all') ? docScenarios : (() => {
-        const indices = [...choice.matchAll(/\d+/g)].map(m => parseInt(m[0]) - 1);
-        return indices.length > 0 ? indices.filter(i => i >= 0 && i < docScenarios.length).map(i => docScenarios[i]) : docScenarios;
-      })();
-      sendState(ws, STATE.EXECUTING);
-      browserInstance = await chromium.launch({ headless: false });
-      const { scenarioResults, totalHealed } = await runScenarios(ws, toRun, memoryCheck, userInput, baseUrl, browserInstance, true);
-      const passed = scenarioResults.filter(r => r.result.status === 'success').length;
-      const failed = scenarioResults.filter(r => r.result.status === 'failed').length;
-      const skipped = scenarioResults.filter(r => r.result.status === 'skipped').length;
-      send(ws, 'report', { status: failed === 0 ? 'success' : 'failed', healCount: totalHealed, scenarios: scenarioResults, summary: { total: scenarioResults.length, passed, failed, skipped, healed: totalHealed } });
-      sendState(ws, STATE.IDLE);
-      return;
-    }
-
-    // ── Route: LLM Analysis ───────────────────────────────────────────────────
+    // ── LLM analysis for truly ambiguous inputs ────────────────────────────────
     phase(ws, '── Analyzing request ──');
     const browserCtx = await captureBrowserContext(baseUrl);
     const { enrichedInput } = await gatherContext(userInput, null, (q) => askUser(ws, q), (t, l) => log(ws, t, l));
     const analysis = await analyzeRequest(enrichedInput, docContext, browserCtx);
-    send(ws, 'intent', { intent: analysis.intent, confidence: 'high' });
     if (analysis.intent === 'OUT_OF_SCOPE') { send(ws, 'agent_message', outOfScopeResponse(userInput)); return; }
     if (analysis.intent === 'EXPLORE' || analysis.intent === 'UNDERSTAND') { send(ws, 'agent_message', buildExploreResponse(docScenarios, allDocs, userInput)); return; }
     const scenarios = docScenarios.length > 0 ? docScenarios : (analysis.scenarios || []);
-    if (!scenarios.length) { send(ws, 'agent_message', 'Could not identify scenarios. Try being more specific — e.g. "test login with invalid password".'); return; }
+    if (!scenarios.length) { send(ws, 'agent_message', 'Could not identify test scenarios. Try: "test login", "test projects", or "run regression".'); return; }
     sendState(ws, STATE.PLANNING);
     const planMap = {};
     const stillUncached = scenarios.filter(s => { const p = findSimilarPlan(module, s.id); if (p) { planMap[s.id] = p; return false; } return true; });

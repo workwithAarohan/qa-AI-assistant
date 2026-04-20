@@ -3,9 +3,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { IDENTITY_ANCHOR } from './guard.js';
 import dotenv from 'dotenv';
 dotenv.config();
-
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+import { generate as llmGenerate } from './llm.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -81,7 +79,7 @@ Return ONLY this JSON structure, no preamble:
 }`
   );
 
-  const result = await model.generateContent(prompt);
+  const result = await llmGenerate(prompt, { maxAttempts: 1 });
   const text = result.response.text();
 
   try {
@@ -142,7 +140,7 @@ Return ONLY the JSON array, no preamble:
 ]`
   );
 
-  const result = await model.generateContent(prompt);
+  const result = await llmGenerate(prompt, { maxAttempts: 1 });
   const text = result.response.text();
 
   try {
@@ -166,7 +164,7 @@ export async function generateSteps(userInput, docContext = '', browserContext =
     `## User Request\n${userInput}\n\nGenerate test steps. Return ONLY valid JSON with module, scenario, and steps array.`
   );
 
-  const result = await model.generateContent(prompt);
+  const result = await llmGenerate(prompt, { maxAttempts: 1 });
   const text = result.response.text().replace(/```json|```/g, '').trim();
   return extractJSON(text);
 }
@@ -184,7 +182,7 @@ export async function fixSteps(originalPlan, error, userInput = '', browserConte
     `Fix the steps so the test passes. Return ONLY valid JSON in the same format.`
   );
 
-  const result = await model.generateContent(prompt);
+  const result = await llmGenerate(prompt, { maxAttempts: 1 });
   const text = result.response.text().replace(/```json|```/g, '').trim();
   return extractJSON(text);
 }

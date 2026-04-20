@@ -25,11 +25,9 @@ const GEMINI_MODEL = 'gemini-2.5-flash';
 // ── HuggingFace fallback models (tried in order) ──────────────────────────────
 // Using the OpenAI-compatible inference endpoint so we get the same
 // chat/completions response shape regardless of model.
-const HF_ENDPOINT = 'https://api-inference.huggingface.co/v1/chat/completions';
+const HF_ENDPOINT = 'https://router.huggingface.co/v1/chat/completions';
 const HF_MODELS = [
-  { id: 'google/gemma-3-27b-it', label: 'Gemma 3 27B' },
-  { id: 'google/gemma-3-12b-it', label: 'Gemma 3 12B' },
-  { id: 'google/gemma-3-4b-it',  label: 'Gemma 3 4B'  },
+  { id: 'zai-org/GLM-5.1:together', label: 'GLM' },
 ];
 
 // ── Error helpers ──────────────────────────────────────────────────────────────
