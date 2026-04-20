@@ -32,7 +32,7 @@ const GEMINI_MODEL = 'gemini-2.5-flash';
 // ── Ollama setup ───────────────────────────────────────────────────────────────
 // Ollama exposes an OpenAI-compatible endpoint — same shape, no auth required.
 const OLLAMA_HOST  = (process.env.OLLAMA_HOST  || 'http://localhost:11434').replace(/\/$/, '');
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL  || 'gemma4';
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL  || 'qwen2.5-coder:3b';
 const OLLAMA_URL   = `${OLLAMA_HOST}/v1/chat/completions`;
 
 // ── Error helpers ──────────────────────────────────────────────────────────────

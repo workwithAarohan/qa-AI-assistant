@@ -19,14 +19,14 @@
       },
       {
         "action": "click",
-        "selector": "#submit-btn"
+        "selector": "#login-btn"
       },
       {
         "action": "expectUrl",
         "value": "http://localhost:4000/dashboard"
       }
     ],
-    "savedAt": "2026-04-20T09:57:56.713Z"
+    "savedAt": "2026-04-20T14:33:37.516Z"
   },
   "login__invalid_password": {
     "module": "login",
@@ -48,14 +48,14 @@
       },
       {
         "action": "click",
-        "selector": "#submit-btn"
+        "selector": "#login-btn"
       },
       {
         "action": "expect",
         "selector": "#error"
       }
     ],
-    "savedAt": "2026-04-20T09:55:30.860Z"
+    "savedAt": "2026-04-20T14:33:40.659Z"
   },
   "login__empty_fields": {
     "module": "login",
@@ -67,14 +67,14 @@
       },
       {
         "action": "click",
-        "selector": "#submit-btn"
+        "selector": "#login-btn"
       },
       {
         "action": "expect",
         "selector": "#error"
       }
     ],
-    "savedAt": "2026-04-20T09:55:34.962Z"
+    "savedAt": "2026-04-20T14:33:43.608Z"
   },
   "dashboard__dashboard_loads": {
     "id": "dashboard_loads",
@@ -97,7 +97,7 @@
       },
       {
         "action": "click",
-        "selector": "#submit-btn"
+        "selector": "#login-btn"
       },
       {
         "action": "waitForNavigation"
@@ -120,7 +120,7 @@
         "selector": "#welcome-msg"
       }
     ],
-    "savedAt": "2026-04-20T06:18:00.983Z"
+    "savedAt": "2026-04-20T14:33:30.259Z"
   },
   "dashboard__navigate_to_projects": {
     "module": "dashboard",
@@ -142,7 +142,7 @@
       },
       {
         "action": "click",
-        "selector": "#submit-btn"
+        "selector": "#login-btn"
       },
       {
         "action": "waitForNavigation"
@@ -159,7 +159,7 @@
         "value": "http://localhost:4000/project"
       }
     ],
-    "savedAt": "2026-04-20T06:18:04.243Z"
+    "savedAt": "2026-04-20T14:33:34.497Z"
   },
   "navigation__full_login_flow": {
     "id": "full_login_flow",
@@ -182,7 +182,7 @@
       },
       {
         "action": "click",
-        "selector": "#submit-btn"
+        "selector": "#login-btn"
       },
       {
         "action": "waitForNavigation"
@@ -213,7 +213,7 @@
         "value": "Projects"
       }
     ],
-    "savedAt": "2026-04-20T06:18:13.604Z"
+    "savedAt": "2026-04-20T14:33:47.638Z"
   },
   "navigation__logout_flow": {
     "id": "logout_flow",
@@ -236,7 +236,7 @@
       },
       {
         "action": "click",
-        "selector": "#submit-btn"
+        "selector": "#login-btn"
       },
       {
         "action": "waitForNavigation"
@@ -261,7 +261,7 @@
         "selector": "#username"
       }
     ],
-    "savedAt": "2026-04-20T06:14:16.787Z"
+    "savedAt": "2026-04-20T14:33:52.128Z"
   },
   "profile__view_profile": {
     "id": "view_profile",
@@ -284,7 +284,7 @@
       },
       {
         "action": "click",
-        "selector": "#submit-btn"
+        "selector": "#login-btn"
       },
       {
         "action": "waitForNavigation"
@@ -302,7 +302,7 @@
         "selector": "#profile-name"
       }
     ],
-    "savedAt": "2026-04-20T06:19:41.323Z"
+    "savedAt": "2026-04-20T14:33:56.302Z"
   },
   "profile__save_profile": {
     "id": "save_profile",
@@ -325,7 +325,7 @@
       },
       {
         "action": "click",
-        "selector": "#submit-btn"
+        "selector": "#login-btn"
       },
       {
         "action": "waitForNavigation"
@@ -348,7 +348,7 @@
         "selector": "#save-msg"
       }
     ],
-    "savedAt": "2026-04-20T06:19:44.521Z"
+    "savedAt": "2026-04-20T14:34:00.012Z"
   },
   "projects__create_project": {
     "id": "create_project",
@@ -371,7 +371,7 @@
       },
       {
         "action": "click",
-        "selector": "#submit-btn"
+        "selector": "#login-btn"
       },
       {
         "action": "waitForNavigation"
@@ -398,7 +398,7 @@
         "selector": "#success-msg"
       }
     ],
-    "savedAt": "2026-04-20T10:05:19.630Z"
+    "savedAt": "2026-04-20T14:35:31.294Z"
   },
   "projects__cancel_modal": {
     "id": "cancel_modal",
@@ -421,7 +421,7 @@
       },
       {
         "action": "click",
-        "selector": "#submit-btn"
+        "selector": "#login-btn"
       },
       {
         "action": "waitForNavigation"
@@ -443,6 +443,6 @@
         "selector": "#new-project-btn"
       }
     ],
-    "savedAt": "2026-04-20T06:19:51.068Z"
+    "savedAt": "2026-04-20T14:34:31.868Z"
   }
 }
