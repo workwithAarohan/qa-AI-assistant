@@ -227,14 +227,26 @@ async function executePlan(ws, plan, scenario, userInput, baseUrl, browser) {
   sendState(ws, STATE.EXECUTING);
   phase(ws, '── Executing steps ──');
  
+  let liveDomAtFailure = null;
+  let liveUrlAtFailure = null;
+ 
+  // Run steps — executor calls onFail(page) with the live Playwright page
   let result = await runSteps(finalPlan.steps, {
     browser, baseUrl,
     onStep: (index, step, status) => send(ws, 'step', { index, status }),
     onLog:  (text, level) => log(ws, text, level),
+    onFail: async (page) => {
+      try {
+        liveUrlAtFailure = page.url();
+        liveDomAtFailure = await captureLiveDom(page);
+        log(ws, `Live DOM captured at: ${liveUrlAtFailure}`, 'info');
+      } catch (e) {
+        log(ws, `Live DOM capture failed: ${e.message}`, 'warn');
+      }
+    },
   });
  
-  let healCount = 0;
-  let healMeta  = null;
+  let healCount = 0, healMeta = null;
  
   if (result.status === 'failed') {
     phase(ws, '── Analysing failure ──');
@@ -242,30 +254,44 @@ async function executePlan(ws, plan, scenario, userInput, baseUrl, browser) {
     const failedStepResult = result.results?.find(r => r.status === 'failed');
     const failedIndex = failedStepResult ? result.results.indexOf(failedStepResult) : -1;
  
-    // ── Classify the failure BEFORE asking the user anything ─────────────────
-    const classification = classifyFailure(
-      failedStepResult?.step,
-      result.error,
-      result.results
-    );
- 
+    const classification = classifyFailure(failedStepResult?.step, result.error, result.results);
     log(ws, `Failure type: ${classification.type} — ${classification.reason}`, 'warn');
  
-    // ── Emit classification so the UI can show the right card ─────────────────
     send(ws, 'failure_classified', {
-      type:       classification.type,
-      decision:   classification.decision,
-      confidence: classification.confidence,
-      reason:     classification.reason,
-      canHeal:    DECISION_META[classification.decision].canHeal,
-      error:      result.error,
-      failedStep: failedStepResult?.step,
+      ...classification,
+      canHeal:     DECISION_META[classification.decision].canHeal,
+      error:       result.error,
+      failedStep:  failedStepResult?.step,
       failedIndex,
       passedCount: result.results?.filter(r => r.status === 'success').length || 0,
       totalSteps:  finalPlan.steps.length,
     });
  
-    // ── Only send heal_choice if healing is actually relevant ─────────────────
+    // ── Pre-analyse DOM to build heal preview BEFORE user decides ─────────────
+    let healPreview = null;
+    if (DECISION_META[classification.decision].canHeal) {
+      // Fallback if onFail didn't capture (very fast crash)
+      if (!liveDomAtFailure) {
+        try { liveDomAtFailure = await captureBrowserContext(liveUrlAtFailure || baseUrl); } catch {}
+      }
+ 
+      if (liveDomAtFailure) {
+        const failedSelector = failedStepResult?.step?.selector || '';
+        // Find buttons/inputs that exist in the DOM — give user a preview
+        const candidates = liveDomAtFailure.split('\n')
+          .filter(l => /^\s+(button|input|\[type=submit\]|\[role=button\])/.test(l))
+          .map(l => l.trim())
+          .slice(0, 6);
+ 
+        healPreview = {
+          failedSelector,
+          liveUrl:      liveUrlAtFailure || baseUrl,
+          candidates,
+          domElementCount: liveDomAtFailure.split('\n').filter(l => l.startsWith('  ')).length,
+        };
+      }
+    }
+ 
     send(ws, 'question', {
       text: result.error,
       type: 'heal_choice',
@@ -277,66 +303,60 @@ async function executePlan(ws, plan, scenario, userInput, baseUrl, browser) {
         error:      result.error,
         passedCount: result.results?.filter(r => r.status === 'success').length || 0,
         totalSteps:  finalPlan.steps.length,
+        healPreview,
       },
     });
  
     const choice = await waitForAnswer(ws);
  
-    if (/yes|heal|try|fix|retry/i.test(choice)) {
-      // Double-check: only proceed if classification allows healing
-      if (!DECISION_META[classification.decision].canHeal && !/force/i.test(choice)) {
-        log(ws, 'Heal skipped — classified as real bug, not an automation issue.', 'warn');
+    if (/yes|heal|try|fix|retry/i.test(choice) && DECISION_META[classification.decision].canHeal) {
+      phase(ws, '── Auto-healing ──');
+ 
+      const healContext = buildHealContext(finalPlan, result, failedStepResult, liveDomAtFailure || '(no DOM captured)');
+      const fixedPlan   = await fixSteps(finalPlan, result.error, userInput, healContext);
+      validatePlan(fixedPlan);
+ 
+      const fixedWithUrl = injectDocUrl(fixedPlan, baseUrl);
+      const diffData     = computePlanDiff(finalPlan.steps, fixedWithUrl.steps);
+      send(ws, 'heal_diff', diffData);
+      send(ws, 'plan', { ...fixedWithUrl, scenarioId: scenario.id });
+ 
+      phase(ws, '── Retrying healed plan ──');
+      liveDomAtFailure = null; liveUrlAtFailure = null;
+ 
+      result = await runSteps(fixedWithUrl.steps, {
+        browser, baseUrl,
+        onStep: (i, s, st) => send(ws, 'step', { index:i, status:st }),
+        onLog:  (t, l) => log(ws, t, l),
+        onFail: async (page) => {
+          try { liveUrlAtFailure = page.url(); liveDomAtFailure = await captureLiveDom(page); } catch {}
+        },
+      });
+ 
+      healCount++;
+ 
+      if (result.status === 'success') {
+        log(ws, 'Heal succeeded ✓', 'success');
+        saveToMemory(fixedPlan);
+        log(ws, `Cached: "${fixedPlan.module}__${fixedPlan.scenario}"`, 'success');
+        healMeta = {
+          originalError: failedStepResult?.error || result.error,
+          failedStep:    failedStepResult?.step,
+          failedIndex,
+          fixedStep:     fixedPlan.steps[failedIndex],
+          diff:          diffData,
+          classification,
+        };
       } else {
-        phase(ws, '── Auto-healing ──');
-        log(ws, 'Capturing fresh DOM snapshot...', 'info');
-        const freshCtx = await captureBrowserContext(baseUrl);
-        log(ws, 'Asking LLM for corrected steps...', 'info');
- 
-        const healContext = buildHealContext(finalPlan, result, failedStepResult, freshCtx);
-        const fixedPlan   = await fixSteps(finalPlan, result.error, userInput, healContext);
-        validatePlan(fixedPlan);
- 
-        const fixedWithUrl = injectDocUrl(fixedPlan, baseUrl);
-        const diffData     = computePlanDiff(finalPlan.steps, fixedWithUrl.steps);
-        send(ws, 'heal_diff', diffData);
-        send(ws, 'plan', { ...fixedWithUrl, scenarioId: scenario.id });
- 
-        phase(ws, '── Retrying healed plan ──');
-        result = await runSteps(fixedWithUrl.steps, {
-          browser, baseUrl,
-          onStep: (index, step, status) => send(ws, 'step', { index, status }),
-          onLog:  (text, level) => log(ws, text, level),
-        });
- 
-        healCount++;
- 
-        if (result.status === 'success') {
-          log(ws, 'Heal succeeded ✓', 'success');
-          phase(ws, '── Saving healed plan ──');
-          saveToMemory(fixedPlan);
-          log(ws, `Cached: "${fixedPlan.module}__${fixedPlan.scenario}"`, 'success');
-          healMeta = {
-            originalError: result.error || failedStepResult?.error,
-            failedStep:    failedStepResult?.step,
-            failedIndex,
-            fixedStep:     fixedPlan.steps[failedIndex],
-            diff:          diffData,
-            classification,
-          };
-        } else {
-          log(ws, 'Heal also failed — this may be a real application bug.', 'error');
-          send(ws, 'heal_failed', { error: result.error, attempts: 1, classification });
-        }
+        log(ws, 'Heal also failed — likely a real application bug.', 'error');
+        send(ws, 'heal_failed', { error: result.error, attempts: 1, classification });
       }
     } else {
       log(ws, 'Stopped by user.', 'warn');
     }
  
-    // ── Tag result with classification for report ─────────────────────────────
     result._classification = classification;
- 
   } else {
-    phase(ws, '── Saving to memory ──');
     saveToMemory(finalPlan);
     log(ws, `Cached: "${finalPlan.module}__${finalPlan.scenario}"`, 'success');
   }
@@ -344,17 +364,93 @@ async function executePlan(ws, plan, scenario, userInput, baseUrl, browser) {
   return { result, healCount, healMeta };
 }
 
+async function captureLiveDom(page) {
+  try {
+    const snapshot = await page.evaluate(() => {
+      const SELECTORS = [
+        'button','input','select','textarea',
+        '[type="submit"]','[role="button"]','[role="link"]',
+        'a[href]:not([href^="#"])',
+        '[id]',   // ALL ids — essential for detecting id changes
+        'h1','h2','h3',
+        '[data-testid]','[data-cy]','[data-qa]',
+        '[aria-label]',
+      ].join(',');
+ 
+      const seen = new Set();
+      const els = [];
+      document.querySelectorAll(SELECTORS).forEach(el => {
+        const r = el.getBoundingClientRect();
+        if (r.width === 0 && r.height === 0) return;
+        const key = (el.id ? `#${el.id}` : '') + el.tagName + (el.className||'').slice(0,20);
+        if (seen.has(key)) return;
+        seen.add(key);
+        const e = {
+          tag:        el.tagName.toLowerCase(),
+          id:         el.id || null,
+          type:       el.getAttribute('type') || null,
+          name:       el.getAttribute('name') || null,
+          role:       el.getAttribute('role') || null,
+          ariaLabel:  el.getAttribute('aria-label') || null,
+          dataTestid: el.getAttribute('data-testid') || el.getAttribute('data-cy') || null,
+          placeholder:el.getAttribute('placeholder') || null,
+          text:       el.innerText?.trim().slice(0,60) || null,
+          href:       el.getAttribute('href') || null,
+        };
+        Object.keys(e).forEach(k => e[k] === null && delete e[k]);
+        els.push(e);
+      });
+      return { url: location.href, title: document.title, elements: els.slice(0,80) };
+    });
+ 
+    const lines = [`URL: ${snapshot.url}`, `Title: ${snapshot.title}`, `Elements:`];
+    for (const el of snapshot.elements) {
+      const parts = [el.tag];
+      if (el.id)          parts.push(`#${el.id}`);
+      if (el.type)        parts.push(`[type=${el.type}]`);
+      if (el.name)        parts.push(`[name=${el.name}]`);
+      if (el.role)        parts.push(`[role=${el.role}]`);
+      if (el.dataTestid)  parts.push(`[data-testid="${el.dataTestid}"]`);
+      if (el.ariaLabel)   parts.push(`[aria-label="${el.ariaLabel}"]`);
+      if (el.placeholder) parts.push(`placeholder="${el.placeholder}"`);
+      if (el.text)        parts.push(`text="${el.text}"`);
+      if (el.href)        parts.push(`href="${el.href}"`);
+      lines.push('  ' + parts.join(' '));
+    }
+    return lines.join('\n');
+  } catch (err) {
+    return `DOM capture failed: ${err.message}`;
+  }
+}
+
 // ── Heal helpers ───────────────────────────────────────────────────────────────
 
 function buildHealContext(plan, result, failedStep, freshDom) {
-  const passedSteps = result.results?.filter(r => r.status === 'success').map(r =>
-    `✓ ${r.step?.action} ${r.step?.selector || r.step?.value || ''}`
-  ) || [];
-  const failedLine = failedStep
-    ? `✗ ${failedStep.step?.action} ${failedStep.step?.selector || failedStep.step?.value || ''} — ERROR: ${failedStep.error || result.error}`
+  const passed = (result.results || [])
+    .filter(r => r.status === 'success')
+    .map((r,_,arr) => `  ✓ ${arr.indexOf(r)+1}. ${r.step?.action} ${r.step?.selector||r.step?.value||''}`);
+  const failedLine = failedStepResult
+    ? `  ✗ ${result.results.indexOf(failedStepResult)+1}. ${failedStepResult.step?.action} ${failedStepResult.step?.selector||failedStepResult.step?.value||''}\n     ERROR: ${failedStepResult.error || result.error}`
     : '';
-
-  return `Current DOM state:\n${freshDom}\n\nExecution trace:\n${[...passedSteps, failedLine].join('\n')}`;
+ 
+  return [
+    '## Live DOM at point of failure (use this to find correct selectors)',
+    liveDom,
+    '',
+    '## What passed before the failure',
+    ...passed,
+    failedLine,
+    '',
+    '## Original plan',
+    plan.steps.map((s,i) => `  ${i+1}. ${s.action} ${s.selector||s.value||''}`).join('\n'),
+    '',
+    '## Instructions',
+    `The selector "${failedStepResult?.step?.selector||''}" could not be found.`,
+    'Look at the Live DOM above. Find the element that serves the same purpose.',
+    'Use the actual id, aria-label, data-testid, or text visible in the DOM.',
+    'Fix ONLY the broken step(s). Keep everything else identical.',
+    'Return the complete corrected plan as valid JSON.',
+  ].join('\n');
 }
 
 function computePlanDiff(original, healed) {

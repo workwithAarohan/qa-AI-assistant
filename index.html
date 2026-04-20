@@ -573,13 +573,26 @@ function showConfirmRun(question,meta){
   const msgs=document.getElementById('msgs');
   const w=document.createElement('div');w.className='mw agent';
   const card=document.createElement('div');card.className='confirm-card';
-  const steps=question.split('\n').slice(2).filter(Boolean);
-  card.innerHTML=`<div class="confirm-t"><svg width="11" height="11" viewBox="0 0 11 11" fill="none"><circle cx="5.5" cy="5.5" r="4.5" stroke="var(--accent)" stroke-width="1.2"/><path d="M3.5 5.5l1.5 1.5L7.5 4" stroke="var(--accent)" stroke-width="1.2" stroke-linecap="round"/></svg>Ready to run</div><div style="font-size:12px;font-weight:500;color:var(--accent);margin-bottom:6px">${esc(meta?.scenarioName||'')}</div>${steps.length?`<div class="confirm-steps">${esc(steps.join('\n'))}</div>`:''} ${meta?.totalSteps?`<div class="confirm-meta">${meta.totalSteps} steps</div>`:''}`;
+
+  // Short summary — not a duplicate of the test plan
+  const totalSteps=meta?.totalSteps||0;
+  const scenName=meta?.scenarioName||'';
+
+  card.innerHTML=`
+    <div class="confirm-t">
+      <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><circle cx="5.5" cy="5.5" r="4.5" stroke="var(--accent)" stroke-width="1.2"/><path d="M3.5 5.5l1.5 1.5L7.5 4" stroke="var(--accent)" stroke-width="1.2" stroke-linecap="round"/></svg>
+      Ready to run
+    </div>
+    <div style="font-size:13px;font-weight:600;color:var(--t1);margin-bottom:4px">${esc(scenName)}</div>
+    <div style="font-size:11px;color:var(--t3)">${totalSteps} steps · check the test plan panel for details</div>`;
+
   w.appendChild(card);
   const br=document.createElement('div');br.className='brow';
-  const rb=document.createElement('button');rb.className='btn primary';rb.innerHTML='<svg width="9" height="9" viewBox="0 0 9 9" fill="none"><path d="M2.5 2l5 2.5-5 2.5V2z" fill="white"/></svg>Run test';
+  const rb=document.createElement('button');rb.className='btn primary';
+  rb.innerHTML='<svg width="9" height="9" viewBox="0 0 9 9" fill="none"><path d="M2.5 2l5 2.5-5 2.5V2z" fill="white"/></svg>Run test';
   rb.onclick=()=>{addMsg('Run test','user');sendAnswer('yes');br.remove()};
-  const sb=document.createElement('button');sb.className='btn ghost';sb.textContent='Skip';sb.onclick=()=>{addMsg('Skip','user');sendAnswer('skip');br.remove()};
+  const sb=document.createElement('button');sb.className='btn ghost';sb.textContent='Skip';
+  sb.onclick=()=>{addMsg('Skip','user');sendAnswer('skip');br.remove()};
   br.appendChild(rb);br.appendChild(sb);w.appendChild(br);
   const ts=document.createElement('span');ts.className='mts';ts.textContent=now();w.appendChild(ts);
   msgs.appendChild(w);msgs.scrollTop=msgs.scrollHeight;
@@ -591,37 +604,79 @@ function showHealChoice(errorMsg,meta){
   const w=document.createElement('div');w.className='mw agent';
   const clf=meta?.classification||lastClassification||{};
   const canHeal=meta?.canHeal!==false;
-  const decision=clf.decision||'UNKNOWN';
+  const preview=meta?.healPreview;
 
-  // ── Classification badge colours ──────────────────────────────────────────
   const clrMap={
-    AUTOMATION: {bg:'rgba(217,119,6,0.08)',border:'rgba(217,119,6,0.25)',text:'var(--amber)',label:'Automation issue'},
-    FUNCTIONAL: {bg:'rgba(220,38,38,0.06)',border:'rgba(220,38,38,0.2)', text:'var(--red)',  label:'Application bug'},
-    ASSERTION:  {bg:'rgba(220,38,38,0.06)',border:'rgba(220,38,38,0.2)', text:'var(--red)',  label:'Assertion failed — real bug'},
-    NETWORK:    {bg:'rgba(2,132,199,0.06)', border:'rgba(2,132,199,0.2)',text:'var(--sky)',  label:'Network / connection error'},
-    UNKNOWN:    {bg:'rgba(107,114,128,0.06)',border:'rgba(107,114,128,0.2)',text:'var(--t2)',label:'Unknown cause'},
+    AUTOMATION: {bg:'rgba(217,119,6,0.07)',border:'rgba(217,119,6,0.22)',text:'var(--amber)',icon:'⚙',label:'Automation failure — selector may have changed'},
+    FUNCTIONAL: {bg:'rgba(220,38,38,0.05)',border:'rgba(220,38,38,0.18)',text:'var(--red)',  icon:'🐛',label:'Application bug detected'},
+    ASSERTION:  {bg:'rgba(220,38,38,0.05)',border:'rgba(220,38,38,0.18)',text:'var(--red)',  icon:'🐛',label:'Assertion failed — real bug'},
+    NAVIGATION: {bg:'rgba(220,38,38,0.05)',border:'rgba(220,38,38,0.18)',text:'var(--red)',  icon:'🐛',label:'Wrong URL — functional bug'},
+    NETWORK:    {bg:'rgba(2,132,199,0.05)', border:'rgba(2,132,199,0.18)',text:'var(--sky)', icon:'📡',label:'Network / connection error'},
+    UNKNOWN:    {bg:'rgba(107,114,128,0.05)',border:'rgba(107,114,128,0.18)',text:'var(--t2)',icon:'❓',label:'Unknown failure cause'},
   };
   const c=clrMap[clf.type]||clrMap.UNKNOWN;
 
   const card=document.createElement('div');
   card.style.cssText=`border:1px solid ${c.border};border-radius:var(--rl);background:${c.bg};padding:12px 14px;max-width:88%`;
 
-  // Title row with classification type
-  card.innerHTML=`
-    <div style="display:flex;align-items:center;gap:7px;margin-bottom:8px">
-      <div style="width:6px;height:6px;border-radius:50%;background:${c.text};flex-shrink:0"></div>
-      <span style="font-size:11px;font-weight:700;color:${c.text};text-transform:uppercase;letter-spacing:0.05em">${c.label}</span>
-    </div>
-    <div style="font-family:var(--mono);font-size:10px;color:var(--t2);background:rgba(0,0,0,0.04);border-radius:var(--r);padding:7px 10px;margin-bottom:8px;word-break:break-all">${esc(errorMsg)}</div>
-    ${meta?.failedStep?`<div style="font-size:10px;color:var(--t3);font-family:var(--mono);margin-bottom:4px">at: <strong>${esc(meta.failedStep.action)}</strong> ${esc(meta.failedStep.selector||meta.failedStep.value||'')}</div>`:''}
-    ${meta?.passedCount!=null?`<div style="font-size:10px;color:var(--t3);margin-bottom:8px">${meta.passedCount} of ${meta.totalSteps} steps passed before failure</div>`:''}
-    <div style="font-size:10px;padding:7px 10px;border-radius:var(--r);border:1px solid ${c.border};color:${c.text};line-height:1.5">${esc(clf.reason||'')}</div>`;
+  // Classification header
+  const hdrEl=document.createElement('div');
+  hdrEl.style.cssText='display:flex;align-items:center;gap:8px;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid rgba(0,0,0,0.06)';
+  hdrEl.innerHTML=`<div style="width:7px;height:7px;border-radius:50%;background:${c.text};flex-shrink:0"></div><span style="font-size:12px;font-weight:700;color:${c.text}">${c.label}</span>`;
+  card.appendChild(hdrEl);
 
-  // If it's a real bug — show bug report hint, no heal button by default
+  // Error message
+  const errEl=document.createElement('div');
+  errEl.style.cssText='font-family:var(--mono);font-size:10px;color:var(--t2);background:rgba(0,0,0,0.04);border-radius:var(--r);padding:7px 10px;margin-bottom:8px;word-break:break-all;line-height:1.5';
+  errEl.textContent=errorMsg;
+  card.appendChild(errEl);
+
+  // Step context
+  if(meta?.failedStep){
+    const ctx=document.createElement('div');
+    ctx.style.cssText='font-size:10px;color:var(--t3);font-family:var(--mono);margin-bottom:6px';
+    ctx.innerHTML=`at step ${meta.failedIndex!=null?meta.failedIndex+1:''}: <strong style="color:var(--t2)">${esc(meta.failedStep.action)}</strong> <span>${esc(meta.failedStep.selector||meta.failedStep.value||'')}</span>`;
+    card.appendChild(ctx);
+  }
+  if(meta?.passedCount!=null){
+    const prog=document.createElement('div');
+    prog.style.cssText='font-size:10px;color:var(--t3);margin-bottom:10px';
+    prog.textContent=`${meta.passedCount} of ${meta.totalSteps} steps passed before this failure`;
+    card.appendChild(prog);
+  }
+
+  // Classifier reason
+  const reasonEl=document.createElement('div');
+  reasonEl.style.cssText=`font-size:10px;padding:7px 10px;border-radius:var(--r);border:1px solid ${c.border};color:${c.text};line-height:1.5;margin-bottom:${canHeal&&preview?'10px':'0'}`;
+  reasonEl.textContent=clf.reason||'';
+  card.appendChild(reasonEl);
+
+  // Heal preview — show what the system found in the live DOM
+  if(canHeal && preview && preview.candidates?.length>0){
+    const prevEl=document.createElement('div');
+    prevEl.style.cssText='border-top:1px solid rgba(217,119,6,0.15);padding-top:10px;margin-top:8px';
+    const ptitle=document.createElement('div');
+    ptitle.style.cssText='font-size:10px;font-weight:600;color:var(--amber);margin-bottom:6px;display:flex;align-items:center;gap:5px';
+    ptitle.innerHTML=`<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M5 1a4 4 0 100 8A4 4 0 005 1" stroke="var(--amber)" stroke-width="1.1" stroke-linecap="round"/><path d="M3.5 5h3M5 3.5v3" stroke="var(--amber)" stroke-width="1.1" stroke-linecap="round"/></svg>What the system found at the failure page`;
+    prevEl.appendChild(ptitle);
+    const plist=document.createElement('div');
+    plist.style.cssText='font-family:var(--mono);font-size:10px;color:var(--t2);background:rgba(217,119,6,0.05);border-radius:var(--r);padding:6px 8px;display:flex;flex-direction:column;gap:2px';
+    preview.candidates.forEach(c=>{
+      const row=document.createElement('div');row.style.cssText='color:var(--t2)';row.textContent=c;
+      plist.appendChild(row);
+    });
+    const pnote=document.createElement('div');
+    pnote.style.cssText='font-size:9px;color:var(--t3);margin-top:4px';
+    pnote.textContent=`Captured from: ${preview.liveUrl||''}  ·  ${preview.domElementCount||0} elements found`;
+    prevEl.appendChild(plist);prevEl.appendChild(pnote);
+    card.appendChild(prevEl);
+  }
+
+  // Bug note (no heal for bugs)
   if(!canHeal){
     const bugNote=document.createElement('div');
-    bugNote.style.cssText='margin-top:8px;font-size:10px;color:var(--red);padding:6px 10px;background:rgba(220,38,38,0.05);border-radius:var(--r);border:1px solid rgba(220,38,38,0.15)';
-    bugNote.innerHTML='⚠ This looks like a <strong>real application bug</strong>. Auto-heal cannot fix incorrect application behaviour — this needs developer attention.';
+    bugNote.style.cssText='margin-top:10px;font-size:10px;color:var(--red);padding:7px 10px;background:rgba(220,38,38,0.05);border-radius:var(--r);border:1px solid rgba(220,38,38,0.15);line-height:1.5';
+    bugNote.innerHTML='Auto-heal cannot fix incorrect application behaviour. This needs a developer to investigate.';
     card.appendChild(bugNote);
   }
 
@@ -633,18 +688,16 @@ function showHealChoice(errorMsg,meta){
     hb.innerHTML='<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M5 1a4 4 0 100 8A4 4 0 005 1" stroke="var(--amber)" stroke-width="1.2" stroke-linecap="round"/><path d="M3.5 5h3M5 3.5v3" stroke="var(--amber)" stroke-width="1.2" stroke-linecap="round"/></svg>Auto-heal selector';
     hb.onclick=()=>{addMsg('Auto-heal','user');sendAnswer('heal');br.remove()};
     br.appendChild(hb);
-  } else {
-    // Still offer "force heal" as escape hatch but de-emphasised
-    const fh=document.createElement('button');fh.className='btn ghost';
-    fh.style.cssText='font-size:10px;opacity:0.65';
-    fh.textContent='Force heal anyway';
-    fh.onclick=()=>{addMsg('Force heal','user');sendAnswer('force heal');br.remove()};
-    br.appendChild(fh);
   }
 
-  const stb=document.createElement('button');stb.className='btn ghost';stb.textContent='Stop & report bug';
-  stb.onclick=()=>{addMsg('Stop','user');sendAnswer('stop');br.remove()};
+  // Stop button — always present. For bugs it's the only option.
+  const stb=document.createElement('button');
+  stb.className='btn ghost';
+  stb.textContent=canHeal?'Stop':'Stop & report bug';
+  stb.style.cssText=!canHeal?'border-color:rgba(220,38,38,0.3);color:var(--red)':'';
+  stb.onclick=()=>{addMsg(canHeal?'Stop':'Stop & report bug','user');sendAnswer('stop');br.remove()};
   br.appendChild(stb);
+
   w.appendChild(br);
   const ts=document.createElement('span');ts.className='mts';ts.textContent=now();w.appendChild(ts);
   msgs.appendChild(w);msgs.scrollTop=msgs.scrollHeight;
