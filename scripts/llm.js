@@ -1,84 +1,91 @@
 /**
  * llm.js — Two-tier LLM provider
  *
- * Primary:  Gemini 2.5 Flash (google/gemini-2.5-flash)
- * Fallback: HuggingFace Inference API — Gemma 3 27B → 12B → 4B
+ * Primary:  Gemini 2.5 Flash  (cloud, requires GEMINI_API_KEY)
+ * Fallback: Ollama GLM-4      (local, zero cost, zero auth)
  *
- * Both tiers return the same shape:
+ * Both tiers return the identical shape:
  *   { response: { text: () => string } }
- * so callers never need to branch on provider.
+ * so every caller in agent.js / classifier.js / context-gatherer.js
+ * works without any changes.
+ *
+ * Setup for fallback:
+ *   1. Install Ollama: https://ollama.com
+ *   2. Pull the model: ollama pull glm4
+ *   3. Ollama runs automatically on http://localhost:11434
+ *   No tokens, no API keys, no rate limits.
  *
  * .env keys:
- *   GEMINI_API_KEY  — required (primary)
- *   HF_TOKEN        — required for fallback (huggingface.co → Access Tokens)
+ *   GEMINI_API_KEY   — required (primary)
+ *   OLLAMA_HOST      — optional, default: http://localhost:11434
+ *   OLLAMA_MODEL     — optional, default: glm4
  */
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import dotenv from 'dotenv';
 dotenv.config();
 
+// ── Gemini setup ───────────────────────────────────────────────────────────────
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-
-// ── Gemini primary model ───────────────────────────────────────────────────────
 const GEMINI_MODEL = 'gemini-2.5-flash';
 
-// ── HuggingFace fallback models (tried in order) ──────────────────────────────
-// Using the OpenAI-compatible inference endpoint so we get the same
-// chat/completions response shape regardless of model.
-const HF_ENDPOINT = 'https://router.huggingface.co/v1/chat/completions';
-const HF_MODELS = [
-  { id: 'zai-org/GLM-5.1:together', label: 'GLM' },
-];
+// ── Ollama setup ───────────────────────────────────────────────────────────────
+// Ollama exposes an OpenAI-compatible endpoint — same shape, no auth required.
+const OLLAMA_HOST  = (process.env.OLLAMA_HOST  || 'http://localhost:11434').replace(/\/$/, '');
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL  || 'gemma4';
+const OLLAMA_URL   = `${OLLAMA_HOST}/v1/chat/completions`;
 
 // ── Error helpers ──────────────────────────────────────────────────────────────
 function isRateLimit(err) {
   const msg = String(err?.message || '').toLowerCase();
   const s   = err?.status ?? err?.response?.status;
-  return s === 429 || msg.includes('429') || msg.includes('quota')
-      || msg.includes('rate') || msg.includes('exhausted');
+  return s === 429
+    || msg.includes('429')
+    || msg.includes('quota')
+    || msg.includes('rate limit')
+    || msg.includes('exhausted');
 }
 
 function isRetryable(err) {
   const s = Number(
-    err?.status ?? err?.response?.status
+    err?.status
+    ?? err?.response?.status
     ?? (String(err?.message || '').match(/\b(429|5\d{2})\b/) || [])[0]
   );
   return s === 429 || (s >= 500 && s < 600);
 }
 
-function isUnavailable(err) {
+function isOllamaUnavailable(err) {
   const msg = String(err?.message || '').toLowerCase();
-  const s   = err?.status ?? err?.response?.status;
-  return s === 503 || s === 404 || msg.includes('loading') || msg.includes('unavailable');
+  // Ollama not running, model not pulled, or connection refused
+  return msg.includes('econnrefused')
+    || msg.includes('fetch failed')
+    || msg.includes('failed to fetch')
+    || msg.includes('model not found')
+    || msg.includes('enotfound')
+    || (err?.status === 404);
 }
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-// ── HuggingFace caller ─────────────────────────────────────────────────────────
-// Wraps the HF response in { response: { text: () => string } }
-// so it is identical in shape to what model.generateContent() returns.
-async function callHuggingFace(prompt, modelId) {
-  const token = process.env.HF_TOKEN;
-  if (!token) throw new Error('HF_TOKEN is not set in .env');
-
-  const res = await fetch(HF_ENDPOINT, {
+// ── Ollama caller ──────────────────────────────────────────────────────────────
+// Uses Ollama's OpenAI-compatible /v1/chat/completions endpoint.
+// Returns { response: { text: () => string } } — identical to Gemini's shape.
+async function callOllama(prompt) {
+  const res = await fetch(OLLAMA_URL, {
     method:  'POST',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Content-Type':  'application/json',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model:       modelId,
+      model:       OLLAMA_MODEL,
       messages:    [{ role: 'user', content: prompt }],
-      max_tokens:  4096,
-      temperature: 0.1,   // low temperature — we always want valid JSON back
+      temperature: 0.1,   // low temp — we always want deterministic JSON back
       stream:      false,
     }),
   });
 
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    const err  = new Error(`HF HTTP ${res.status} (${modelId}): ${body.slice(0, 200)}`);
+    const err  = new Error(`Ollama HTTP ${res.status}: ${body.slice(0, 300)}`);
     err.status = res.status;
     throw err;
   }
@@ -86,57 +93,50 @@ async function callHuggingFace(prompt, modelId) {
   const json    = await res.json();
   const content = json?.choices?.[0]?.message?.content ?? '';
 
-  if (!content) throw new Error(`HF returned empty content from ${modelId}`);
+  if (!content) {
+    throw new Error(`Ollama returned empty content (model: ${OLLAMA_MODEL})`);
+  }
 
-  // Return the same shape as Gemini's result object
   return {
     response: { text: () => content },
-    _via:     'huggingface',
-    _model:   modelId,
+    _via:     'ollama',
+    _model:   OLLAMA_MODEL,
   };
 }
 
-// ── HuggingFace cascade ────────────────────────────────────────────────────────
-async function tryHuggingFace(prompt, maxTries, base) {
-  if (!process.env.HF_TOKEN) {
-    throw new Error(
-      'Gemini 2.5 Flash is rate-limited and HF_TOKEN is not set.\n' +
-      'Add HF_TOKEN=<your_token> to .env to enable the Gemma fallback.\n' +
-      'Get a free token at: https://huggingface.co/settings/tokens'
-    );
-  }
+// ── Ollama fallback ────────────────────────────────────────────────────────────
+async function tryOllama(prompt, maxTries, base) {
+  console.log(`[LLM] Gemini rate-limited → falling back to Ollama (${OLLAMA_MODEL})...`);
 
-  console.log('[LLM] Gemini rate-limited → falling back to HuggingFace Gemma...');
+  for (let t = 1; t <= maxTries; t++) {
+    try {
+      const result = await callOllama(prompt);
+      console.log(`[LLM] ✓ Response via Ollama ${OLLAMA_MODEL}`);
+      return result;
+    } catch (err) {
+      console.warn(`[LLM] ✗ Ollama attempt ${t}: ${err.message}`);
 
-  for (const hf of HF_MODELS) {
-    for (let t = 1; t <= maxTries; t++) {
-      try {
-        const result = await callHuggingFace(prompt, hf.id);
-        console.log(`[LLM] ✓ Response via HuggingFace ${hf.label}`);
-        return result;
-      } catch (err) {
-        const lastTry = t === maxTries;
-        const lastHF  = hf === HF_MODELS.at(-1);
-
-        if (isRateLimit(err) || isUnavailable(err)) {
-          console.warn(`[LLM] ✗ ${hf.label}: ${err.message}`);
-          break; // try next HF model immediately
-        }
-
-        if (!isRetryable(err) || lastTry) {
-          console.warn(`[LLM] ✗ ${hf.label}: ${err.message}`);
-          if (!lastHF) break; // try next HF model
-          throw new Error(`All HuggingFace models exhausted. Last error: ${err.message}`);
-        }
-
-        const delay = Math.pow(2, t - 1) * base;
-        console.warn(`[LLM] ${hf.label} retry ${t} in ${delay}ms`);
-        await sleep(delay);
+      if (isOllamaUnavailable(err)) {
+        // Ollama not running or model not pulled — give clear instructions
+        throw new Error(
+          `Ollama is not available (${err.message}).\n` +
+          `To enable the local fallback:\n` +
+          `  1. Install Ollama: https://ollama.com\n` +
+          `  2. Pull the model: ollama pull ${OLLAMA_MODEL}\n` +
+          `  3. Ollama starts automatically — no extra steps needed.\n` +
+          `Alternatively, wait for Gemini rate limit to reset (usually ~1 min).`
+        );
       }
+
+      if (t === maxTries) {
+        throw new Error(`Ollama failed after ${maxTries} attempts. Last error: ${err.message}`);
+      }
+
+      const delay = Math.pow(2, t - 1) * base;
+      console.warn(`[LLM] Retrying Ollama in ${delay}ms...`);
+      await sleep(delay);
     }
   }
-
-  throw new Error('All HuggingFace fallback models are unavailable. Please wait and retry.');
 }
 
 // ── Main export ────────────────────────────────────────────────────────────────
@@ -144,33 +144,31 @@ export async function generate(prompt, opts = {}) {
   const maxTries = opts.maxAttempts ?? 2;
   const base     = opts.baseDelayMs ?? 500;
 
-  // ── Tier 1: Gemini 2.5 Flash ─────────────────────────────────────────────
+  // ── Tier 1: Gemini 2.5 Flash ──────────────────────────────────────────────
   const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
 
   for (let t = 1; t <= maxTries; t++) {
     try {
       const result = await model.generateContent(prompt);
-      return result; // native Gemini result — callers use result.response.text()
+      return result; // native Gemini shape — callers do result.response.text()
     } catch (err) {
-      const lastTry = t === maxTries;
-
       if (isRateLimit(err)) {
-        console.warn(`[LLM] Gemini 2.5 Flash rate-limited (attempt ${t})`);
-        if (lastTry) break; // fall through to HuggingFace
+        console.warn(`[LLM] Gemini 2.5 Flash rate-limited (attempt ${t}/${maxTries})`);
+        if (t === maxTries) break; // fall through to Ollama
         const delay = Math.pow(2, t - 1) * base + Math.random() * 200;
         console.warn(`[LLM] Retrying Gemini in ${Math.round(delay)}ms...`);
         await sleep(delay);
         continue;
       }
 
-      // Non-rate-limit error — log and go straight to fallback
-      console.warn(`[LLM] Gemini error: ${err.message}`);
+      // Any other Gemini error — skip retries and go straight to Ollama
+      console.warn(`[LLM] Gemini error (${err.message}) → trying Ollama`);
       break;
     }
   }
 
-  // ── Tier 2: HuggingFace Gemma ─────────────────────────────────────────────
-  return tryHuggingFace(prompt, maxTries, base);
+  // ── Tier 2: Ollama (local, no cost, no rate limits) ───────────────────────
+  return tryOllama(prompt, maxTries, base);
 }
 
 export default { generate };
