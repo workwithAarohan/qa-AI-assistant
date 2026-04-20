@@ -1,18 +1,16 @@
 /**
- * llm.js — Multi-provider LLM with smart fallback chain
+ * llm.js — Two-tier LLM provider
  *
- * Priority order:
- *   1. Gemini 2.5 Flash  → 2. Gemini 1.5 Flash → 3. Gemini Flash 8B
- *   4. Groq Llama-3.3-70B (free, 6000 req/day)
- *   5. Groq Llama-3.1-8B  (higher rate limits)
- *   6. Cerebras Llama-3.3-70B (free, ultra-fast 1800 tok/s)
- *   7. HuggingFace Qwen2.5-7B (last resort, needs HF_TOKEN)
+ * Primary:  Gemini 2.5 Flash (google/gemini-2.5-flash)
+ * Fallback: HuggingFace Inference API — Gemma 3 27B → 12B → 4B
  *
- * .env keys needed:
- *   GEMINI_API_KEY   — required (primary)
- *   GROQ_API_KEY     — free at console.groq.com   (best fallback)
- *   CEREBRAS_API_KEY — free at cloud.cerebras.ai  (fast fallback)
- *   HF_TOKEN         — optional, last resort
+ * Both tiers return the same shape:
+ *   { response: { text: () => string } }
+ * so callers never need to branch on provider.
+ *
+ * .env keys:
+ *   GEMINI_API_KEY  — required (primary)
+ *   HF_TOKEN        — required for fallback (huggingface.co → Access Tokens)
  */
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
@@ -21,141 +19,160 @@ dotenv.config();
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-const GEMINI_MODELS = [
-  { name: 'gemini-2.5-flash',    label: 'Gemini 2.5 Flash'  },
-  { name: 'gemini-1.5-flash',    label: 'Gemini 1.5 Flash'  },
-  { name: 'gemini-1.5-flash-8b', label: 'Gemini Flash 8B'   },
+// ── Gemini primary model ───────────────────────────────────────────────────────
+const GEMINI_MODEL = 'gemini-2.5-flash';
+
+// ── HuggingFace fallback models (tried in order) ──────────────────────────────
+// Using the OpenAI-compatible inference endpoint so we get the same
+// chat/completions response shape regardless of model.
+const HF_ENDPOINT = 'https://api-inference.huggingface.co/v1/chat/completions';
+const HF_MODELS = [
+  { id: 'google/gemma-3-27b-it', label: 'Gemma 3 27B' },
+  { id: 'google/gemma-3-12b-it', label: 'Gemma 3 12B' },
+  { id: 'google/gemma-3-4b-it',  label: 'Gemma 3 4B'  },
 ];
 
-const EXTERNAL_PROVIDERS = [
-  {
-    label:     'Groq / Llama-3.3-70B',
-    baseUrl:   'https://api.groq.com/openai/v1',
-    apiKey:    () => process.env.GROQ_API_KEY,
-    model:     'llama-3.3-70b-versatile',
-    maxTokens: 4096,
-  },
-  {
-    label:     'Groq / Llama-3.1-8B',
-    baseUrl:   'https://api.groq.com/openai/v1',
-    apiKey:    () => process.env.GROQ_API_KEY,
-    model:     'llama-3.1-8b-instant',
-    maxTokens: 4096,
-  },
-  {
-    label:     'Cerebras / Llama-3.3-70B',
-    baseUrl:   'https://api.cerebras.ai/v1',
-    apiKey:    () => process.env.CEREBRAS_API_KEY,
-    model:     'llama-3.3-70b',
-    maxTokens: 4096,
-  },
-  {
-    label:     'HuggingFace / Qwen2.5-7B',
-    baseUrl:   'https://router.huggingface.co/hf-inference/v1',
-    apiKey:    () => process.env.HF_TOKEN,
-    model:     'Qwen/Qwen2.5-7B-Instruct',
-    maxTokens: 2048,
-  },
-];
-
+// ── Error helpers ──────────────────────────────────────────────────────────────
 function isRateLimit(err) {
-  const msg = (err?.message || '').toLowerCase();
-  const status = err?.status || err?.response?.status;
-  return status === 429 || msg.includes('429') || msg.includes('quota') || msg.includes('rate') || msg.includes('limit');
+  const msg = String(err?.message || '').toLowerCase();
+  const s   = err?.status ?? err?.response?.status;
+  return s === 429 || msg.includes('429') || msg.includes('quota')
+      || msg.includes('rate') || msg.includes('exhausted');
 }
 
 function isRetryable(err) {
-  const status = err?.status || err?.response?.status
-    || Number((err?.message || '').match(/\b(429|5\d{2})\b/)?.[0]);
-  return status === 429 || (status >= 500 && status < 600);
+  const s = Number(
+    err?.status ?? err?.response?.status
+    ?? (String(err?.message || '').match(/\b(429|5\d{2})\b/) || [])[0]
+  );
+  return s === 429 || (s >= 500 && s < 600);
+}
+
+function isUnavailable(err) {
+  const msg = String(err?.message || '').toLowerCase();
+  const s   = err?.status ?? err?.response?.status;
+  return s === 503 || s === 404 || msg.includes('loading') || msg.includes('unavailable');
 }
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-async function callExternal(provider, prompt) {
-  const key = provider.apiKey();
-  if (!key) throw new Error(`${provider.label}: key not configured`);
+// ── HuggingFace caller ─────────────────────────────────────────────────────────
+// Wraps the HF response in { response: { text: () => string } }
+// so it is identical in shape to what model.generateContent() returns.
+async function callHuggingFace(prompt, modelId) {
+  const token = process.env.HF_TOKEN;
+  if (!token) throw new Error('HF_TOKEN is not set in .env');
 
-  const res = await fetch(`${provider.baseUrl}/chat/completions`, {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
+  const res = await fetch(HF_ENDPOINT, {
+    method:  'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type':  'application/json',
+    },
     body: JSON.stringify({
-      model:      provider.model,
-      messages:   [{ role: 'user', content: prompt }],
-      max_tokens: provider.maxTokens,
-      temperature: 0.2,
+      model:       modelId,
+      messages:    [{ role: 'user', content: prompt }],
+      max_tokens:  4096,
+      temperature: 0.1,   // low temperature — we always want valid JSON back
+      stream:      false,
     }),
   });
 
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    const err = new Error(`${provider.label} HTTP ${res.status}: ${body.slice(0, 140)}`);
+    const err  = new Error(`HF HTTP ${res.status} (${modelId}): ${body.slice(0, 200)}`);
     err.status = res.status;
     throw err;
   }
 
-  const data = await res.json();
-  const text = data.choices?.[0]?.message?.content || '';
-  return { response: { text: () => text }, _provider: provider.label };
+  const json    = await res.json();
+  const content = json?.choices?.[0]?.message?.content ?? '';
+
+  if (!content) throw new Error(`HF returned empty content from ${modelId}`);
+
+  // Return the same shape as Gemini's result object
+  return {
+    response: { text: () => content },
+    _via:     'huggingface',
+    _model:   modelId,
+  };
 }
 
-async function tryExternalChain(prompt) {
-  const tried = [];
-  for (const p of EXTERNAL_PROVIDERS) {
-    if (!p.apiKey()) continue; // skip unconfigured providers
-    try {
-      const r = await callExternal(p, prompt);
-      console.log(`[LLM] ✓ Fallback: ${p.label}`);
-      return r;
-    } catch (err) {
-      console.warn(`[LLM] ✗ ${p.label}: ${err.message}`);
-      tried.push(p.label);
-    }
+// ── HuggingFace cascade ────────────────────────────────────────────────────────
+async function tryHuggingFace(prompt, maxTries, base) {
+  if (!process.env.HF_TOKEN) {
+    throw new Error(
+      'Gemini 2.5 Flash is rate-limited and HF_TOKEN is not set.\n' +
+      'Add HF_TOKEN=<your_token> to .env to enable the Gemma fallback.\n' +
+      'Get a free token at: https://huggingface.co/settings/tokens'
+    );
   }
-  throw new Error(
-    `All providers exhausted (tried: ${tried.join(', ') || 'none configured'}).\n` +
-    'Add GROQ_API_KEY (free: console.groq.com) or CEREBRAS_API_KEY (free: cloud.cerebras.ai) to .env'
-  );
-}
 
-export async function generate(prompt, opts = {}) {
-  const maxAttempts = opts.maxAttempts ?? 2;
-  const baseDelay   = opts.baseDelayMs  ?? 400;
+  console.log('[LLM] Gemini rate-limited → falling back to HuggingFace Gemma...');
 
-  for (const modelDef of GEMINI_MODELS) {
-    const model = genAI.getGenerativeModel({ model: modelDef.name });
-
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+  for (const hf of HF_MODELS) {
+    for (let t = 1; t <= maxTries; t++) {
       try {
-        const result = await model.generateContent(prompt);
-        if (modelDef.name !== GEMINI_MODELS[0].name) {
-          console.log(`[LLM] ✓ Gemini fallback: ${modelDef.label}`);
-        }
+        const result = await callHuggingFace(prompt, hf.id);
+        console.log(`[LLM] ✓ Response via HuggingFace ${hf.label}`);
         return result;
       } catch (err) {
-        const rl   = isRateLimit(err);
-        const last = attempt === maxAttempts;
-        const lastG = modelDef === GEMINI_MODELS[GEMINI_MODELS.length - 1];
+        const lastTry = t === maxTries;
+        const lastHF  = hf === HF_MODELS.at(-1);
 
-        if (rl) {
-          console.warn(`[LLM] ✗ ${modelDef.label} rate-limited`);
-          if (lastG) { console.warn('[LLM] All Gemini exhausted → external'); return tryExternalChain(prompt); }
-          break; // try next Gemini
+        if (isRateLimit(err) || isUnavailable(err)) {
+          console.warn(`[LLM] ✗ ${hf.label}: ${err.message}`);
+          break; // try next HF model immediately
         }
 
-        if (!isRetryable(err) || last) {
-          if (lastG) { console.warn(`[LLM] Gemini error → external: ${err.message}`); return tryExternalChain(prompt); }
-          break;
+        if (!isRetryable(err) || lastTry) {
+          console.warn(`[LLM] ✗ ${hf.label}: ${err.message}`);
+          if (!lastHF) break; // try next HF model
+          throw new Error(`All HuggingFace models exhausted. Last error: ${err.message}`);
         }
 
-        const delay = 2 ** (attempt - 1) * baseDelay + Math.floor(Math.random() * 200);
-        console.warn(`[LLM] Retry ${attempt} in ${delay}ms`);
+        const delay = Math.pow(2, t - 1) * base;
+        console.warn(`[LLM] ${hf.label} retry ${t} in ${delay}ms`);
         await sleep(delay);
       }
     }
   }
 
-  return tryExternalChain(prompt);
+  throw new Error('All HuggingFace fallback models are unavailable. Please wait and retry.');
+}
+
+// ── Main export ────────────────────────────────────────────────────────────────
+export async function generate(prompt, opts = {}) {
+  const maxTries = opts.maxAttempts ?? 2;
+  const base     = opts.baseDelayMs ?? 500;
+
+  // ── Tier 1: Gemini 2.5 Flash ─────────────────────────────────────────────
+  const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+
+  for (let t = 1; t <= maxTries; t++) {
+    try {
+      const result = await model.generateContent(prompt);
+      return result; // native Gemini result — callers use result.response.text()
+    } catch (err) {
+      const lastTry = t === maxTries;
+
+      if (isRateLimit(err)) {
+        console.warn(`[LLM] Gemini 2.5 Flash rate-limited (attempt ${t})`);
+        if (lastTry) break; // fall through to HuggingFace
+        const delay = Math.pow(2, t - 1) * base + Math.random() * 200;
+        console.warn(`[LLM] Retrying Gemini in ${Math.round(delay)}ms...`);
+        await sleep(delay);
+        continue;
+      }
+
+      // Non-rate-limit error — log and go straight to fallback
+      console.warn(`[LLM] Gemini error: ${err.message}`);
+      break;
+    }
+  }
+
+  // ── Tier 2: HuggingFace Gemma ─────────────────────────────────────────────
+  return tryHuggingFace(prompt, maxTries, base);
 }
 
 export default { generate };
