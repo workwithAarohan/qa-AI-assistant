@@ -19,6 +19,32 @@ import { gatherContext } from './context-gatherer.js';
 import { generate as llmGenerate } from './llm.js';
 import { IDENTITY_ANCHOR } from './guard.js';
 import { classifyFailure, HEAL_DECISION, DECISION_META } from './failure-classifier.js';
+import fs from 'fs';
+
+// ── Write LLM-generated scenarios back to the module's .md doc ───────────────
+// Prevents repeated LLM generation on each request for the same module.
+function appendScenariesToDocs(moduleName, scenarios) {
+  try {
+    const docsDir = process.env.DOCS_DIR || './docs';
+    const filePath = `${docsDir}/${moduleName}.md`;
+    if (!fs.existsSync(filePath)) return;
+
+    const content = fs.readFileSync(filePath, 'utf-8');
+
+    // Only append if there's no Test Scenarios section yet
+    if (/##\s*Test Scenarios/i.test(content)) return;
+
+    const scenarioLines = scenarios
+      .map(s => `- ${s.id || s.scenario}: ${s.description || s.name}`)
+      .join('\n');
+
+    const addition = `\n## Test Scenarios\n${scenarioLines}\n`;
+    fs.appendFileSync(filePath, addition, 'utf-8');
+    console.log(`[Docs] Wrote ${scenarios.length} scenarios to ${filePath}`);
+  } catch (err) {
+    console.warn(`[Docs] Could not update ${moduleName}.md: ${err.message}`);
+  }
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -32,9 +58,8 @@ app.use((req, res, next) => {
     "default-src 'self'",
     "connect-src 'self' ws:",
     "script-src 'self' https://cdn.tailwindcss.com 'unsafe-inline'",
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data:",
-    "font-src 'self' https://fonts.gstatic.com",
   ].join('; '));
   next();
 });
@@ -47,7 +72,7 @@ app.get('/dashboard', (req, res) => res.sendFile(path.join(ROOT, 'public', 'dash
 app.get('/projects',  (req, res) => res.sendFile(path.join(ROOT, 'public', 'projects.html')));
 app.get('/profile',   (req, res) => res.sendFile(path.join(ROOT, 'public', 'profile.html')));
 
-// ── Core helpers ───────────────────────────────────────────────────────────────
+// ── Core helpers ──────────────────────────────────────────────────────────────
 function send(ws, type, data) {
   if (ws.readyState === 1) ws.send(JSON.stringify({ type, data }));
 }
@@ -293,22 +318,28 @@ function buildExploreResponse(docScenarios, docs, userInput) {
 }
 
 async function generateWarmResponse(userInput, allDocs) {
-  const modules = allDocs.map(d => d.name);
+  const first = allDocs[0]?.name || 'login';
+  const modules = allDocs.map(d => d.name).join(', ');
   const prompt = `${IDENTITY_ANCHOR}
 
-You are a warm, experienced QA team member.
-The person said: "${userInput}"
-Available modules to test: ${modules.join(', ')}
+You are a QA partner in a chat tool. Be extremely brief.
+User said: "${userInput}"
+Modules: ${modules}
 
-Respond in 2-3 sentences, friendly and helpful. Suggest 1-2 concrete starting points.
-Do NOT list every module. Be conversational, like a colleague on Slack.`;
+RULES:
+- 1-2 sentences MAX. No paragraphs, no lists.
+- Acknowledge briefly, then give ONE concrete command they can type.
+- Example: "Sure! Try \"test login\" to start, or \"run regression\" for everything."
+- Never ask questions back. Never explain what you can do.`;
 
   try {
     const result = await llmGenerate(prompt, { maxAttempts: 1 });
-    return result.response.text().trim();
+    const text = result.response.text().trim().replace(/^["']|["']$/g, '');
+    // Hard cap: take only first 2 sentences
+    const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
+    return sentences.slice(0, 2).join(' ').trim().slice(0, 180);
   } catch {
-    const moduleList = modules.map(m => `• ${m}`).join('\n');
-    return `Welcome! I can help you test the application. Here are the available modules:\n${moduleList}\n\nTry "test login" or "run regression" to get started.`;
+    return `Sure! Try "test ${first}" to start, or "run regression" for the full suite.`;
   }
 }
 
@@ -458,6 +489,8 @@ async function executePlan(ws, plan, scenario, userInput, baseUrl, browser) {
         log(ws, 'Heal succeeded ✓', 'success');
         saveToMemory(fixedPlan);
         log(ws, `Cached: "${fixedPlan.module}__${fixedPlan.scenario}"`, 'success');
+        // Note: selector changes are tracked in memory.json (source of truth for selectors).
+        // The .md docs describe intent/behaviour — they don't need selector updates.
         healMeta = {
           originalError: failedStepResult?.error || result.error,
           failedStep:    failedStepResult?.step ?? null,
@@ -605,6 +638,8 @@ async function orchestrate(ws, userInput) {
             if (m) m.cached = p;
             log(ws, `Saved: ${p.module}__${p.scenario}`, 'success');
           });
+          // Write newly discovered scenarios back to the doc so next call uses cache
+          appendScenariesToDocs(mod, scenarios);
         }
       }
       send(ws, 'regression_plan', {
@@ -622,7 +657,7 @@ async function orchestrate(ws, userInput) {
       sendState(ws, STATE.EXECUTING);
       browserInstance = await chromium.launch({ headless: false });
       const { scenarioResults, totalHealed } = await runScenarios(ws, allScenarios, (s) => memoryCheck.find(r => r.scenario.id === s.id && r.scenario.module === s.module)?.cached, userInput, baseUrl, browserInstance, false);
-      const passed = scenarioResults.filter(r => r.result.status === 'success').length;
+      const passed = scenarioResults.filter(r => r.result.status === 'success' && !r.healCount).length;
       const failed = scenarioResults.filter(r => r.result.status === 'failed').length;
       const skipped = scenarioResults.filter(r => r.result.status === 'skipped').length;
       send(ws, 'report', { type: 'regression', status: failed === 0 ? 'success' : 'failed', healCount: totalHealed, scenarios: scenarioResults, summary: { total: scenarioResults.length, passed, failed, skipped, healed: totalHealed } });
@@ -654,7 +689,7 @@ async function orchestrate(ws, userInput) {
         if (!confirmed) { send(ws, 'agent_message', 'No problem — let me know when you\'re ready.'); sendState(ws, STATE.IDLE); return; }
         browserInstance = await chromium.launch({ headless: false });
         const { result, healCount, healMeta } = await executePlan(ws, plan, specific, userInput, baseUrl, browserInstance);
-        send(ws, 'report', { status: result.status, healCount, scenarios: [{ scenario: specific, result, healCount, healMeta }], summary: { total: 1, passed: result.status === 'success' ? 1 : 0, failed: result.status === 'failed' ? 1 : 0, skipped: 0, healed: healCount } });
+        send(ws, 'report', { status: result.status, healCount, scenarios: [{ scenario: specific, result, healCount, healMeta }], summary: { total: 1, passed: (result.status === 'success' && !healCount) ? 1 : 0, failed: result.status === 'failed' ? 1 : 0, skipped: 0, healed: healCount } });
         sendState(ws, STATE.IDLE);
         return;
       }
@@ -669,6 +704,8 @@ async function orchestrate(ws, userInput) {
           const browserCtx = await captureBrowserContext(baseUrl);
           const batch = await generateAllScenarioSteps(uncached, docContext, browserCtx);
           batch.forEach(p => { validatePlan(p); saveToMemory(p); const m = memoryCheck.find(r => r.scenario.id === p.id); if (m) m.cached = p; });
+          // Cache new scenarios to doc so future calls don't re-generate
+          appendScenariesToDocs(module, uncached);
         }
         sendState(ws, STATE.PLANNING);
         send(ws, 'scenarios', { scenarios: docScenarios, module: docScenarios[0]?.module || userInput });
@@ -681,7 +718,7 @@ async function orchestrate(ws, userInput) {
         sendState(ws, STATE.EXECUTING);
         browserInstance = await chromium.launch({ headless: false });
         const { scenarioResults, totalHealed } = await runScenarios(ws, toRun, memoryCheck, userInput, baseUrl, browserInstance, true);
-        const passed = scenarioResults.filter(r => r.result.status === 'success').length;
+        const passed = scenarioResults.filter(r => r.result.status === 'success' && !r.healCount).length;
         const failed = scenarioResults.filter(r => r.result.status === 'failed').length;
         const skipped = scenarioResults.filter(r => r.result.status === 'skipped').length;
         send(ws, 'report', { status: failed === 0 ? 'success' : 'failed', healCount: totalHealed, scenarios: scenarioResults, summary: { total: scenarioResults.length, passed, failed, skipped, healed: totalHealed } });

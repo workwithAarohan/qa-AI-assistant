@@ -721,7 +721,9 @@ function showReport(data){
 
 function buildDrawerContent(data){
   const s=data.summary||{},scens=data.scenarios||[];
-  const pct=s.total>0?Math.round((s.passed/s.total)*100):0;
+  const passedClean=s.passed??0, healedCount=s.healed??0;
+  const completedCount=passedClean+healedCount;
+  const pct=s.total>0?Math.round((completedCount/s.total)*100):0;
   document.getElementById('dsdot').style.background=s.failed===0?'var(--green)':s.failed>0?'var(--red)':'var(--amber)';
   document.getElementById('dtitle').textContent=data.type==='regression'?'Regression Report':'Test Report';
 
@@ -746,10 +748,10 @@ function buildDrawerContent(data){
           <text x="20" y="24" text-anchor="middle" font-size="9" font-weight="700" fill="${ringColor}" font-family="var(--mono)">${pct}%</text>
         </svg>
         <div style="display:flex;gap:16px;font-size:11px">
-          <span><span style="font-weight:700;color:var(--green)">${s.passed}</span> <span style="color:var(--t3)">passed</span></span>
+          ${passedClean?`<span><span style="font-weight:700;color:var(--green)">${passedClean}</span> <span style="color:var(--t3)">passed</span></span>`:''}
+          ${healedCount?`<span><span style="font-weight:700;color:var(--amber)">${healedCount}</span> <span style="color:var(--t3)">healed</span></span>`:''}
           ${s.failed?`<span><span style="font-weight:700;color:var(--red)">${s.failed}</span> <span style="color:var(--t3)">failed</span></span>`:''}
           ${s.skipped?`<span><span style="font-weight:700;color:var(--t2)">${s.skipped}</span> <span style="color:var(--t3)">skipped</span></span>`:''}
-          ${s.healed?`<span><span style="font-weight:700;color:var(--amber)">${s.healed}</span> <span style="color:var(--t3)">healed</span></span>`:''}
         </div>
       </div>`;
   }
@@ -855,7 +857,9 @@ function exportReport(){
 }
 function copyReport(){
   if(!lastReportData)return;
-  const s=lastReportData.summary||{};const pct=s.total>0?Math.round((s.passed/s.total)*100):0;
+  const s=lastReportData.summary||{};const passedClean=s.passed??0, healedCount=s.healed??0;
+  const completedCount=passedClean+healedCount;
+  const pct=s.total>0?Math.round((completedCount/s.total)*100):0;
   const lines=[`QA Sentinel — ${new Date().toLocaleString()}`,`Pass rate: ${pct}% (${s.passed}/${s.total})`,`Passed: ${s.passed}  Failed: ${s.failed}  Skipped: ${s.skipped}  Healed: ${s.healed}`,'',...(lastReportData.scenarios||[]).map(r=>`${r.result?.status==='success'?'✓':r.result?.status==='skipped'?'○':'✗'} ${r.scenario?.name} [${r.scenario?.module}]${r.healCount?` (healed ×${r.healCount})`:''}`)];
   navigator.clipboard.writeText(lines.join('\n'));toast('Copied to clipboard');
 }
@@ -871,7 +875,9 @@ function renderHistory(){
   const list=document.getElementById('hlist');list.innerHTML='';
   if(!testHistory.length){list.innerHTML='<p style="color:var(--t3);font-size:11px;text-align:center;padding:24px 0">No runs yet</p>';return}
   testHistory.forEach(e=>{
-    const s=e.summary||{};const pct=s.total>0?Math.round((s.passed/s.total)*100):0;
+    const s=e.summary||{};const passedClean=s.passed??0, healedCount=s.healed??0;
+  const completedCount=passedClean+healedCount;
+  const pct=s.total>0?Math.round((completedCount/s.total)*100):0;
     const color=e.status==='success'?'var(--green)':'var(--red)';
     const card=document.createElement('div');card.className='hcard';
     card.innerHTML=`<div class="htop"><div style="width:6px;height:6px;border-radius:50%;background:${color};flex-shrink:0"></div><span class="htype">${e.type==='regression'?'Regression':'Module test'}</span><span class="hpct" style="color:${color}">${pct}%</span></div><div class="hts">${e.ts}</div><div class="hstats"><span style="color:var(--green)">${s.passed||0} pass</span><span style="color:var(--red)">${s.failed||0} fail</span>${s.skipped?`<span style="color:var(--t3)">${s.skipped} skip</span>`:''} ${s.healed?`<span style="color:var(--amber)">${s.healed} healed</span>`:''}</div>`;
