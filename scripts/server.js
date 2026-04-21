@@ -7,7 +7,7 @@ import dotenv from 'dotenv';
 import { chromium } from 'playwright';
 dotenv.config();
 
-import { analyzeRequest, generateAllScenarioSteps, fixSteps } from './agent.js';
+import { analyzeRequest, generateAllScenarioSteps, fixSteps, explainHeal, answerAboutLastRun } from './agent.js';
 import { runSteps } from './executor.js';
 import { validatePlan } from './validator.js';
 import { saveToMemory, findSimilarPlan } from './memory.js';
@@ -21,25 +21,28 @@ import { IDENTITY_ANCHOR } from './guard.js';
 import { classifyFailure, HEAL_DECISION, DECISION_META } from './failure-classifier.js';
 import fs from 'fs';
 
+// ── Per-connection state — lightweight "last run" memory ─────────────────────
+// Avoids full session persistence while enabling follow-up questions.
+// Cleared on each new test run so answers are always about the latest run.
+const connectionState = new WeakMap(); // ws → { lastRun, lastHealMeta }
+
+function getState(ws) {
+  if (!connectionState.has(ws)) connectionState.set(ws, { lastRun: null });
+  return connectionState.get(ws);
+}
+
 // ── Write LLM-generated scenarios back to the module's .md doc ───────────────
-// Prevents repeated LLM generation on each request for the same module.
 function appendScenariesToDocs(moduleName, scenarios) {
   try {
     const docsDir = process.env.DOCS_DIR || './docs';
     const filePath = `${docsDir}/${moduleName}.md`;
     if (!fs.existsSync(filePath)) return;
-
     const content = fs.readFileSync(filePath, 'utf-8');
-
-    // Only append if there's no Test Scenarios section yet
     if (/##\s*Test Scenarios/i.test(content)) return;
-
     const scenarioLines = scenarios
       .map(s => `- ${s.id || s.scenario}: ${s.description || s.name}`)
       .join('\n');
-
-    const addition = `\n## Test Scenarios\n${scenarioLines}\n`;
-    fs.appendFileSync(filePath, addition, 'utf-8');
+    fs.appendFileSync(filePath, `\n## Test Scenarios\n${scenarioLines}\n`, 'utf-8');
     console.log(`[Docs] Wrote ${scenarios.length} scenarios to ${filePath}`);
   } catch (err) {
     console.warn(`[Docs] Could not update ${moduleName}.md: ${err.message}`);
@@ -174,13 +177,14 @@ async function captureLiveDom(page) {
   }
 }
 
-// ── Build rich heal context for LLM ──────────────────────────────────────────
+// ── Build rich heal context for LLM — includes failed step index for surgical heal ──
 function buildHealContext(plan, result, failedStepResult, liveDom) {
+  const failedIndex = failedStepResult ? (result.results || []).indexOf(failedStepResult) : -1;
   const passed = (result.results || [])
     .filter(r => r.status === 'success')
     .map((r, _, arr) => `  ✓ ${arr.indexOf(r) + 1}. ${r.step?.action} ${r.step?.selector || r.step?.value || ''}`);
   const failedLine = failedStepResult
-    ? `  ✗ ${(result.results || []).indexOf(failedStepResult) + 1}. ${failedStepResult.step?.action} ${failedStepResult.step?.selector || failedStepResult.step?.value || ''}\n     ERROR: ${failedStepResult.error || result.error}`
+    ? `  ✗ at step ${failedIndex + 1}: ${failedStepResult.step?.action} ${failedStepResult.step?.selector || failedStepResult.step?.value || ''}\n     ERROR: ${failedStepResult.error || result.error}`
     : `  ✗ ERROR: ${result.error}`;
 
   return [
@@ -194,11 +198,14 @@ function buildHealContext(plan, result, failedStepResult, liveDom) {
     '## Original plan steps',
     (plan.steps || []).map((s, i) => `  ${i + 1}. ${s.action} ${s.selector || s.value || ''}`).join('\n'),
     '',
+    // Embed the failed step index so fixSteps() can do surgical repair
+    `at step ${failedIndex + 1}: (${failedStepResult?.step?.action || ''} ${failedStepResult?.step?.selector || ''})`,
+    '',
     '## Your task',
     `The selector "${failedStepResult?.step?.selector || result.error}" could not be found.`,
-    'Look at the Live DOM above. Find the correct selector for the same element (button, input, etc.).',
-    'Use actual #id, [aria-label], [data-testid], or visible text from the DOM.',
-    'Fix ONLY the broken step(s). Return the complete corrected plan as valid JSON.',
+    'Look at the Live DOM above. Find the correct selector for the same element.',
+    'Fix ONLY step ' + (failedIndex + 1) + '. All other steps are correct and must be preserved.',
+    'Return the complete corrected plan as valid JSON.',
   ].join('\n');
 }
 
@@ -224,47 +231,69 @@ const EMOTIONAL_PATTERNS = [
   /\b(what (is|are|does)|how (do|does|can|should)|why (is|does))\b/i,
 ];
 
-// ── LLM-based intent detection — replaces brittle keyword routing ─────────────
-// Returns: EXPLORE | EXECUTE | GREET | REGRESSION | null (fall through)
-async function detectIntent(userInput, docScenarios, allDocs) {
+// ── POST-RUN QUESTION PATTERNS — detect follow-up about the last test ─────────
+// These fire BEFORE generic intent detection so follow-ups always get context-aware answers.
+const POST_RUN_PATTERNS = [
+  /\b(why|what|how|explain|tell me).*(fail|broke|wrong|issue|problem|error|crash)\b/i,
+  /\b(why|what|how).*(heal|fix|repair|auto.?heal|correct)\b/i,
+  /\b(what (changed|was fixed|was wrong|happened))\b/i,
+  /\b(what did (you|it|the system) (do|change|fix))\b/i,
+  /\b(tell me (more|about) (the|that|this) (fail|error|issue|fix|heal))\b/i,
+  /\b(how did (it|the test|this) (pass|work|succeed|get fixed))\b/i,
+  /\b(what (selector|element|step) (changed|was wrong|broke))\b/i,
+  /\b(previous (test|run|result))\b/i,
+  /\b(last (test|run|result))\b/i,
+  /\bwhy (did|was|is) (step|it|this|that)\b/i,
+  /\b(root cause|cause of|reason for) (the |this )?(fail|error|issue)\b/i,
+  /\b(summarize|details|break down) (the )?(failure|error|issue|test)\b/i,
+];
+
+function isPostRunQuestion(input, hasLastRun) {
+  if (!hasLastRun) return false;
+  return POST_RUN_PATTERNS.some(p => p.test(input));
+}
+
+// ── LLM-based intent detection ─────────────────────────────────────────────────
+async function detectIntent(userInput, docScenarios, allDocs, hasLastRun) {
   const lower = userInput.toLowerCase().trim();
 
-  // Hard fast-paths that don't need LLM
+  // Post-run follow-up — highest priority when a run exists
+  if (isPostRunQuestion(userInput, hasLastRun)) return 'POST_RUN_QUESTION';
+
+  // Hard fast-paths
   if (/\bregression\b/i.test(lower)) return 'REGRESSION';
 
-  // Emotional/greeting — bypass LLM
   const GREET = ['hi','hello','hey','help','good morning','good afternoon','good evening'];
   if (GREET.some(g => lower === g || lower.startsWith(g + ' '))) return 'GREET';
   if (EMOTIONAL_PATTERNS.some(p => p.test(lower))) return 'EMOTIONAL';
 
-  // Explicit listing/explore signals — LLM not needed, always EXPLORE
   if (/\b(list|show|what|which|tell me about|available|all)\b.*(module|scenario|test|can you test|available)\b/i.test(lower)) return 'EXPLORE';
 
-  // Execute signals — strong enough to skip LLM
   if (/^(test|run|execute|verify|check)\b/i.test(lower) && docScenarios.length > 0) return 'EXECUTE';
 
-  // Ambiguous — ask the LLM
+  // LLM for ambiguous
   const moduleList = allDocs.map(d => d.name).join(', ');
   const prompt = `${IDENTITY_ANCHOR}
 
 User message: "${userInput}"
 Available test modules: ${moduleList}
+Has recent test run data: ${hasLastRun}
 
 Classify this message into ONE of these intents:
 - EXPLORE: user wants to know what can be tested, list modules, understand the app
 - EXECUTE: user wants to run a test right now
 - GREET: greeting or small talk
 - EMOTIONAL: asking for guidance, onboarding, help understanding
+- POST_RUN_QUESTION: asking about results, failures, or fixes from a recent test run
 
-Return ONLY one word: EXPLORE, EXECUTE, GREET, or EMOTIONAL. Nothing else.`;
+Return ONLY one word. Nothing else.`;
 
   try {
     const result = await llmGenerate(prompt, { maxAttempts: 1 });
     const text = result.response.text().trim().toUpperCase();
-    if (['EXPLORE','EXECUTE','GREET','EMOTIONAL'].includes(text)) return text;
+    if (['EXPLORE','EXECUTE','GREET','EMOTIONAL','POST_RUN_QUESTION'].includes(text)) return text;
   } catch {}
 
-  // Safe fallback
   return docScenarios.length > 0 ? 'EXECUTE' : 'EXPLORE';
 }
 
@@ -298,23 +327,23 @@ function buildExploreResponse(docScenarios, docs, userInput) {
       .filter(Boolean) || [];
     const urlMatch = matchedDoc.content.match(/##\s*URL\s*\n(https?:\/\/[^\s]+)/i);
     const desc = matchedDoc.content.match(/##\s*Description\s*\n([\s\S]*?)(?=\n##|$)/i)?.[1]?.trim();
-    let msg = `Here's what I know about the **${matchedDoc.name}** module:\n\n`;
-    if (urlMatch) msg += `URL: ${urlMatch[1]}\n\n`;
+    let msg = `**${matchedDoc.name}** module`;
+    if (urlMatch) msg += ` — ${urlMatch[1]}`;
+    msg += '\n';
     if (desc) msg += `${desc}\n\n`;
     if (scenarios.length > 0) {
-      msg += `Test scenarios:\n${scenarios.map((s, i) => `${i+1}. ${s.name} — ${s.description}`).join('\n')}\n\n`;
-      msg += `Say "test ${matchedDoc.name}" to run all, or name a specific one.`;
+      msg += `Scenarios:\n${scenarios.map((s, i) => `${i+1}. ${s.name} — ${s.description}`).join('\n')}`;
+      msg += `\n\nSay "test ${matchedDoc.name}" to run all, or name a specific scenario.`;
     }
     return msg;
   }
-  // List ALL modules clearly
   const modules = [...new Set(docs.map(d => d.name))];
   const scenarioCounts = docs.map(d => {
     const section = d.content.match(/##\s*Test Scenarios\s*\n([\s\S]*?)(?=\n##|$)/i);
     const count = section ? (section[1].match(/[-*]\s*[a-z_]+:/gi) || []).length : 0;
-    return `• **${d.name}** — ${count} scenario${count !== 1 ? 's' : ''}`;
+    return `• ${d.name} — ${count} scenario${count !== 1 ? 's' : ''}`;
   });
-  return `Here are all ${modules.length} testable modules:\n\n${scenarioCounts.join('\n')}\n\nSay "test [module name]" to run tests, or ask about any module for details.`;
+  return `${modules.length} testable modules:\n\n${scenarioCounts.join('\n')}\n\nSay "test [module]" to run, or ask about any module.`;
 }
 
 async function generateWarmResponse(userInput, allDocs) {
@@ -335,7 +364,6 @@ RULES:
   try {
     const result = await llmGenerate(prompt, { maxAttempts: 1 });
     const text = result.response.text().trim().replace(/^["']|["']$/g, '');
-    // Hard cap: take only first 2 sentences
     const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
     return sentences.slice(0, 2).join(' ').trim().slice(0, 180);
   } catch {
@@ -343,7 +371,7 @@ RULES:
   }
 }
 
-// ── Confirm execution — input is DISABLED, user uses buttons only ─────────────
+// ── Confirm execution ─────────────────────────────────────────────────────────
 async function confirmExecution(ws, scenario, plan) {
   send(ws, 'plan', { ...plan, scenarioId: scenario.id });
   send(ws, 'question', {
@@ -351,20 +379,17 @@ async function confirmExecution(ws, scenario, plan) {
     type: 'confirm_run',
     meta: { scenarioName: scenario.name, totalSteps: plan.steps.length },
   });
-  // Input is locked on the frontend during confirm_run mode
-  // waitForAnswer only resolves on ws type='answer' (button clicks)
   const answer = await waitForAnswer(ws);
   return /yes|run|ok|confirm|go|start/i.test(answer);
 }
 
-// ── Execute one plan — FIXED: all variables properly scoped ──────────────────
+// ── Execute one plan ──────────────────────────────────────────────────────────
 async function executePlan(ws, plan, scenario, userInput, baseUrl, browser) {
   const finalPlan = injectDocUrl(plan, baseUrl);
   send(ws, 'plan', { ...finalPlan, scenarioId: scenario.id });
   sendState(ws, STATE.EXECUTING);
   phase(ws, '── Executing steps ──');
 
-  // These are declared HERE, in the outer scope, so they're accessible everywhere below
   let liveDomAtFailure = null;
   let liveUrlAtFailure = null;
 
@@ -372,7 +397,6 @@ async function executePlan(ws, plan, scenario, userInput, baseUrl, browser) {
     browser, baseUrl,
     onStep: (index, step, status) => send(ws, 'step', { index, status }),
     onLog:  (text, level) => log(ws, text, level),
-    // onFail fires with live Playwright page before browser closes
     onFail: async (page) => {
       try {
         liveUrlAtFailure = page.url();
@@ -390,7 +414,6 @@ async function executePlan(ws, plan, scenario, userInput, baseUrl, browser) {
   if (result.status === 'failed') {
     phase(ws, '── Analysing failure ──');
 
-    // ── Declare and assign failedStepResult exactly once, here ───────────────
     const failedStepResult = (result.results || []).find(r => r.status === 'failed') || null;
     const failedIndex = failedStepResult ? result.results.indexOf(failedStepResult) : -1;
 
@@ -411,10 +434,8 @@ async function executePlan(ws, plan, scenario, userInput, baseUrl, browser) {
       totalSteps:  finalPlan.steps.length,
     });
 
-    // ── Build heal preview from live DOM ──────────────────────────────────────
     let healPreview = null;
     if (DECISION_META[classification.decision].canHeal) {
-      // If onFail didn't fire (very fast crash), fall back to base URL capture
       if (!liveDomAtFailure) {
         try {
           liveDomAtFailure = await captureBrowserContext(liveUrlAtFailure || baseUrl);
@@ -452,13 +473,23 @@ async function executePlan(ws, plan, scenario, userInput, baseUrl, browser) {
     const choice = await waitForAnswer(ws);
 
     if (/yes|heal|try|fix|retry/i.test(choice) && DECISION_META[classification.decision].canHeal) {
-      phase(ws, '── Auto-healing ──');
-      log(ws, 'Sending live DOM to LLM for corrected steps...', 'info');
+      phase(ws, '── Auto-healing (surgical) ──');
+      log(ws, 'Targeting broken step only — all other steps will be preserved...', 'info');
 
-      // failedStepResult is safely in scope here
+      // Build context with the "at step N:" marker so fixSteps() can do surgical repair
       const healContext = buildHealContext(finalPlan, result, failedStepResult, liveDomAtFailure);
+
+      // fixSteps now returns a plan with ONLY the broken step replaced
       const fixedPlan   = await fixSteps(finalPlan, result.error, userInput, healContext);
       validatePlan(fixedPlan);
+
+      // Verify step count — warn if LLM dropped steps despite instructions
+      if (fixedPlan.steps.length < finalPlan.steps.length) {
+        log(ws, `Warning: healed plan has fewer steps (${fixedPlan.steps.length} vs ${finalPlan.steps.length}). Restoring missing tail steps.`, 'warn');
+        // Safety net: if LLM dropped tail steps, re-append from original
+        const missing = finalPlan.steps.slice(fixedPlan.steps.length);
+        fixedPlan.steps = [...fixedPlan.steps, ...missing];
+      }
 
       const fixedWithUrl = injectDocUrl(fixedPlan, baseUrl);
       const diffData     = computePlanDiff(finalPlan.steps, fixedWithUrl.steps);
@@ -467,7 +498,6 @@ async function executePlan(ws, plan, scenario, userInput, baseUrl, browser) {
 
       phase(ws, '── Retrying healed plan ──');
 
-      // Reset for retry
       liveDomAtFailure = null;
       liveUrlAtFailure = null;
 
@@ -488,17 +518,28 @@ async function executePlan(ws, plan, scenario, userInput, baseUrl, browser) {
       if (result.status === 'success') {
         log(ws, 'Heal succeeded ✓', 'success');
         saveToMemory(fixedPlan);
-        log(ws, `Cached: "${fixedPlan.module}__${fixedPlan.scenario}"`, 'success');
-        // Note: selector changes are tracked in memory.json (source of truth for selectors).
-        // The .md docs describe intent/behaviour — they don't need selector updates.
+        log(ws, `Updated memory: "${fixedPlan.module}__${fixedPlan.scenario}"`, 'success');
+
         healMeta = {
           originalError: failedStepResult?.error || result.error,
           failedStep:    failedStepResult?.step ?? null,
           failedIndex,
-          fixedStep:     fixedPlan.steps[failedIndex] ?? null,
+          fixedStep:     fixedPlan._fixedStep ?? fixedPlan.steps[failedIndex] ?? null,
           diff:          diffData,
           classification,
         };
+
+        // Generate and send a plain-English explanation for stakeholders
+        const explanation = await explainHeal(
+          failedStepResult?.step ?? {},
+          fixedPlan._fixedStep ?? fixedPlan.steps[failedIndex] ?? {},
+          result.error || failedStepResult?.error || '',
+          liveDomAtFailure?.slice(0, 600) || ''
+        );
+        log(ws, `Heal explanation: ${explanation}`, 'info');
+        // Store for post-run Q&A
+        healMeta._explanation = explanation;
+
       } else {
         log(ws, 'Heal also failed — likely a real application bug.', 'error');
         send(ws, 'heal_failed', { error: result.error, attempts: 1, classification });
@@ -518,7 +559,7 @@ async function executePlan(ws, plan, scenario, userInput, baseUrl, browser) {
   return { result, healCount, healMeta };
 }
 
-// ── Shared scenario runner ─────────────────────────────────────────────────────
+// ── Shared scenario runner ────────────────────────────────────────────────────
 async function runScenarios(ws, toRun, getPlan, userInput, baseUrl, browserInstance, confirmEach = true) {
   const scenarioResults = [];
   let totalHealed = 0;
@@ -561,14 +602,13 @@ async function runScenarios(ws, toRun, getPlan, userInput, baseUrl, browserInsta
 // ── MAIN ORCHESTRATION ────────────────────────────────────────────────────────
 async function orchestrate(ws, userInput) {
   let browserInstance = null;
+  const state = getState(ws);
 
   try {
     const guard = guardCheck(userInput);
     if (!guard.safe) { send(ws, 'agent_message', guard.reason); return; }
 
     sendState(ws, STATE.GATHERING_CONTEXT);
-    phase(ws, '── Loading context ──');
-    log(ws, 'Reading documentation...', 'info');
 
     const docContext   = getRelevantContext(userInput);
     const baseUrl      = extractBaseUrl(userInput) || process.env.BASE_URL || 'http://localhost:4000/testapp';
@@ -576,22 +616,27 @@ async function orchestrate(ws, userInput) {
     const allDocs      = loadAllDocs();
     const module       = docScenarios[0]?.module || 'general';
 
-    if (docContext) log(ws, `Docs loaded: ${module}`, 'success');
-    else log(ws, 'No matching docs found', 'warn');
-
-    // ── LLM-based intent detection (replaces brittle keyword routing) ──────────
-    const intent = await detectIntent(userInput, docScenarios, allDocs);
+    // ── LLM-based intent detection ──────────────────────────────────────────
+    const intent = await detectIntent(userInput, docScenarios, allDocs, !!state.lastRun);
     log(ws, `Intent: ${intent}`, 'info');
 
-    // ── GREET ─────────────────────────────────────────────────────────────────
-    if (intent === 'GREET') {
-      const modules = [...new Set(allDocs.map(d => d.name))];
-      send(ws, 'agent_message', `Hi! I'm your QA partner.\n\nI can test:\n${modules.map(m => `• ${m}`).join('\n')}\n\nTry "test login", "run regression", or ask about any module.`);
+    // ── POST-RUN QUESTION — answer using last run context ───────────────────
+    if (intent === 'POST_RUN_QUESTION') {
+      const answer = await answerAboutLastRun(userInput, state.lastRun);
+      send(ws, 'agent_message', answer);
       sendState(ws, STATE.IDLE);
       return;
     }
 
-    // ── EMOTIONAL ─────────────────────────────────────────────────────────────
+    // ── GREET ───────────────────────────────────────────────────────────────
+    if (intent === 'GREET') {
+      const modules = [...new Set(allDocs.map(d => d.name))];
+      send(ws, 'agent_message', `Hi! I'm your QA partner.\n\nTestable modules:\n${modules.map(m => `• ${m}`).join('\n')}\n\nTry "test login", "run regression", or ask about any module.`);
+      sendState(ws, STATE.IDLE);
+      return;
+    }
+
+    // ── EMOTIONAL ───────────────────────────────────────────────────────────
     if (intent === 'EMOTIONAL') {
       const reply = await generateWarmResponse(userInput, allDocs);
       send(ws, 'agent_message', reply);
@@ -599,14 +644,20 @@ async function orchestrate(ws, userInput) {
       return;
     }
 
-    // ── EXPLORE — list modules or describe one ─────────────────────────────────
+    // ── EXPLORE ─────────────────────────────────────────────────────────────
     if (intent === 'EXPLORE') {
       send(ws, 'agent_message', buildExploreResponse(docScenarios, allDocs, userInput));
       sendState(ws, STATE.IDLE);
       return;
     }
 
-    // ── REGRESSION ────────────────────────────────────────────────────────────
+    // From here on, a test run will happen — clear last run state
+    state.lastRun = null;
+    phase(ws, '── Loading context ──');
+    if (docContext) log(ws, `Docs loaded: ${module}`, 'success');
+    else log(ws, 'No matching docs found', 'warn');
+
+    // ── REGRESSION ──────────────────────────────────────────────────────────
     if (intent === 'REGRESSION') {
       phase(ws, '── Regression Test Suite ──');
       log(ws, 'Loading all modules...', 'info');
@@ -638,7 +689,6 @@ async function orchestrate(ws, userInput) {
             if (m) m.cached = p;
             log(ws, `Saved: ${p.module}__${p.scenario}`, 'success');
           });
-          // Write newly discovered scenarios back to the doc so next call uses cache
           appendScenariesToDocs(mod, scenarios);
         }
       }
@@ -648,8 +698,6 @@ async function orchestrate(ws, userInput) {
       });
       const choice = await waitForAnswer(ws);
       if (!/yes|run|ok|confirm|go|start|all/i.test(choice)) {
-        phase(ws, '── Regression cancelled ──');
-        log(ws, 'Cancelled by user.', 'warn');
         send(ws, 'agent_message', 'Regression cancelled. Let me know when you\'re ready.');
         sendState(ws, STATE.IDLE);
         return;
@@ -660,17 +708,19 @@ async function orchestrate(ws, userInput) {
       const passed = scenarioResults.filter(r => r.result.status === 'success' && !r.healCount).length;
       const failed = scenarioResults.filter(r => r.result.status === 'failed').length;
       const skipped = scenarioResults.filter(r => r.result.status === 'skipped').length;
-      send(ws, 'report', { type: 'regression', status: failed === 0 ? 'success' : 'failed', healCount: totalHealed, scenarios: scenarioResults, summary: { total: scenarioResults.length, passed, failed, skipped, healed: totalHealed } });
+      const reportData = { type: 'regression', status: failed === 0 ? 'success' : 'failed', healCount: totalHealed, scenarios: scenarioResults, summary: { total: scenarioResults.length, passed, failed, skipped, healed: totalHealed } };
+      send(ws, 'report', reportData);
+      // Save for post-run Q&A
+      state.lastRun = reportData;
       sendState(ws, STATE.IDLE);
       return;
     }
 
-    // ── EXECUTE — try specific scenario first, then module ─────────────────────
+    // ── EXECUTE — specific scenario first, then module ───────────────────────
     if (intent === 'EXECUTE') {
       const specific = resolveSpecificScenario(userInput.toLowerCase(), docScenarios);
 
       if (specific) {
-        // Run one specific scenario
         log(ws, `Matched: "${specific.name}"`, 'success');
         send(ws, 'scenario_start', specific);
         const cached = findSimilarPlan(specific.module, specific.id, userInput);
@@ -689,13 +739,15 @@ async function orchestrate(ws, userInput) {
         if (!confirmed) { send(ws, 'agent_message', 'No problem — let me know when you\'re ready.'); sendState(ws, STATE.IDLE); return; }
         browserInstance = await chromium.launch({ headless: false });
         const { result, healCount, healMeta } = await executePlan(ws, plan, specific, userInput, baseUrl, browserInstance);
-        send(ws, 'report', { status: result.status, healCount, scenarios: [{ scenario: specific, result, healCount, healMeta }], summary: { total: 1, passed: (result.status === 'success' && !healCount) ? 1 : 0, failed: result.status === 'failed' ? 1 : 0, skipped: 0, healed: healCount } });
+        const reportData = { status: result.status, healCount, scenarios: [{ scenario: specific, result, healCount, healMeta }], summary: { total: 1, passed: (result.status === 'success' && !healCount) ? 1 : 0, failed: result.status === 'failed' ? 1 : 0, skipped: 0, healed: healCount } };
+        send(ws, 'report', reportData);
+        // Save for post-run Q&A
+        state.lastRun = reportData;
         sendState(ws, STATE.IDLE);
         return;
       }
 
       if (docScenarios.length > 0) {
-        // Run module scenarios
         const memoryCheck = docScenarios.map(s => ({ scenario: s, cached: findSimilarPlan(module, s.id, userInput) }));
         const cachedCount = memoryCheck.filter(r => r.cached).length;
         log(ws, `${cachedCount} of ${docScenarios.length} scenarios cached`, cachedCount === docScenarios.length ? 'success' : 'info');
@@ -704,7 +756,6 @@ async function orchestrate(ws, userInput) {
           const browserCtx = await captureBrowserContext(baseUrl);
           const batch = await generateAllScenarioSteps(uncached, docContext, browserCtx);
           batch.forEach(p => { validatePlan(p); saveToMemory(p); const m = memoryCheck.find(r => r.scenario.id === p.id); if (m) m.cached = p; });
-          // Cache new scenarios to doc so future calls don't re-generate
           appendScenariesToDocs(module, uncached);
         }
         sendState(ws, STATE.PLANNING);
@@ -721,15 +772,15 @@ async function orchestrate(ws, userInput) {
         const passed = scenarioResults.filter(r => r.result.status === 'success' && !r.healCount).length;
         const failed = scenarioResults.filter(r => r.result.status === 'failed').length;
         const skipped = scenarioResults.filter(r => r.result.status === 'skipped').length;
-        send(ws, 'report', { status: failed === 0 ? 'success' : 'failed', healCount: totalHealed, scenarios: scenarioResults, summary: { total: scenarioResults.length, passed, failed, skipped, healed: totalHealed } });
+        const reportData = { status: failed === 0 ? 'success' : 'failed', healCount: totalHealed, scenarios: scenarioResults, summary: { total: scenarioResults.length, passed, failed, skipped, healed: totalHealed } };
+        send(ws, 'report', reportData);
+        state.lastRun = reportData;
         sendState(ws, STATE.IDLE);
         return;
       }
-
-      // Nothing matched — fall through to LLM analysis
     }
 
-    // ── LLM analysis for truly ambiguous inputs ────────────────────────────────
+    // ── LLM analysis for truly ambiguous inputs ──────────────────────────────
     phase(ws, '── Analyzing request ──');
     const browserCtx = await captureBrowserContext(baseUrl);
     const { enrichedInput } = await gatherContext(userInput, null, (q) => askUser(ws, q), (t, l) => log(ws, t, l));
@@ -757,7 +808,9 @@ async function orchestrate(ws, userInput) {
     const rp = rr.filter(r => r.result.status === 'success').length;
     const rf = rr.filter(r => r.result.status === 'failed').length;
     const rs = rr.filter(r => r.result.status === 'skipped').length;
-    send(ws, 'report', { status: rf === 0 ? 'success' : 'failed', healCount: rh, scenarios: rr, summary: { total: rr.length, passed: rp, failed: rf, skipped: rs, healed: rh } });
+    const reportData = { status: rf === 0 ? 'success' : 'failed', healCount: rh, scenarios: rr, summary: { total: rr.length, passed: rp, failed: rf, skipped: rs, healed: rh } };
+    send(ws, 'report', reportData);
+    state.lastRun = reportData;
     sendState(ws, STATE.IDLE);
 
   } catch (err) {
@@ -772,6 +825,8 @@ async function orchestrate(ws, userInput) {
 
 wss.on('connection', (ws) => {
   console.log('Client connected');
+  // Initialize per-connection state
+  connectionState.set(ws, { lastRun: null });
   sendState(ws, STATE.IDLE);
   const docs = loadAllDocs();
   send(ws, 'suggestions', { payload: docs.length > 0 ? docs.map(d => `Test ${d.name}`) : ['Test login'] });
@@ -779,7 +834,10 @@ wss.on('connection', (ws) => {
     let msg; try { msg = JSON.parse(raw); } catch { return; }
     if (msg.type === 'prompt') orchestrate(ws, msg.data);
   });
-  ws.on('close', () => console.log('Client disconnected'));
+  ws.on('close', () => {
+    connectionState.delete(ws);
+    console.log('Client disconnected');
+  });
 });
 
 server.listen(4000, () => {
