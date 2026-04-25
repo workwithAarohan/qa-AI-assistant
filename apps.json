@@ -1,0 +1,11 @@
+[
+  {
+    "id": "testapp",
+    "name": "TestApp",
+    "description": "Demo web application with login, dashboard, projects and profile modules",
+    "baseUrl": "http://localhost:4000/testapp",
+    "docsDir": "./docs",
+    "color": "4F46E5",
+    "icon": "T"
+  }
+]

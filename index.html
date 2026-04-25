@@ -1,336 +1,411 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>AI QA Agent</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com"/>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
-  <style>
-    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+<meta charset="UTF-8"/>
+<title>QA Sentinel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0D0F14;
+  --surface:#13161D;
+  --surface2:#181C24;
+  --surface3:#1E222D;
+  --border:rgba(255,255,255,0.06);
+  --border2:rgba(255,255,255,0.10);
+  --t1:#F0F2F7;
+  --t2:#8B93A8;
+  --t3:#4E5668;
+  --accent:#6366F1;
+  --accent-dim:rgba(99,102,241,0.15);
+  --accent-h:#818CF8;
+  --green:#22C55E;
+  --green-dim:rgba(34,197,94,0.12);
+  --red:#EF4444;
+  --red-dim:rgba(239,68,68,0.12);
+  --amber:#F59E0B;
+  --amber-dim:rgba(245,158,11,0.12);
+  --sky:#38BDF8;
+  --sky-dim:rgba(56,189,248,0.12);
+  --mono:'DM Mono',monospace;
+  --sans:'DM Sans',system-ui,sans-serif;
+  --r:6px;--rl:10px;--rxl:14px;
+}
+html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--sans);color:var(--t1);font-size:13px;-webkit-font-smoothing:antialiased}
 
-    :root{
-      /* Light palette */
-      --bg:       #f5f6fa;
-      --surface:  #ffffff;
-      --surface2: #f9fafb;
-      --border:   rgba(0,0,0,0.07);
-      --border-h: rgba(0,0,0,0.13);
-      /* Text */
-      --t1:  #111827;
-      --t2:  #6b7280;
-      --t3:  #9ca3af;
-      /* Brand */
-      --accent:   #4f46e5;
-      --accent-h: #4338ca;
-      --accent-bg: rgba(79,70,229,0.07);
-      /* Status */
-      --green:  #16a34a;
-      --green-bg: rgba(22,163,74,0.08);
-      --red:    #dc2626;
-      --red-bg: rgba(220,38,38,0.08);
-      --amber:  #d97706;
-      --amber-bg: rgba(217,119,6,0.08);
-      --sky:    #0284c7;
-      --sky-bg: rgba(2,132,199,0.08);
-      /* Fonts */
-      --mono: 'JetBrains Mono', monospace;
-      --sans: 'Inter', system-ui, sans-serif;
-      --r: 6px; --rl: 10px;
-    }
+/* ── Layout ─────────────────────────────────────────────────────────────── */
+#root{display:grid;grid-template-columns:260px 1fr 380px;grid-template-rows:48px 1fr;height:100vh;background:var(--bg)}
 
-    html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--sans);color:var(--t1);font-size:13px;-webkit-font-smoothing:antialiased}
-    #root{display:grid;grid-template-columns:1fr 1fr;height:100vh}
+/* ── Top bar ─────────────────────────────────────────────────────────────── */
+#topbar{grid-column:1/-1;display:flex;align-items:center;gap:0;border-bottom:1px solid var(--border);background:var(--surface);padding:0 16px;height:48px}
+.logo{display:flex;align-items:center;gap:10px;margin-right:24px}
+.logo-mark{width:26px;height:26px;border-radius:7px;background:var(--accent);display:grid;place-items:center;font-size:11px;font-weight:700;color:#fff;letter-spacing:-0.5px;flex-shrink:0}
+.logo-name{font-size:13px;font-weight:600;color:var(--t1);letter-spacing:-0.3px}
+.logo-ver{font-size:10px;font-weight:500;color:var(--t3);background:var(--surface3);border:1px solid var(--border);padding:1px 6px;border-radius:4px;margin-left:2px}
 
-    /* ── LEFT: Chat ─────────────────────────────────────────────────────────── */
-    #chat-col{display:flex;flex-direction:column;border-right:1px solid var(--border);background:var(--surface);min-height:0}
+/* App switcher */
+#app-switcher{display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:var(--r);border:1px solid var(--border);background:var(--surface2);cursor:pointer;transition:border-color 0.15s;margin-right:auto}
+#app-switcher:hover{border-color:var(--border2)}
+#app-switcher-name{font-size:12px;font-weight:500;color:var(--t1)}
+#app-switcher-icon{width:18px;height:18px;border-radius:4px;display:grid;place-items:center;font-size:9px;font-weight:700;color:#fff;flex-shrink:0}
 
-    #chat-hdr{display:flex;align-items:center;gap:10px;padding:13px 18px;border-bottom:1px solid var(--border);flex-shrink:0}
-    .logo-mark{width:28px;height:28px;border-radius:var(--r);background:var(--accent);display:flex;align-items:center;justify-content:center;flex-shrink:0}
-    #app-name{font-size:13px;font-weight:600;color:var(--t1);letter-spacing:-0.01em}
-    #agent-pill{display:flex;align-items:center;gap:5px;margin-left:auto;padding:3px 9px;border-radius:20px;background:var(--surface2);border:1px solid var(--border)}
-    #status-dot{width:6px;height:6px;border-radius:50%;background:var(--green);transition:background 0.3s}
-    #state-lbl{font-size:11px;color:var(--t2);font-weight:500}
-    #hist-btn{width:26px;height:26px;border-radius:var(--r);background:transparent;border:1px solid var(--border);cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--t3);transition:all 0.15s;flex-shrink:0}
-    #hist-btn:hover{border-color:var(--border-h);color:var(--t2);background:var(--surface2)}
+/* Status */
+.topbar-status{display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:var(--r);background:var(--surface2);border:1px solid var(--border)}
+.status-dot{width:6px;height:6px;border-radius:50%;background:var(--green);transition:background 0.3s}
+.status-dot.busy{background:var(--amber);animation:pulse 0.8s infinite}
+.status-dot.running{background:var(--sky);animation:pulse 0.5s infinite}
+#status-label{font-size:11px;color:var(--t2);font-weight:500}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
 
-    #msgs{flex:1;overflow-y:auto;padding:20px 18px;display:flex;flex-direction:column;gap:14px;min-height:0}
-    #msgs::-webkit-scrollbar{width:3px}
-    #msgs::-webkit-scrollbar-thumb{background:var(--border-h);border-radius:2px}
+/* ── LEFT: Chat ──────────────────────────────────────────────────────────── */
+#chat-col{grid-column:1;grid-row:2;display:flex;flex-direction:column;background:var(--surface);border-right:1px solid var(--border);overflow:hidden}
+.col-header{display:flex;align-items:center;padding:12px 14px;border-bottom:1px solid var(--border);flex-shrink:0;gap:8px}
+.col-title{font-size:11px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:0.06em}
+.col-badge{font-size:10px;padding:1px 7px;border-radius:20px;background:var(--surface3);color:var(--t3);border:1px solid var(--border);margin-left:auto}
 
-    .mw{display:flex;flex-direction:column;gap:3px;max-width:84%;animation:fu 0.18s ease both}
-    .mw.user{align-self:flex-end;align-items:flex-end}
-    .mw.agent{align-self:flex-start;align-items:flex-start}
-    @keyframes fu{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+#chat-msgs{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px}
+#chat-msgs::-webkit-scrollbar{width:3px}
+#chat-msgs::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
 
-    .bub{padding:9px 13px;border-radius:var(--rl);line-height:1.55;font-size:13px}
-    .bub.user{background:var(--accent);color:#fff;border-bottom-right-radius:3px}
-    .bub.agent{background:var(--surface2);color:var(--t1);border:1px solid var(--border);border-bottom-left-radius:3px}
-    .bub.question{background:#fffbeb;border:1px solid #fde68a;color:#92400e;border-bottom-left-radius:3px}
-    .mts{font-size:10px;color:var(--t3);font-family:var(--mono)}
+.msg-wrap{display:flex;flex-direction:column;gap:3px;max-width:100%;animation:fadeUp 0.18s ease both}
+.msg-wrap.user{align-items:flex-end}
+.msg-wrap.agent{align-items:flex-start}
+@keyframes fadeUp{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
 
-    #typing-bub{display:flex;gap:4px;align-items:center;padding:10px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--rl);border-bottom-left-radius:3px;width:fit-content}
-    .td{width:5px;height:5px;border-radius:50%;background:var(--t3);animation:tdb 1s infinite}
-    .td:nth-child(2){animation-delay:0.15s}.td:nth-child(3){animation-delay:0.3s}
-    @keyframes tdb{0%,80%,100%{transform:translateY(0)}40%{transform:translateY(-4px)}}
+.bubble{padding:8px 11px;border-radius:var(--rl);line-height:1.55;font-size:12.5px;max-width:96%;word-break:break-word}
+.bubble.user{background:var(--accent);color:#fff;border-bottom-right-radius:3px}
+.bubble.agent{background:var(--surface2);border:1px solid var(--border);color:var(--t1);border-bottom-left-radius:3px}
+.bubble.agent strong{color:var(--accent-h)}
+.bubble.agent em{color:var(--t2);font-style:normal}
+.bubble.system{background:var(--surface3);border:1px dashed var(--border2);color:var(--t2);font-size:11.5px}
+.msg-ts{font-size:10px;color:var(--t3);font-family:var(--mono)}
 
-    #chips{padding:0 18px 10px;display:flex;gap:6px;overflow-x:auto;flex-shrink:0}
-    #chips::-webkit-scrollbar{display:none}
-    .chip{white-space:nowrap;padding:5px 11px;border-radius:20px;font-size:11px;font-weight:500;border:1px solid var(--border);color:var(--t2);background:transparent;cursor:pointer;transition:all 0.15s}
-    .chip:hover{border-color:var(--border-h);color:var(--t1)}
-    .chip.primary{border-color:rgba(79,70,229,0.3);color:var(--accent);background:var(--accent-bg)}
+/* Intent badge */
+.intent-badge{display:inline-block;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;padding:1px 6px;border-radius:3px;margin-bottom:4px}
+.intent-discover{background:var(--accent-dim);color:var(--accent-h)}
+.intent-post_run{background:var(--amber-dim);color:var(--amber)}
+.intent-build{background:var(--green-dim);color:var(--green)}
+.intent-greet{background:var(--surface3);color:var(--t3)}
 
-    #input-bar{padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;align-items:flex-end;flex-shrink:0}
-    #chat-input{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:var(--rl);padding:8px 12px;color:var(--t1);font-family:var(--sans);font-size:13px;outline:none;resize:none;min-height:36px;max-height:80px;line-height:1.5;transition:border-color 0.15s}
-    #chat-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(79,70,229,0.08)}
-    #chat-input::placeholder{color:var(--t3)}
-    #chat-input:disabled{opacity:0.5;cursor:not-allowed}
-    #send-btn{width:34px;height:34px;flex-shrink:0;border-radius:var(--r);background:var(--accent);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background 0.15s,transform 0.1s}
-    #send-btn:hover{background:var(--accent-h)}
-    #send-btn:active{transform:scale(0.95)}
-    #send-btn:disabled{opacity:0.4;cursor:not-allowed}
+/* Typing indicator */
+#typing{display:flex;gap:4px;align-items:center;padding:8px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--rl);width:fit-content;border-bottom-left-radius:3px}
+.td{width:4px;height:4px;border-radius:50%;background:var(--t3);animation:tdb 1s infinite}
+.td:nth-child(2){animation-delay:.15s}.td:nth-child(3){animation-delay:.3s}
+@keyframes tdb{0%,80%,100%{transform:translateY(0)}40%{transform:translateY(-3px)}}
 
-    /* ── RIGHT: Execution ───────────────────────────────────────────────────── */
-    #exec-col{display:flex;flex-direction:column;background:var(--bg);min-height:0}
+/* Chat input */
+#chat-bar{border-top:1px solid var(--border);padding:10px 12px;flex-shrink:0;display:flex;gap:8px;align-items:flex-end;background:var(--surface)}
+#chat-input{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:7px 10px;color:var(--t1);font-family:var(--sans);font-size:12.5px;outline:none;resize:none;min-height:34px;max-height:80px;line-height:1.5;transition:border-color 0.15s}
+#chat-input:focus{border-color:rgba(99,102,241,0.4)}
+#chat-input::placeholder{color:var(--t3)}
+#send-btn{width:32px;height:32px;border-radius:var(--r);background:var(--accent);border:none;cursor:pointer;display:grid;place-items:center;transition:background 0.15s,transform 0.1s;flex-shrink:0}
+#send-btn:hover{background:var(--accent-h)}
+#send-btn:active{transform:scale(0.93)}
+#send-btn:disabled{opacity:0.35;cursor:not-allowed}
 
-    #exec-hdr{display:flex;align-items:center;justify-content:space-between;padding:13px 18px;border-bottom:1px solid var(--border);background:var(--surface)}
-    #exec-title{font-size:11px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:0.07em}
-    #exec-badge{font-size:11px;font-weight:600;padding:2px 8px;border-radius:4px;background:var(--surface2);color:var(--t3);border:1px solid var(--border)}
-    #exec-badge.running{background:var(--sky-bg);color:var(--sky);border-color:rgba(2,132,199,0.2)}
-    #exec-badge.passed{background:var(--green-bg);color:var(--green);border-color:rgba(22,163,74,0.2)}
-    #exec-badge.failed{background:var(--red-bg);color:var(--red);border-color:rgba(220,38,38,0.2)}
-    #scen-lbl{font-size:11px;color:var(--t3)}
+/* ── CENTER: Dashboard ───────────────────────────────────────────────────── */
+#dash-col{grid-column:2;grid-row:2;display:flex;flex-direction:column;background:var(--bg);overflow:hidden}
+#dash-scroll{flex:1;overflow-y:auto;padding:20px}
+#dash-scroll::-webkit-scrollbar{width:4px}
+#dash-scroll::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
 
-    /* Plan */
-    #plan-section{background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;display:none}
-    #plan-toggle{width:100%;display:flex;align-items:center;gap:8px;padding:9px 18px;background:transparent;border:none;cursor:pointer;color:var(--t2);font-size:11px;font-weight:500;text-align:left;transition:color 0.1s}
-    #plan-toggle:hover{color:var(--t1)}
-    #plan-chev{transition:transform 0.2s;color:var(--t3);display:inline-block;font-style:normal}
-    #plan-chev.open{transform:rotate(90deg)}
-    #plan-cnt{margin-left:auto;font-size:10px;padding:1px 7px;border-radius:20px;background:var(--surface2);color:var(--t3);border:1px solid var(--border)}
-    #plan-body{overflow:hidden;max-height:160px;transition:max-height 0.25s ease}
-    #plan-inner{padding:2px 18px 10px;display:flex;flex-direction:column;gap:1px;overflow-y:auto;max-height:150px;font-family:var(--mono)}
-    #plan-inner::-webkit-scrollbar{width:3px}
-    #plan-inner::-webkit-scrollbar-thumb{background:var(--border-h)}
-    .prow{display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border)}
-    .prow:last-child{border-bottom:none}
-    .sdot{width:6px;height:6px;border-radius:50%;background:var(--t3);flex-shrink:0;transition:background 0.2s}
-    .sdot.running{background:var(--sky);animation:pulse 0.8s infinite}
-    .sdot.success{background:var(--green)}.sdot.failed{background:var(--red)}
-    .sdot.healed{background:var(--amber)}.sdot.skipped{background:var(--t3)}
-    @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
-    .pact{font-size:10px;font-weight:500;color:var(--t2);width:72px;flex-shrink:0}
-    .ptgt{font-size:10px;color:var(--t3);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .pst{font-size:10px;font-weight:600;color:var(--t3);flex-shrink:0}
-    .pst.pass{color:var(--green)}.pst.fail{color:var(--red)}.pst.heal{color:var(--amber)}
+/* Regression bar */
+#regression-bar{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;padding:12px 16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rl)}
+.reg-info h3{font-size:13px;font-weight:600;color:var(--t1)}
+.reg-info p{font-size:11px;color:var(--t3);margin-top:2px}
+.reg-stats{display:flex;gap:16px;font-family:var(--mono);font-size:11px}
+.reg-stat{text-align:center}
+.reg-stat-n{font-size:18px;font-weight:500;color:var(--t1)}
+.reg-stat-l{color:var(--t3);font-size:9px;text-transform:uppercase;letter-spacing:0.05em}
 
-    /* Log */
-    #log-area{flex:1;overflow:hidden;display:flex;flex-direction:column;padding:14px 18px;min-height:0}
-    #log-lbl{font-size:10px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;flex-shrink:0}
-    #log-stream{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:1px;font-family:var(--mono);font-size:11px;min-height:0}
-    #log-stream::-webkit-scrollbar{width:3px}
-    #log-stream::-webkit-scrollbar-thumb{background:var(--border-h)}
-    .lrow{display:flex;gap:10px;padding:2px 0;border-bottom:1px solid rgba(0,0,0,0.03)}
-    .lrow:last-child{border-bottom:none}
-    .lts{color:var(--t3);flex-shrink:0}
-    .ltxt.info{color:var(--t2)}.ltxt.success{color:var(--green)}.ltxt.error{color:var(--red)}.ltxt.warn{color:var(--amber)}.ltxt.user{color:var(--accent)}
-    .lphase{color:var(--accent);font-weight:600;letter-spacing:0.03em;padding:5px 0 2px;border-top:1px solid rgba(79,70,229,0.15);margin-top:3px;font-family:var(--mono);font-size:11px}
+/* Module grid */
+#modules-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.mod-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--rxl);overflow:hidden;transition:border-color 0.15s}
+.mod-card:hover{border-color:var(--border2)}
+.mod-card-header{padding:14px 16px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border)}
+.mod-icon{width:32px;height:32px;border-radius:8px;display:grid;place-items:center;font-size:14px;flex-shrink:0;font-family:var(--mono)}
+.mod-meta{flex:1;min-width:0}
+.mod-name{font-size:13px;font-weight:600;color:var(--t1)}
+.mod-desc{font-size:11px;color:var(--t3);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mod-run-all{padding:4px 12px;border-radius:var(--r);background:var(--accent);border:none;color:#fff;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;transition:background 0.15s;flex-shrink:0}
+.mod-run-all:hover{background:var(--accent-h)}
+.mod-scenarios{padding:8px 10px}
+.scen-row{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:var(--r);cursor:pointer;transition:background 0.1s;group:true}
+.scen-row:hover{background:var(--surface2)}
+.scen-dot{width:6px;height:6px;border-radius:50%;background:var(--border2);flex-shrink:0;transition:background 0.15s}
+.scen-row:hover .scen-dot{background:var(--accent)}
+.scen-dot.cached{background:var(--green)}
+.scen-name{font-size:12px;color:var(--t2);flex:1}
+.scen-desc{font-size:10.5px;color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px}
+.scen-run-btn{width:56px;padding:3px 0;border-radius:var(--r);background:transparent;border:1px solid var(--border);color:var(--t3);font-size:10px;font-weight:500;cursor:pointer;transition:all 0.15s;text-align:center;flex-shrink:0;display:none}
+.scen-row:hover .scen-run-btn{display:block}
+.scen-row:hover .scen-run-btn{border-color:var(--accent);color:var(--accent-h);background:var(--accent-dim)}
 
-    /* Stats bar */
-    #stats-bar{display:none;flex-shrink:0;border-top:1px solid var(--border);padding:12px 18px 8px;background:var(--surface)}
-    #stats-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:8px}
-    .scard{padding:8px 10px;border-radius:var(--r);border:1px solid var(--border);background:var(--surface2);cursor:pointer;text-align:center;transition:border-color 0.15s,box-shadow 0.15s}
-    .scard:hover{border-color:var(--border-h);box-shadow:0 1px 4px rgba(0,0,0,0.06)}
-    .sval{font-size:18px;font-weight:600;line-height:1}
-    .slbl{font-size:10px;color:var(--t3);margin-top:2px;font-weight:500;text-transform:uppercase;letter-spacing:0.04em}
-    .scard.total .sval{color:var(--t1)}.scard.passed .sval{color:var(--green)}.scard.failed .sval{color:var(--red)}.scard.skipped .sval{color:var(--t2)}.scard.healed .sval{color:var(--amber)}
-    #view-rep{width:100%;padding:6px;border-radius:var(--r);background:transparent;border:1px solid var(--border);color:var(--t2);font-size:11px;font-weight:500;cursor:pointer;transition:all 0.15s;display:flex;align-items:center;justify-content:center;gap:5px}
-    #view-rep:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-bg)}
+/* Custom scenarios section */
+#custom-section{margin-top:20px;display:none}
+.custom-header{font-size:11px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px}
+.custom-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--rl);padding:10px 14px;display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.custom-card:last-child{margin-bottom:0}
+.custom-badge{font-size:9px;font-weight:700;padding:2px 6px;border-radius:3px;background:var(--accent-dim);color:var(--accent-h);text-transform:uppercase;letter-spacing:0.04em;flex-shrink:0}
+.custom-info{flex:1;min-width:0}
+.custom-name{font-size:12px;font-weight:500;color:var(--t1)}
+.custom-desc{font-size:11px;color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.custom-run{padding:4px 12px;border-radius:var(--r);background:var(--accent);border:none;color:#fff;font-size:11px;font-weight:600;cursor:pointer;flex-shrink:0;transition:background 0.15s}
+.custom-run:hover{background:var(--accent-h)}
 
-    /* ── Drawer ─────────────────────────────────────────────────────────────── */
-    #dbackdrop{display:none;position:fixed;inset:0;z-index:40;background:rgba(0,0,0,0.35)}
-    #drawer{position:fixed;bottom:0;left:0;right:0;z-index:50;background:var(--surface);border-top:1px solid var(--border);border-radius:14px 14px 0 0;display:flex;flex-direction:column;max-height:80vh;transform:translateY(100%);transition:transform 0.28s cubic-bezier(.4,0,.2,1);box-shadow:0 -4px 24px rgba(0,0,0,0.08)}
-    #drawer.open{transform:translateY(0)}
+/* Empty state */
+.empty-state{text-align:center;padding:60px 20px;color:var(--t3)}
+.empty-state svg{margin-bottom:12px;opacity:0.3}
+.empty-state p{font-size:13px}
 
-    #dhdr{flex-shrink:0;display:flex;align-items:center;gap:10px;padding:15px 22px;border-bottom:1px solid var(--border)}
-    #dsdot{width:8px;height:8px;border-radius:50%;background:var(--t3)}
-    #dtitle{font-size:13px;font-weight:600;color:var(--t1)}
-    #dprate{font-size:11px;padding:2px 8px;border-radius:20px;background:var(--accent-bg);color:var(--accent);font-weight:600;display:none;border:1px solid rgba(79,70,229,0.2)}
-    .dacts{margin-left:auto;display:flex;gap:6px}
-    .dbtn{display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:var(--r);background:transparent;border:1px solid var(--border);color:var(--t2);font-size:11px;font-weight:500;cursor:pointer;transition:all 0.15s}
-    .dbtn:hover{border-color:var(--border-h);color:var(--t1);background:var(--surface2)}
-    #dclose{width:26px;height:26px;border-radius:var(--r);background:transparent;border:1px solid var(--border);color:var(--t3);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;transition:all 0.15s}
-    #dclose:hover{border-color:var(--border-h);color:var(--t1);background:var(--surface2)}
+/* ── RIGHT: Execution ────────────────────────────────────────────────────── */
+#exec-col{grid-column:3;grid-row:2;display:flex;flex-direction:column;background:var(--surface);border-left:1px solid var(--border);overflow:hidden}
 
-    #rbar-wrap{flex-shrink:0;padding:10px 22px;border-bottom:1px solid var(--border);display:none}
-    #rbar-track{height:3px;background:var(--surface2);border-radius:2px;overflow:hidden;border:1px solid var(--border)}
-    #rbar-fill{height:100%;border-radius:2px;transition:width 0.7s ease,background 0.3s;width:0%}
+/* Exec header */
+#exec-hdr{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);flex-shrink:0}
+#exec-scenario-name{font-size:12px;font-weight:500;color:var(--t1);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#exec-state-badge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;background:var(--surface3);color:var(--t3);border:1px solid var(--border);flex-shrink:0}
+#exec-state-badge.running{background:var(--sky-dim);color:var(--sky);border-color:rgba(56,189,248,0.2)}
+#exec-state-badge.passed{background:var(--green-dim);color:var(--green);border-color:rgba(34,197,94,0.2)}
+#exec-state-badge.failed{background:var(--red-dim);color:var(--red);border-color:rgba(239,68,68,0.2)}
+#exec-state-badge.healed{background:var(--amber-dim);color:var(--amber);border-color:rgba(245,158,11,0.2)}
 
-    #dtabs{flex-shrink:0;display:flex;padding:0 22px;border-bottom:1px solid var(--border)}
-    .tab{padding:10px 14px;font-size:11px;font-weight:500;color:var(--t3);background:transparent;border:none;border-bottom:2px solid transparent;cursor:pointer;transition:color 0.15s;white-space:nowrap}
-    .tab:hover{color:var(--t2)}.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+/* Plan */
+#plan-section{flex-shrink:0;border-bottom:1px solid var(--border);display:none}
+#plan-toggle{width:100%;display:flex;align-items:center;gap:6px;padding:8px 14px;background:transparent;border:none;cursor:pointer;color:var(--t3);font-size:10.5px;font-weight:600;text-align:left;text-transform:uppercase;letter-spacing:0.05em;transition:color 0.1s}
+#plan-toggle:hover{color:var(--t2)}
+#plan-chev{font-style:normal;transition:transform 0.2s;display:inline-block}
+#plan-chev.open{transform:rotate(90deg)}
+#plan-cnt{margin-left:auto;font-size:10px;padding:1px 7px;border-radius:20px;background:var(--accent-dim);color:var(--accent-h);border:1px solid rgba(99,102,241,0.2)}
+#plan-body{overflow:hidden;max-height:180px;transition:max-height 0.25s ease}
+#plan-inner{padding:4px 14px 10px;display:flex;flex-direction:column;gap:1px;overflow-y:auto;max-height:170px;font-family:var(--mono)}
+.prow{display:flex;align-items:center;gap:8px;padding:3px 0;border-bottom:1px solid var(--border)}
+.prow:last-child{border-bottom:none}
+.pdot{width:5px;height:5px;border-radius:50%;background:var(--t3);flex-shrink:0;transition:background 0.2s}
+.pdot.running{background:var(--sky);animation:pulse 0.6s infinite}
+.pdot.success{background:var(--green)}.pdot.failed{background:var(--red)}.pdot.healed{background:var(--amber)}
+.pact{font-size:10px;font-weight:500;color:var(--t2);width:70px;flex-shrink:0}
+.ptgt{font-size:10px;color:var(--t3);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pst{font-size:10px;font-weight:600;color:var(--t3);flex-shrink:0}
+.pst.pass{color:var(--green)}.pst.fail{color:var(--red)}.pst.heal{color:var(--amber)}
 
-    #dcontent{flex:1;overflow-y:auto;padding:16px 22px;display:flex;flex-direction:column;gap:6px;min-height:0}
-    #dcontent::-webkit-scrollbar{width:4px}
-    #dcontent::-webkit-scrollbar-thumb{background:var(--border-h);border-radius:2px}
+/* Live log */
+#log-area{flex:1;overflow:hidden;display:flex;flex-direction:column;padding:12px 14px;min-height:0}
+#log-lbl{font-size:10px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:0.07em;margin-bottom:8px;flex-shrink:0}
+#log-stream{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:1px;font-family:var(--mono);font-size:10.5px;min-height:0}
+#log-stream::-webkit-scrollbar{width:3px}
+#log-stream::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+.lrow{display:flex;gap:8px;padding:2px 0;border-bottom:1px solid rgba(255,255,255,0.02)}
+.lts{color:var(--t3);flex-shrink:0}
+.ltxt.info{color:var(--t2)}.ltxt.success{color:var(--green)}.ltxt.error{color:var(--red)}.ltxt.warn{color:var(--amber)}.ltxt.user{color:var(--accent-h)}
+.lphase{color:var(--accent-h);font-weight:600;letter-spacing:0.04em;padding:5px 0 2px;border-top:1px solid rgba(99,102,241,0.15);margin-top:3px}
 
-    /* Scenario blocks */
-    .scb{border:1px solid var(--border);border-radius:var(--rl);margin-bottom:2px;background:var(--surface)}
-    .sch{width:100%;display:flex;align-items:center;gap:8px;padding:9px 13px;background:transparent;border:none;cursor:pointer;text-align:left;transition:background 0.12s;border-radius:var(--rl)}
-    .sch:hover{background:var(--surface2)}
-    .scdot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
-    .scname{font-size:12px;font-weight:500;flex:1;color:var(--t1)}
-    .scbadge{font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px}
-    .scbadge.pass{color:var(--green);background:var(--green-bg)}
-    .scbadge.fail{color:var(--red);background:var(--red-bg)}
-    .scbadge.skip{color:var(--t3);background:var(--surface2);border:1px solid var(--border)}
-    .scchev{color:var(--t3);font-size:14px;transition:transform 0.2s;flex-shrink:0;line-height:1}
-    .scchev.open{transform:rotate(90deg)}
-    .scheal-badge{font-size:10px;padding:2px 7px;border-radius:20px;background:var(--amber-bg);color:var(--amber);border:1px solid rgba(217,119,6,0.2)}
+/* Heal card */
+#heal-card{flex-shrink:0;margin:0 14px 12px;border-radius:var(--rl);overflow:hidden;display:none}
+.heal-section{padding:12px}
+.heal-header{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.heal-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.heal-title{font-size:12px;font-weight:700}
+.heal-error{font-family:var(--mono);font-size:10px;padding:6px 9px;border-radius:var(--r);margin-bottom:8px;word-break:break-all;line-height:1.5}
+.heal-step-ctx{font-size:10px;color:var(--t3);font-family:var(--mono);margin-bottom:6px}
+.heal-reason{font-size:10.5px;padding:6px 9px;border-radius:var(--r);line-height:1.5;margin-bottom:10px}
+.heal-preview-title{font-size:10px;font-weight:600;color:var(--amber);margin-bottom:5px;display:flex;align-items:center;gap:4px}
+.heal-preview-list{font-family:var(--mono);font-size:10px;color:var(--t2);background:rgba(245,158,11,0.06);border-radius:var(--r);padding:5px 8px;display:flex;flex-direction:column;gap:1px;margin-bottom:10px}
+.heal-preview-note{font-size:9px;color:var(--t3);margin-top:3px}
+.heal-bug-note{font-size:10.5px;color:var(--red);padding:6px 9px;border-radius:var(--r);border:1px solid rgba(239,68,68,0.2);background:var(--red-dim);line-height:1.5;margin-top:8px}
+.heal-buttons{display:flex;gap:6px;flex-wrap:wrap}
+.hbtn{padding:5px 14px;border-radius:var(--r);font-size:11px;font-weight:600;cursor:pointer;border:none;display:flex;align-items:center;gap:5px;transition:all 0.15s}
+.hbtn.heal{background:var(--amber);color:#000}
+.hbtn.heal:hover{background:#FBBF24}
+.hbtn.stop{background:var(--surface3);color:var(--t2);border:1px solid var(--border)}
+.hbtn.stop:hover{border-color:var(--border2);color:var(--t1)}
+.hbtn.bug{background:var(--red-dim);color:var(--red);border:1px solid rgba(239,68,68,0.25)}
+.hbtn.bug:hover{background:rgba(239,68,68,0.18)}
 
-    .sctable{border-top:1px solid var(--border);font-family:var(--mono);background:var(--surface)}
-    .scrow{display:flex;align-items:center;gap:8px;padding:5px 13px;border-bottom:1px solid var(--border)}
-    .scrow:last-child{border-bottom:none}
-    .scrn{color:var(--t3);width:16px;text-align:right;font-size:10px;flex-shrink:0}
-    .scrd{width:5px;height:5px;border-radius:50%;flex-shrink:0}
-    .scra{font-size:10px;font-weight:500;color:var(--t2);width:64px;flex-shrink:0}
-    .scrt{font-size:10px;color:var(--t3);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .scrs{font-size:10px;font-weight:700;flex-shrink:0}
-    .scre{padding:4px 13px 6px 37px;font-size:10px;color:var(--red);background:var(--red-bg);word-break:break-all;font-family:var(--mono)}
+/* Stats bar */
+#stats-bar{flex-shrink:0;border-top:1px solid var(--border);padding:12px 14px 10px;display:none;background:var(--surface)}
+#stats-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:8px}
+.scard{padding:8px 6px;border-radius:var(--r);border:1px solid var(--border);background:var(--surface2);cursor:pointer;text-align:center;transition:border-color 0.15s}
+.scard:hover{border-color:var(--border2)}
+.sval{font-size:18px;font-weight:600;line-height:1;font-family:var(--mono)}
+.slbl{font-size:9px;color:var(--t3);margin-top:2px;text-transform:uppercase;letter-spacing:0.04em}
+.scard.total .sval{color:var(--t1)}.scard.passed .sval{color:var(--green)}.scard.failed .sval{color:var(--red)}.scard.skipped .sval{color:var(--t2)}.scard.healed .sval{color:var(--amber)}
+#view-rep{width:100%;padding:5px;border-radius:var(--r);background:transparent;border:1px solid var(--border);color:var(--t2);font-size:11px;font-weight:500;cursor:pointer;transition:all 0.15s;display:flex;align-items:center;justify-content:center;gap:4px}
+#view-rep:hover{border-color:var(--accent);color:var(--accent-h);background:var(--accent-dim)}
 
-    /* ── Enhanced heal section ──────────────────────────────────────────────── */
-    .sc-heal{border-top:1px solid rgba(217,119,6,0.2);background:#fffbeb;border-radius:0 0 var(--rl) var(--rl)}
-    .heal-hdr{display:flex;align-items:center;gap:8px;padding:9px 13px 5px}
-    .heal-ico{width:16px;height:16px;border-radius:50%;background:var(--amber-bg);display:flex;align-items:center;justify-content:center;flex-shrink:0}
-    .heal-ttl{font-size:11px;font-weight:600;color:var(--amber)}
-    .heal-meta{font-size:10px;color:var(--t3);margin-left:auto;font-family:var(--mono)}
-    .heal-diff{padding:0 13px 10px;display:flex;flex-direction:column;gap:3px;font-family:var(--mono)}
-    .diff-lbl{font-size:9px;color:var(--t3);text-transform:uppercase;letter-spacing:0.06em;font-weight:600;margin-bottom:4px;padding:0 1px}
-    .dr{display:flex;align-items:flex-start;gap:8px;padding:5px 8px;border-radius:var(--r);font-size:10px}
-    .dr.changed{background:#fef3c7;border:1px solid #fde68a}
-    .dr.added{background:#f0fdf4;border:1px solid #bbf7d0}
-    .dr.removed{background:#fef2f2;border:1px solid #fecaca}
-    .dm{width:12px;font-weight:700;flex-shrink:0;margin-top:1px}
-    .dm.changed{color:var(--amber)}.dm.added{color:var(--green)}.dm.removed{color:var(--red)}
-    .dc{flex:1}
-    .dci{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px}
-    .dbefore{color:var(--red);opacity:0.75;text-decoration:line-through}
-    .dafter{color:var(--green)}
+/* ── Report Drawer ───────────────────────────────────────────────────────── */
+#dbackdrop{display:none;position:fixed;inset:0;z-index:40;background:rgba(0,0,0,0.5)}
+#drawer{position:fixed;bottom:0;left:0;right:0;z-index:50;background:var(--surface);border-top:1px solid var(--border);border-radius:14px 14px 0 0;display:flex;flex-direction:column;max-height:80vh;transform:translateY(100%);transition:transform 0.28s cubic-bezier(.4,0,.2,1);box-shadow:0 -8px 40px rgba(0,0,0,0.4)}
+#drawer.open{transform:translateY(0)}
+#dhdr{flex-shrink:0;display:flex;align-items:center;gap:10px;padding:14px 20px;border-bottom:1px solid var(--border)}
+#dsdot{width:8px;height:8px;border-radius:50%}
+#dtitle{font-size:13px;font-weight:600;color:var(--t1)}
+.dacts{margin-left:auto;display:flex;gap:6px}
+.dbtn{display:flex;align-items:center;gap:4px;padding:4px 10px;border-radius:var(--r);background:transparent;border:1px solid var(--border);color:var(--t2);font-size:11px;cursor:pointer;transition:all 0.15s}
+.dbtn:hover{border-color:var(--border2);color:var(--t1)}
+#dclose{width:26px;height:26px;border-radius:var(--r);background:transparent;border:1px solid var(--border);color:var(--t3);cursor:pointer;font-size:16px;display:grid;place-items:center;transition:all 0.15s}
+#dclose:hover{color:var(--t1)}
 
-    /* Module group header */
-    .mod-hdr{font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.08em;margin:12px 0 5px}
-    .mod-hdr:first-child{margin-top:0}
+#dtabs{flex-shrink:0;display:flex;padding:0 20px;border-bottom:1px solid var(--border)}
+.dtab{padding:9px 12px;font-size:11px;font-weight:500;color:var(--t3);background:transparent;border:none;border-bottom:2px solid transparent;cursor:pointer;transition:color 0.15s;white-space:nowrap}
+.dtab:hover{color:var(--t2)}.dtab.active{color:var(--accent-h);border-bottom-color:var(--accent)}
+#dcontent{flex:1;overflow-y:auto;padding:14px 20px;display:flex;flex-direction:column;gap:5px}
+#dcontent::-webkit-scrollbar{width:4px}
+#dcontent::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
 
-    /* ── History panel ──────────────────────────────────────────────────────── */
-    #hbackdrop{display:none;position:fixed;inset:0;z-index:40;background:rgba(0,0,0,0.25)}
-    #hpanel{position:fixed;top:0;left:0;bottom:0;z-index:50;background:var(--surface);border-right:1px solid var(--border);display:none;flex-direction:column;width:272px;box-shadow:2px 0 12px rgba(0,0,0,0.06)}
-    #hpanel.open{display:flex}
-    #hhdr{display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--border);flex-shrink:0}
-    #hhdr span{font-size:12px;font-weight:600;color:var(--t1)}
-    #hlist{flex:1;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:5px}
-    .hcard{padding:10px;border-radius:var(--r);border:1px solid var(--border);cursor:pointer;transition:all 0.15s}
-    .hcard:hover{border-color:var(--border-h);background:var(--surface2)}
-    .htop{display:flex;align-items:center;gap:6px;margin-bottom:3px}
-    .htype{font-size:11px;font-weight:500;color:var(--t1);flex:1}
-    .hpct{font-size:11px;font-weight:700}
-    .hts{font-size:10px;color:var(--t3);margin-bottom:5px;font-family:var(--mono)}
-    .hstats{display:flex;gap:8px;font-size:10px}
+/* Scenario blocks in drawer */
+.scb{border:1px solid var(--border);border-radius:var(--rl);background:var(--surface2)}
+.sch{width:100%;display:flex;align-items:center;gap:8px;padding:9px 13px;background:transparent;border:none;cursor:pointer;text-align:left;border-radius:var(--rl);transition:background 0.12s}
+.sch:hover{background:var(--surface3)}
+.scdot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.scname{font-size:12px;font-weight:500;flex:1;color:var(--t1)}
+.scbadge{font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px}
+.scbadge.pass{color:var(--green);background:var(--green-dim)}.scbadge.fail{color:var(--red);background:var(--red-dim)}.scbadge.skip{color:var(--t3);background:var(--surface3);border:1px solid var(--border)}
+.scheal{font-size:9px;padding:2px 6px;border-radius:3px;background:var(--amber-dim);color:var(--amber)}
+.sctable{border-top:1px solid var(--border);font-family:var(--mono);background:var(--surface)}
+.scrow{display:flex;align-items:center;gap:8px;padding:4px 13px;border-bottom:1px solid var(--border)}
+.scrow:last-child{border-bottom:none}
+.scrn{color:var(--t3);width:16px;text-align:right;font-size:10px;flex-shrink:0}
+.scrd{width:5px;height:5px;border-radius:50%;flex-shrink:0}
+.scra{font-size:10px;font-weight:500;color:var(--t2);width:64px;flex-shrink:0}
+.scrt{font-size:10px;color:var(--t3);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.scrs{font-size:10px;font-weight:700;flex-shrink:0}
+.scre{padding:3px 13px 5px 37px;font-size:10px;color:var(--red);background:var(--red-dim);font-family:var(--mono);word-break:break-all}
 
-    /* ── Card types in chat ─────────────────────────────────────────────────── */
-    .picker-card{border:1px solid var(--border);border-radius:var(--rl);padding:9px 13px;max-width:84%;background:var(--surface2)}
-    .picker-card-t{font-size:12px;font-weight:500;color:var(--t1);margin-bottom:2px}
-    .picker-card-d{font-size:11px;color:var(--t3)}
+/* Heal diff */
+.hdiff{border-top:1px solid rgba(245,158,11,0.15);background:rgba(245,158,11,0.04);border-radius:0 0 var(--rl) var(--rl);padding:10px 13px}
+.hdiff-title{font-size:10px;font-weight:600;color:var(--amber);margin-bottom:6px}
+.dr{display:flex;align-items:flex-start;gap:6px;padding:4px 7px;border-radius:var(--r);font-size:10px;margin-bottom:3px;font-family:var(--mono)}
+.dr.changed{background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.15)}
+.dr.added{background:var(--green-dim);border:1px solid rgba(34,197,94,0.15)}
+.dr.removed{background:var(--red-dim);border:1px solid rgba(239,68,68,0.15)}
+.dm{width:12px;font-weight:700;flex-shrink:0}.dm.changed{color:var(--amber)}.dm.added{color:var(--green)}.dm.removed{color:var(--red)}
+.dbefore{color:var(--red);text-decoration:line-through;opacity:0.75}
+.dafter{color:var(--green)}
 
-    .confirm-card{border:1px solid rgba(79,70,229,0.25);border-radius:var(--rl);background:rgba(79,70,229,0.04);padding:12px 14px;max-width:84%}
-    .confirm-t{font-size:12px;font-weight:600;color:var(--accent);margin-bottom:6px;display:flex;align-items:center;gap:6px}
-    .confirm-steps{font-family:var(--mono);font-size:10px;color:var(--t2);background:rgba(79,70,229,0.05);border:1px solid rgba(79,70,229,0.12);border-radius:var(--r);padding:8px 10px;margin:7px 0;white-space:pre-wrap;line-height:1.7}
-    .confirm-meta{font-size:10px;color:var(--t3)}
+/* ── App selector overlay ─────────────────────────────────────────────────── */
+#app-overlay{display:none;position:fixed;inset:0;z-index:60;background:rgba(0,0,0,0.6);align-items:flex-start;justify-content:center;padding-top:80px}
+#app-overlay.open{display:flex}
+#app-panel{background:var(--surface);border:1px solid var(--border2);border-radius:var(--rxl);width:340px;padding:16px;box-shadow:0 20px 60px rgba(0,0,0,0.5)}
+.app-panel-title{font-size:12px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:12px}
+.app-item{display:flex;align-items:center;gap:10px;padding:10px;border-radius:var(--rl);border:1px solid var(--border);cursor:pointer;transition:all 0.15s;margin-bottom:6px}
+.app-item:hover{border-color:var(--accent);background:var(--accent-dim)}
+.app-item.active{border-color:var(--accent);background:var(--accent-dim)}
+.app-item-icon{width:32px;height:32px;border-radius:8px;display:grid;place-items:center;font-size:12px;font-weight:700;color:#fff;flex-shrink:0}
+.app-item-name{font-size:13px;font-weight:500;color:var(--t1)}
+.app-item-desc{font-size:11px;color:var(--t3)}
 
-    .fail-card{border:1px solid rgba(220,38,38,0.25);border-radius:var(--rl);background:rgba(220,38,38,0.03);padding:12px 14px;max-width:84%}
-    .fail-t{font-size:11px;font-weight:700;color:var(--red);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;display:flex;align-items:center;gap:6px}
-    .fail-err{font-family:var(--mono);font-size:10px;color:var(--red);background:var(--red-bg);border:1px solid rgba(220,38,38,0.15);border-radius:var(--r);padding:7px 10px;margin:5px 0;word-break:break-all}
-    .heal-hint{font-size:10px;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:var(--r);padding:7px 10px;margin-top:7px}
-
-    .reg-card{border:1px solid var(--border);border-radius:var(--rl);padding:12px 14px;max-width:90%;background:var(--surface2)}
-    .reg-mn{font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.07em;margin-bottom:3px;margin-top:8px}
-    .reg-mn:first-child{margin-top:0}
-    .reg-s{font-size:11px;color:var(--t3);padding:1px 0;display:flex;gap:6px}
-
-    /* Buttons */
-    .brow{display:flex;gap:6px;flex-wrap:wrap}
-    .btn{padding:6px 14px;border-radius:var(--r);font-size:11px;font-weight:600;cursor:pointer;transition:all 0.15s;border:none;display:flex;align-items:center;gap:5px}
-    .btn.primary{background:var(--accent);color:#fff}.btn.primary:hover{background:var(--accent-h)}
-    .btn.ghost{background:var(--surface);color:var(--t2);border:1px solid var(--border)}.btn.ghost:hover{border-color:var(--border-h);color:var(--t1);background:var(--surface2)}
-    .btn.heal{background:var(--amber-bg);color:var(--amber);border:1px solid rgba(217,119,6,0.25)}.btn.heal:hover{background:rgba(217,119,6,0.15)}
-
-    /* Spinner */
-    .spin{animation:spinA 0.8s linear infinite;display:inline-block}
-    @keyframes spinA{to{transform:rotate(360deg)}}
-    @keyframes blink{0%,100%{opacity:1}50%{opacity:0.3}}
-    .blk{animation:blink 1s infinite}
-
-    /* Toast */
-    .toast{position:fixed;bottom:22px;right:22px;z-index:9999;background:var(--t1);color:#fff;padding:8px 14px;border-radius:var(--r);font-size:12px;font-weight:500;animation:fu 0.2s ease both;pointer-events:none;box-shadow:0 4px 12px rgba(0,0,0,0.15)}
-  </style>
+/* Utilities */
+.btn{padding:5px 14px;border-radius:var(--r);font-size:11px;font-weight:600;cursor:pointer;transition:all 0.15s;border:none;display:flex;align-items:center;gap:4px}
+.btn.primary{background:var(--accent);color:#fff}.btn.primary:hover{background:var(--accent-h)}
+.btn.ghost{background:var(--surface2);color:var(--t2);border:1px solid var(--border)}.btn.ghost:hover{border-color:var(--border2);color:var(--t1)}
+.spin{animation:spinA 0.8s linear infinite;display:inline-block}
+@keyframes spinA{to{transform:rotate(360deg)}}
+.toast{position:fixed;bottom:20px;right:20px;z-index:999;background:var(--t1);color:var(--bg);padding:8px 14px;border-radius:var(--r);font-size:12px;font-weight:600;animation:fadeUp 0.2s ease both;pointer-events:none;box-shadow:0 4px 16px rgba(0,0,0,0.4)}
+.mod-hdr-row{font-size:10px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:0.07em;padding:10px 4px 5px;margin-top:6px}
+.mod-hdr-row:first-child{margin-top:0;padding-top:0}
+</style>
 </head>
 <body>
 <div id="root">
 
-  <!-- LEFT -->
+  <!-- TOP BAR -->
+  <div id="topbar">
+    <div class="logo">
+      <div class="logo-mark">QA</div>
+      <span class="logo-name">Sentinel</span>
+      <span class="logo-ver">v2</span>
+    </div>
+    <div id="app-switcher" onclick="toggleAppOverlay()">
+      <div id="app-switcher-icon" style="background:#4F46E5">T</div>
+      <span id="app-switcher-name">TestApp</span>
+      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="color:var(--t3);margin-left:2px"><path d="M2.5 4L5 6.5L7.5 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+    </div>
+    <div class="topbar-status">
+      <div class="status-dot" id="status-dot"></div>
+      <span id="status-label">idle</span>
+    </div>
+  </div>
+
+  <!-- LEFT: Chat -->
   <div id="chat-col">
-    <div id="chat-hdr">
-      <div class="logo-mark">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7C2 4.24 4.24 2 7 2s5 2.24 5 5-2.24 5-5 5-5-2.24-5-5z" stroke="white" stroke-width="1.3"/><path d="M5 7l1.5 1.5L9.5 5" stroke="white" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </div>
-      <span id="app-name">AI QA Agent</span>
-      <div id="agent-pill">
-        <div id="status-dot"></div>
-        <span id="state-lbl">ready</span>
-      </div>
-      <button id="hist-btn" onclick="toggleHistory()" title="History">
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="5" stroke="currentColor" stroke-width="1.2"/><path d="M6 3.5V6.5l2 1.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
-      </button>
+    <div class="col-header">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M10 1H2a1 1 0 00-1 1v6a1 1 0 001 1h2.5L6 11l1.5-2H10a1 1 0 001-1V2a1 1 0 00-1-1z" stroke="var(--t3)" stroke-width="1.2" stroke-linejoin="round"/></svg>
+      <span class="col-title">QA Assistant</span>
+      <span class="col-badge" id="chat-intent-badge">ready</span>
     </div>
-
-    <div id="msgs">
-      <div class="mw agent">
-        <div class="bub agent">Welcome. I'm your QA partner — I can run tests, explain modules, and guide you through the application. Try <em>test login</em>, <em>run regression</em>, or just ask a question.</div>
-        <span class="mts">now</span>
+    <div id="chat-msgs">
+      <div class="msg-wrap agent">
+        <div class="bubble agent">Hi! I'm your QA partner.<br><br>Ask me anything about testing:<br>• <em>"What can I test in the login module?"</em><br>• <em>"Why did the last test fail?"</em><br>• <em>"Create a test that verifies the project count"</em><br><br>Run tests from the dashboard →</div>
+        <span class="msg-ts">now</span>
       </div>
     </div>
-
-    <div id="chips"></div>
-
-    <div id="input-bar">
-      <textarea id="chat-input" rows="1" placeholder="Ask anything or describe a test…"></textarea>
-      <button id="send-btn" onclick="handleSend()">
-        <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M6.5 1L12 6.5L6.5 12M1 6.5H12" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <div id="chat-bar">
+      <textarea id="chat-input" rows="1" placeholder="Ask about modules, failures, or build a test..."></textarea>
+      <button id="send-btn" onclick="sendChat()">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 1L11 6L6 11M1 6H11" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
     </div>
   </div>
 
-  <!-- RIGHT -->
+  <!-- CENTER: Dashboard -->
+  <div id="dash-col">
+    <div class="col-header">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="1" y="1" width="4.5" height="4.5" rx="1.2" stroke="var(--t3)" stroke-width="1.2"/><rect x="6.5" y="1" width="4.5" height="4.5" rx="1.2" stroke="var(--t3)" stroke-width="1.2"/><rect x="1" y="6.5" width="4.5" height="4.5" rx="1.2" stroke="var(--t3)" stroke-width="1.2"/><rect x="6.5" y="6.5" width="4.5" height="4.5" rx="1.2" stroke="var(--t3)" stroke-width="1.2"/></svg>
+      <span class="col-title">Dashboard</span>
+      <span class="col-badge" id="dash-app-badge">—</span>
+    </div>
+    <div id="dash-scroll">
+      <!-- Regression bar -->
+      <div id="regression-bar">
+        <div class="reg-info">
+          <h3>Full Regression Suite</h3>
+          <p>Run all scenarios across all modules</p>
+        </div>
+        <div class="reg-stats" id="reg-stats">
+          <div class="reg-stat"><div class="reg-stat-n" id="reg-total">0</div><div class="reg-stat-l">scenarios</div></div>
+          <div class="reg-stat"><div class="reg-stat-n" id="reg-cached">0</div><div class="reg-stat-l">cached</div></div>
+        </div>
+        <button class="btn primary" id="run-regression-btn" onclick="runRegression()" style="margin-left:16px">
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2.5 2l6 3-6 3V2z" fill="white"/></svg>
+          Run All
+        </button>
+      </div>
+      <!-- Module cards -->
+      <div id="modules-grid"></div>
+      <!-- Custom scenarios -->
+      <div id="custom-section">
+        <div class="custom-header">Custom Scenarios</div>
+        <div id="custom-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Execution -->
   <div id="exec-col">
     <div id="exec-hdr">
-      <span id="exec-title">Execution</span>
-      <span id="scen-lbl" style="display:none"></span>
-      <span id="exec-badge">idle</span>
+      <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M2 2l7 3.5L2 9V2z" stroke="var(--t3)" stroke-width="1.2" stroke-linejoin="round"/></svg>
+      <span id="exec-scenario-name" style="color:var(--t3)">No test running</span>
+      <span id="exec-state-badge">idle</span>
     </div>
-
     <div id="plan-section">
       <button id="plan-toggle" onclick="togglePlan()">
         <span id="plan-chev">›</span>
-        Test plan
-        <div id="plan-spin" class="spin" style="width:10px;height:10px;border:1.5px solid rgba(79,70,229,0.2);border-top-color:var(--accent);border-radius:50%;display:none;flex-shrink:0"></div>
+        Test Plan
+        <span id="plan-spin" class="spin" style="width:9px;height:9px;border:1.5px solid rgba(99,102,241,0.2);border-top-color:var(--accent);border-radius:50%;display:none;flex-shrink:0"></span>
         <span id="plan-cnt">0 steps</span>
       </button>
       <div id="plan-body"><div id="plan-inner"></div></div>
     </div>
-
+    <!-- Heal card -->
+    <div id="heal-card"></div>
+    <!-- Live log -->
     <div id="log-area">
-      <div id="log-lbl">Live log</div>
+      <div id="log-lbl">Live Log</div>
       <div id="log-stream"></div>
     </div>
-
+    <!-- Stats bar -->
     <div id="stats-bar">
       <div id="stats-grid">
         <div class="scard total"  onclick="openDrawer('all')"><div class="sval" id="m-total">0</div><div class="slbl">total</div></div>
@@ -339,580 +414,438 @@
         <div class="scard skipped" onclick="openDrawer('skipped')"><div class="sval" id="m-skip">0</div><div class="slbl">skipped</div></div>
         <div class="scard healed" onclick="openDrawer('healed')"><div class="sval" id="m-heal">0</div><div class="slbl">healed</div></div>
       </div>
-      <button id="view-rep" onclick="openDrawer('all')">
-        View full report
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 4L5 7L8 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
-      </button>
+      <button id="view-rep" onclick="openDrawer('all')">View full report ↓</button>
     </div>
   </div>
 </div>
 
-<!-- History -->
-<div id="hbackdrop" onclick="toggleHistory()"></div>
-<div id="hpanel">
-  <div id="hhdr">
-    <span>Test History</span>
-    <button class="btn ghost" style="padding:3px 8px" onclick="toggleHistory()">✕</button>
-  </div>
-  <div id="hlist"><p style="color:var(--t3);font-size:11px;text-align:center;padding:24px 0">No runs yet</p></div>
-  <div style="padding:8px 10px 12px">
-    <button class="btn ghost" style="width:100%;justify-content:center;font-size:11px" onclick="clearHistory()">Clear history</button>
+<!-- App Overlay -->
+<div id="app-overlay" onclick="handleOverlayClick(event)">
+  <div id="app-panel">
+    <div class="app-panel-title">Switch Application</div>
+    <div id="app-list"></div>
   </div>
 </div>
 
-<!-- Drawer -->
+<!-- Report Drawer -->
 <div id="dbackdrop" onclick="closeDrawer()"></div>
 <div id="drawer">
   <div id="dhdr">
-    <div id="dsdot"></div>
+    <div id="dsdot" style="background:var(--t3)"></div>
     <span id="dtitle">Test Report</span>
-    <span id="dprate"></span>
+    <span id="dpct"></span>
     <div class="dacts">
-      <button class="dbtn" onclick="exportReport()">
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M5 1v5M2.5 4.5L5 7l2.5-2.5M1 8.5h8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
-        Export
-      </button>
-      <button class="dbtn" onclick="copyReport()">
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><rect x="1" y="3" width="6" height="6" rx="1.2" stroke="currentColor" stroke-width="1.3"/><path d="M3 3V2a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
-        Copy
-      </button>
+      <button class="dbtn" onclick="exportReport()">↓ Export</button>
+      <button class="dbtn" onclick="copyReport()">⎘ Copy</button>
       <button id="dclose" onclick="closeDrawer()">✕</button>
     </div>
   </div>
-  <div id="rbar-wrap"><div id="rbar-track"><div id="rbar-fill"></div></div></div>
   <div id="dtabs">
-    <button class="tab active" data-tab="all" onclick="switchTab('all')">All</button>
-    <button class="tab" data-tab="passed" onclick="switchTab('passed')">Passed</button>
-    <button class="tab" data-tab="failed" onclick="switchTab('failed')">Failed</button>
-    <button class="tab" data-tab="skipped" onclick="switchTab('skipped')">Skipped</button>
-    <button class="tab" data-tab="healed" onclick="switchTab('healed')">Healed</button>
+    <button class="dtab active" data-tab="all"     onclick="switchTab('all')">All</button>
+    <button class="dtab"        data-tab="passed"  onclick="switchTab('passed')">Passed</button>
+    <button class="dtab"        data-tab="failed"  onclick="switchTab('failed')">Failed</button>
+    <button class="dtab"        data-tab="skipped" onclick="switchTab('skipped')">Skipped</button>
+    <button class="dtab"        data-tab="healed"  onclick="switchTab('healed')">Healed</button>
   </div>
   <div id="dcontent"></div>
 </div>
 
 <script>
-const ws=new WebSocket('ws://localhost:4000');
-let mode='prompt',allScenarioData=[],currentTab='all',drawerOpen=false,lastReportData=null,pendingHealDiff=null;
-let testHistory=[];try{testHistory=JSON.parse(localStorage.getItem('qa_sentinel_h')||'[]')}catch{}
-let lastClassification=null;
+// ── State ─────────────────────────────────────────────────────────────────────
+const ws = new WebSocket('ws://localhost:4000');
+let allScenarioData = [], currentTab = 'all', lastReportData = null, currentApp = null;
+let apps = [], modules = [], customScenarios = [], planOpen = true;
 
-const ta=document.getElementById('chat-input');
-ta.addEventListener('input',()=>{ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,80)+'px'});
-ta.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();handleSend()}});
-
-ws.onmessage=({data})=>{
-  const{type,data:d}=JSON.parse(data);
-  if(type==='plan')renderPlan(d.steps);
-  else if(type==='step')updateStep(d.index,d.status);
-  else if(type==='log')addLog(d.text,d.level);
-  else if(type==='scenarios')showPicker(d);
-  else if(type==='regression_plan')showRegPlan(d);
-  else if(type==='scenario_start')onScenStart(d);
-  else if(type==='question')enterAnswerMode(d);
-  else if(type==='answer_received')addLog('→ '+d,'user');
-  else if(type==='report')showReport(d);
-  else if(type==='agent_message'){addMsg(d,'agent');resetInput()}
-  else if(type==='agent_state')setStateBadge(d);
-  else if(type==='intent')addLog('Intent: '+d.intent,'info');
-  else if(type==='error'){addLog('Error: '+d,'error');resetInput()}
-  else if(type==='suggestions')renderChips(d.payload);
-  else if(type==='heal_diff')pendingHealDiff=d;
-  else if(type==='heal_failed')addLog('Heal attempt failed: '+d.error,'error');
-  else if(type==='failure_classified')lastClassification=d;
+// ── WebSocket ─────────────────────────────────────────────────────────────────
+ws.onmessage = ({ data }) => {
+  const { type, data: d } = JSON.parse(data);
+  if (type === 'apps')              renderApps(d);
+  else if (type === 'modules')      renderModules(d);
+  else if (type === 'agent_state')  setAgentState(d);
+  else if (type === 'chat_reply')   renderChatReply(d);
+  else if (type === 'execution_start') onExecStart(d);
+  else if (type === 'execution_plan')  renderPlan(d.steps);
+  else if (type === 'step')         updateStep(d.index, d.status);
+  else if (type === 'log')          addLog(d.text, d.level);
+  else if (type === 'heal_prompt')  showHealCard(d);
+  else if (type === 'heal_diff')    pendingDiff = d;
+  else if (type === 'heal_failed')  hideHealCard();
+  else if (type === 'report')       showReport(d);
+  else if (type === 'execution_error') { addLog('Error: ' + d, 'error'); setAgentState('idle'); }
+  else if (type === 'new_custom_scenario') addCustomScenario(d);
 };
 
-function handleSend(){
-  const val=ta.value.trim();if(!val||ta.disabled)return;
-  ta.value='';ta.style.height='auto';
-  if(mode==='answer'||mode==='scenario_choice'){addMsg(val,'user');ws.send(JSON.stringify({type:'answer',data:val}));mode='running';lockInput(true);setAgent('running',true)}
-  else if(mode==='confirm'){addMsg(val,'user');ws.send(JSON.stringify({type:'answer',data:val}));mode='running';lockInput(false);setAgent('running',true)}
-  else{if(mode==='running')return;mode='running';pendingHealDiff=null;addMsg(val,'user');lockInput(true);resetExec();setBadge('running','running');setAgent('thinking',true);showTyping();allScenarioData=[];ws.send(JSON.stringify({type:'prompt',data:val}))}
-}
-function lockInput(on){ta.disabled=on;document.getElementById('send-btn').disabled=on;ta.placeholder=on?'Use the buttons above…':'Ask anything or describe a test…'}
-
-function renderChips(items){
-  const row=document.getElementById('chips');row.innerHTML='';
-  (items||[]).forEach((t,i)=>{const b=document.createElement('button');b.className='chip'+(i===0?' primary':'');b.textContent=t;b.onclick=()=>{if(!ta.disabled){ta.value=t;ta.focus();ta.dispatchEvent(new Event('input'))}};row.appendChild(b)});
-}
-
-function now(){const d=new Date();return`${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`}
-function esc(s){return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
-function removeTyping(){document.getElementById('typing-bub')?.remove()}
-
-function addMsg(text,who,cls=''){
-  removeTyping();
-  const msgs=document.getElementById('msgs');
-  const w=document.createElement('div');w.className=`mw ${who}`;
-  const b=document.createElement('div');b.className=`bub ${who} ${cls}`;
-  if(who==='agent'&&text.includes('\n'))b.innerHTML=text.split('\n').map(l=>esc(l)||'<br>').join('<br>');
-  else b.textContent=text;
-  const ts=document.createElement('span');ts.className='mts';ts.textContent=now();
-  w.appendChild(b);w.appendChild(ts);msgs.appendChild(w);msgs.scrollTop=msgs.scrollHeight;
+// ── App management ────────────────────────────────────────────────────────────
+function renderApps(list) {
+  apps = list;
+  currentApp = list[0];
+  document.getElementById('app-list').innerHTML = list.map(a => `
+    <div class="app-item active" onclick="selectApp('${a.id}')">
+      <div class="app-item-icon" style="background:#${a.color}">${a.icon}</div>
+      <div><div class="app-item-name">${esc(a.name)}</div><div class="app-item-desc">${esc(a.description)}</div></div>
+    </div>`).join('');
+  document.getElementById('app-switcher-icon').textContent = list[0]?.icon || 'A';
+  document.getElementById('app-switcher-icon').style.background = '#' + (list[0]?.color || '4F46E5');
+  document.getElementById('app-switcher-name').textContent = list[0]?.name || 'App';
 }
 
-function showTyping(){
-  removeTyping();
-  const msgs=document.getElementById('msgs');
-  const w=document.createElement('div');w.className='mw agent';
-  const tb=document.createElement('div');tb.id='typing-bub';tb.innerHTML='<div class="td"></div><div class="td"></div><div class="td"></div>';
-  w.appendChild(tb);msgs.appendChild(w);msgs.scrollTop=msgs.scrollHeight;
+function selectApp(id) {
+  const a = apps.find(x => x.id === id);
+  if (!a) return;
+  currentApp = a;
+  document.getElementById('app-switcher-icon').textContent = a.icon;
+  document.getElementById('app-switcher-icon').style.background = '#' + a.color;
+  document.getElementById('app-switcher-name').textContent = a.name;
+  document.querySelectorAll('.app-item').forEach(el => el.classList.toggle('active', el.querySelector('.app-item-name').textContent === a.name));
+  ws.send(JSON.stringify({ type: 'set_app', data: id }));
+  toggleAppOverlay();
 }
 
-function addLog(text,level='info'){
-  if(!text?.trim())return;
-  const s=document.getElementById('log-stream');
-  const el=document.createElement('div');
-  if(level==='phase'){el.className='lphase';el.textContent=text}
-  else{el.className='lrow';el.innerHTML=`<span class="lts">${now()}</span><span class="ltxt ${level}">${esc(text)}</span>`}
-  s.appendChild(el);s.scrollTop=s.scrollHeight;
-}
+function toggleAppOverlay() { document.getElementById('app-overlay').classList.toggle('open'); }
+function handleOverlayClick(e) { if (e.target === document.getElementById('app-overlay')) toggleAppOverlay(); }
 
-let planOpen=true;
-function renderPlan(steps){
-  if(!steps?.length)return;
-  document.getElementById('plan-spin').style.display='none';
-  document.getElementById('plan-section').style.display='block';
-  const inner=document.getElementById('plan-inner');inner.innerHTML='';
-  steps.forEach((s,i)=>{
-    const row=document.createElement('div');row.className='prow';row.id=`pr-${i}`;
-    row.innerHTML=`<div id="sd-${i}" class="sdot"></div><span class="pact">${esc(s.action)}</span><span class="ptgt">${esc(s.selector||s.value||'')}</span><span id="sl-${i}" class="pst">—</span>`;
-    inner.appendChild(row);
-  });
-  const cnt=document.getElementById('plan-cnt');
-  cnt.textContent=`${steps.length} steps`;
-  cnt.style.cssText='margin-left:auto;font-size:10px;padding:1px 7px;border-radius:20px;background:var(--accent-bg);color:var(--accent);border:1px solid rgba(79,70,229,0.2)';
-  document.getElementById('plan-chev').classList.add('open');
-}
-function updateStep(idx,status){
-  const dot=document.getElementById(`sd-${idx}`);const lbl=document.getElementById(`sl-${idx}`);
-  if(!dot||!lbl)return;
-  dot.className=`sdot ${status}`;
-  const m={running:'—',success:'pass',failed:'fail',healed:'heal',skipped:'skip'};
-  const c={success:'pass',failed:'fail',healed:'heal'};
-  lbl.textContent=m[status]||'—';lbl.className=`pst ${c[status]||''}`;
-  document.getElementById(`pr-${idx}`)?.scrollIntoView({block:'nearest'});
-}
-function togglePlan(){planOpen=!planOpen;document.getElementById('plan-body').style.maxHeight=planOpen?'160px':'0';document.getElementById('plan-chev').classList.toggle('open',planOpen)}
+// ── Module rendering ──────────────────────────────────────────────────────────
+const MOD_COLORS = { login:'4F46E5', dashboard:'0891B2', projects:'059669', profile:'D97706', navigation:'7C3AED' };
+const MOD_ICONS  = { login:'🔐', dashboard:'📊', projects:'📁', profile:'👤', navigation:'🧭' };
 
-function showPicker({scenarios,module:mod}){
-  removeTyping();const msgs=document.getElementById('msgs');
-  const w=document.createElement('div');w.className='mw agent';
-  const b=document.createElement('div');b.className='bub agent';b.textContent=`Found ${scenarios.length} scenario${scenarios.length>1?'s':''} for "${mod}"`;w.appendChild(b);
-  const list=document.createElement('div');list.style.cssText='display:flex;flex-direction:column;gap:5px;';
-  scenarios.forEach((s,i)=>{const c=document.createElement('div');c.className='picker-card';c.innerHTML=`<div class="picker-card-t">${i+1}. ${esc(s.name)}</div><div class="picker-card-d">${esc(s.description)}</div>`;list.appendChild(c)});
-  w.appendChild(list);
-  const br=document.createElement('div');br.className='brow';
-  const ab=document.createElement('button');ab.className='btn primary';ab.textContent='Run all';ab.onclick=()=>{sendChoice('all');br.remove()};br.appendChild(ab);
-  scenarios.forEach((s,i)=>{const b=document.createElement('button');b.className='btn ghost';b.textContent=`Run ${i+1} only`;b.onclick=()=>{sendChoice(String(i+1));br.remove()};br.appendChild(b)});
-  w.appendChild(br);const ts=document.createElement('span');ts.className='mts';ts.textContent=now();w.appendChild(ts);
-  msgs.appendChild(w);msgs.scrollTop=msgs.scrollHeight;mode='scenario_choice';lockInput(false);setAgent('waiting',true);
-}
-
-function showRegPlan({modules,total}){
-  removeTyping();const msgs=document.getElementById('msgs');
-  const w=document.createElement('div');w.className='mw agent';
-  const b=document.createElement('div');b.className='bub agent';
-  b.innerHTML=`Regression suite ready &mdash; <strong>${total} scenarios</strong> across ${modules.length} modules`;
-  w.appendChild(b);
-
-  // Spacious module grid — each module is its own card
-  const grid=document.createElement('div');
-  grid.style.cssText='display:flex;flex-direction:column;gap:8px;max-width:92%;';
-  modules.forEach(m=>{
-    const card=document.createElement('div');
-    card.style.cssText='border:1px solid var(--border);border-radius:var(--rl);overflow:hidden;background:var(--surface);';
-    // Module header
-    const mhdr=document.createElement('div');
-    mhdr.style.cssText='padding:7px 13px;background:rgba(79,70,229,0.05);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;';
-    mhdr.innerHTML=`<span style="font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.07em">${esc(m.name)}</span><span style="font-size:10px;color:var(--t3)">${m.scenarios.length} scenario${m.scenarios.length!==1?'s':''}</span>`;
-    card.appendChild(mhdr);
-    // Scenarios list
-    const slist=document.createElement('div');
-    slist.style.cssText='padding:4px 0;';
-    m.scenarios.forEach((sc,i)=>{
-      const row=document.createElement('div');
-      row.style.cssText='display:flex;align-items:center;gap:8px;padding:6px 13px;border-bottom:1px solid var(--border);';
-      row.style.borderBottom=i===m.scenarios.length-1?'none':'1px solid var(--border)';
-      row.innerHTML=`<span style="font-size:10px;color:var(--t3);font-family:var(--mono);width:16px;text-align:right">${i+1}</span><div style="width:5px;height:5px;border-radius:50%;background:var(--t3);flex-shrink:0"></div><span style="font-size:11px;color:var(--t2)">${esc(sc.name)}</span>`;
-      slist.appendChild(row);
-    });
-    card.appendChild(slist);
+function renderModules(list) {
+  modules = list;
+  document.getElementById('dash-app-badge').textContent = currentApp?.name || '—';
+  const grid = document.getElementById('modules-grid');
+  grid.innerHTML = '';
+  let total = 0, totalCached = 0;
+  list.forEach(mod => {
+    total += mod.scenarios.length;
+    totalCached += mod.cachedCount;
+    const color = MOD_COLORS[mod.id] || '6366F1';
+    const icon  = MOD_ICONS[mod.id]  || '🧪';
+    const card = document.createElement('div');
+    card.className = 'mod-card';
+    card.innerHTML = `
+      <div class="mod-card-header">
+        <div class="mod-icon" style="background:rgba(${hexToRgb(color)},0.15)">${icon}</div>
+        <div class="mod-meta">
+          <div class="mod-name">${esc(mod.name)}</div>
+          <div class="mod-desc">${esc(mod.description || mod.url || '')}</div>
+        </div>
+        <button class="mod-run-all" onclick="runModule('${mod.id}')">Run all</button>
+      </div>
+      <div class="mod-scenarios">
+        ${mod.scenarios.map(s => `
+          <div class="scen-row" onclick="runScenario('${mod.id}','${s.id}','${esc(s.name)}','${esc(s.description)}')">
+            <div class="scen-dot ${s.cached ? 'cached' : ''}"></div>
+            <span class="scen-name">${esc(s.name)}</span>
+            <span class="scen-desc">${esc(s.description)}</span>
+            <button class="scen-run-btn" onclick="event.stopPropagation();runScenario('${mod.id}','${s.id}','${esc(s.name)}','${esc(s.description)}')">▶ Run</button>
+          </div>`).join('')}
+        ${mod.scenarios.length === 0 ? '<div style="font-size:11px;color:var(--t3);padding:6px 8px">No scenarios documented</div>' : ''}
+      </div>`;
     grid.appendChild(card);
   });
-  w.appendChild(grid);
-
-  const br=document.createElement('div');br.className='brow';
-  const rb=document.createElement('button');rb.className='btn primary';rb.textContent=`Run all ${total}`;rb.onclick=()=>{sendChoice('all');br.remove()};
-  const cb=document.createElement('button');cb.className='btn ghost';cb.textContent='Cancel';cb.onclick=()=>{sendChoice('cancel');br.remove()};
-  br.appendChild(rb);br.appendChild(cb);w.appendChild(br);
-  const ts=document.createElement('span');ts.className='mts';ts.textContent=now();w.appendChild(ts);
-  msgs.appendChild(w);msgs.scrollTop=msgs.scrollHeight;mode='scenario_choice';lockInput(false);setAgent('waiting',true);
+  document.getElementById('reg-total').textContent = total;
+  document.getElementById('reg-cached').textContent = totalCached;
 }
 
-function sendChoice(val){ws.send(JSON.stringify({type:'answer',data:val}));mode='running';lockInput(true);setAgent('running',true)}
-
-function onScenStart(s){
-  const lbl=document.getElementById('scen-lbl');lbl.textContent=s.name;lbl.style.display='';
-  document.getElementById('plan-section').style.display='block';document.getElementById('plan-spin').style.display='block';
-  document.getElementById('plan-inner').innerHTML=`<div style="font-size:10px;color:var(--accent);display:flex;align-items:center;gap:6px;padding:6px 0;font-family:var(--mono)"><div class="spin" style="width:9px;height:9px;border:1.5px solid rgba(79,70,229,0.2);border-top-color:var(--accent);border-radius:50%;"></div>Loading: ${esc(s.name)}</div>`;
-  document.getElementById('plan-cnt').textContent='…';
+function hexToRgb(hex) {
+  const r = parseInt(hex.slice(0,2),16), g = parseInt(hex.slice(2,4),16), b = parseInt(hex.slice(4,6),16);
+  return `${r},${g},${b}`;
 }
 
-function enterAnswerMode(payload){
-  const question=typeof payload==='string'?payload:payload.text;
-  const qType=typeof payload==='object'?payload.type:'text';
-  const meta=typeof payload==='object'?payload.meta:null;
-  setAgent('waiting',true);
-  if(qType==='confirm_run')showConfirmRun(question,meta);
-  else if(qType==='heal_choice')showHealChoice(question,meta);
-  else{mode='answer';addMsg(question,'agent','question');lockInput(false);ta.placeholder='Type your answer…'}
+// ── Custom scenarios ──────────────────────────────────────────────────────────
+function addCustomScenario(s) {
+  customScenarios.push(s);
+  const sec = document.getElementById('custom-section');
+  const list = document.getElementById('custom-list');
+  sec.style.display = 'block';
+  const card = document.createElement('div');
+  card.className = 'custom-card';
+  card.innerHTML = `<div class="custom-badge">custom</div><div class="custom-info"><div class="custom-name">${esc(s.name)}</div><div class="custom-desc">${esc(s.description)}</div></div><button class="custom-run" onclick="runScenario('${s.module}','${s.id}','${esc(s.name)}','${esc(s.description)}')">▶ Run</button>`;
+  list.appendChild(card);
 }
 
-function showConfirmRun(question,meta){
-  removeTyping();mode='confirm';lockInput(true);
-  const msgs=document.getElementById('msgs');
-  const w=document.createElement('div');w.className='mw agent';
-  const card=document.createElement('div');card.className='confirm-card';
-
-  // Short summary — not a duplicate of the test plan
-  const totalSteps=meta?.totalSteps||0;
-  const scenName=meta?.scenarioName||'';
-
-  card.innerHTML=`
-    <div class="confirm-t">
-      <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><circle cx="5.5" cy="5.5" r="4.5" stroke="var(--accent)" stroke-width="1.2"/><path d="M3.5 5.5l1.5 1.5L7.5 4" stroke="var(--accent)" stroke-width="1.2" stroke-linecap="round"/></svg>
-      Ready to run
-    </div>
-    <div style="font-size:13px;font-weight:600;color:var(--t1);margin-bottom:4px">${esc(scenName)}</div>
-    <div style="font-size:11px;color:var(--t3)">${totalSteps} steps · check the test plan panel for details</div>`;
-
-  w.appendChild(card);
-  const br=document.createElement('div');br.className='brow';
-  const rb=document.createElement('button');rb.className='btn primary';
-  rb.innerHTML='<svg width="9" height="9" viewBox="0 0 9 9" fill="none"><path d="M2.5 2l5 2.5-5 2.5V2z" fill="white"/></svg>Run test';
-  rb.onclick=()=>{addMsg('Run test','user');sendAnswer('yes');br.remove()};
-  const sb=document.createElement('button');sb.className='btn ghost';sb.textContent='Skip';
-  sb.onclick=()=>{addMsg('Skip','user');sendAnswer('skip');br.remove()};
-  br.appendChild(rb);br.appendChild(sb);w.appendChild(br);
-  const ts=document.createElement('span');ts.className='mts';ts.textContent=now();w.appendChild(ts);
-  msgs.appendChild(w);msgs.scrollTop=msgs.scrollHeight;
+// ── Run triggers ──────────────────────────────────────────────────────────────
+function runScenario(module, scenarioId, scenarioName, scenarioDesc) {
+  resetExec();
+  ws.send(JSON.stringify({ type: 'run_scenario', data: { module, scenarioId, scenarioName, scenarioDesc, appId: currentApp?.id } }));
+}
+function runModule(modId) {
+  resetExec();
+  ws.send(JSON.stringify({ type: 'run_module', data: { module: modId, appId: currentApp?.id } }));
+}
+function runRegression() {
+  resetExec();
+  ws.send(JSON.stringify({ type: 'run_regression' }));
 }
 
-function showHealChoice(errorMsg,meta){
-  removeTyping();lockInput(true);
-  const msgs=document.getElementById('msgs');
-  const w=document.createElement('div');w.className='mw agent';
-  const clf=meta?.classification||lastClassification||{};
-  const canHeal=meta?.canHeal!==false;
-  const preview=meta?.healPreview;
+// ── Chat ──────────────────────────────────────────────────────────────────────
+const ta = document.getElementById('chat-input');
+ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 80) + 'px'; });
+ta.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); } });
 
-  const clrMap={
-    AUTOMATION: {bg:'rgba(217,119,6,0.07)',border:'rgba(217,119,6,0.22)',text:'var(--amber)',icon:'⚙',label:'Automation failure — selector may have changed'},
-    FUNCTIONAL: {bg:'rgba(220,38,38,0.05)',border:'rgba(220,38,38,0.18)',text:'var(--red)',  icon:'🐛',label:'Application bug detected'},
-    ASSERTION:  {bg:'rgba(220,38,38,0.05)',border:'rgba(220,38,38,0.18)',text:'var(--red)',  icon:'🐛',label:'Assertion failed — real bug'},
-    NAVIGATION: {bg:'rgba(220,38,38,0.05)',border:'rgba(220,38,38,0.18)',text:'var(--red)',  icon:'🐛',label:'Wrong URL — functional bug'},
-    NETWORK:    {bg:'rgba(2,132,199,0.05)', border:'rgba(2,132,199,0.18)',text:'var(--sky)', icon:'📡',label:'Network / connection error'},
-    UNKNOWN:    {bg:'rgba(107,114,128,0.05)',border:'rgba(107,114,128,0.18)',text:'var(--t2)',icon:'❓',label:'Unknown failure cause'},
+function sendChat() {
+  const val = ta.value.trim(); if (!val) return;
+  ta.value = ''; ta.style.height = 'auto';
+  addChatMsg(val, 'user');
+  showTyping();
+  ws.send(JSON.stringify({ type: 'chat', data: val }));
+}
+
+function addChatMsg(text, who, intent) {
+  removeTyping();
+  const msgs = document.getElementById('chat-msgs');
+  const w = document.createElement('div'); w.className = `msg-wrap ${who}`;
+  if (intent && intent !== 'system' && intent !== 'error') {
+    const b = document.createElement('div');
+    b.className = `intent-badge intent-${intent.toLowerCase()}`;
+    b.textContent = intent.toLowerCase().replace('_',' ');
+    w.appendChild(b);
+  }
+  const b = document.createElement('div'); b.className = `bubble ${who}`;
+  b.innerHTML = renderMarkdown(text);
+  const ts = document.createElement('span'); ts.className = 'msg-ts'; ts.textContent = now();
+  w.appendChild(b); w.appendChild(ts);
+  msgs.appendChild(w); msgs.scrollTop = msgs.scrollHeight;
+}
+
+function renderChatReply({ text, intent }) {
+  removeTyping();
+  addChatMsg(text, 'agent', intent);
+  const badge = document.getElementById('chat-intent-badge');
+  badge.textContent = intent || 'ready';
+}
+
+function showTyping() {
+  removeTyping();
+  const msgs = document.getElementById('chat-msgs');
+  const w = document.createElement('div'); w.className = 'msg-wrap agent'; w.id = 'typing-wrap';
+  const t = document.createElement('div'); t.id = 'typing';
+  t.innerHTML = '<div class="td"></div><div class="td"></div><div class="td"></div>';
+  w.appendChild(t); msgs.appendChild(w); msgs.scrollTop = msgs.scrollHeight;
+}
+function removeTyping() { document.getElementById('typing-wrap')?.remove(); }
+
+function renderMarkdown(text) {
+  return text
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g,'<em style="color:var(--accent-h);font-style:normal">$1</em>')
+    .replace(/`(.+?)`/g,'<code style="font-family:var(--mono);background:var(--surface3);padding:1px 5px;border-radius:3px;font-size:11px">$1</code>')
+    .replace(/\n/g,'<br>');
+}
+
+// ── Execution panel ───────────────────────────────────────────────────────────
+function onExecStart({ module, scenario, app }) {
+  document.getElementById('exec-scenario-name').textContent = `${module} / ${scenario}`;
+  document.getElementById('exec-state-badge').className = 'running'; document.getElementById('exec-state-badge').textContent = 'running';
+  document.getElementById('plan-section').style.display = 'block';
+  document.getElementById('plan-spin').style.display = 'inline-block';
+  document.getElementById('plan-inner').innerHTML = `<div style="font-size:10px;color:var(--accent-h);padding:5px 0;font-family:var(--mono)">Loading plan...</div>`;
+}
+
+let planOpen2 = true;
+function renderPlan(steps) {
+  if (!steps?.length) return;
+  document.getElementById('plan-spin').style.display = 'none';
+  const inner = document.getElementById('plan-inner'); inner.innerHTML = '';
+  steps.forEach((s, i) => {
+    const row = document.createElement('div'); row.className = 'prow'; row.id = `pr-${i}`;
+    row.innerHTML = `<div class="pdot" id="pd-${i}"></div><span class="pact">${esc(s.action)}</span><span class="ptgt">${esc(s.selector||s.value||'')}</span><span class="pst" id="ps-${i}">—</span>`;
+    inner.appendChild(row);
+  });
+  document.getElementById('plan-cnt').textContent = `${steps.length} steps`;
+  document.getElementById('plan-chev').classList.add('open');
+}
+
+function updateStep(idx, status) {
+  const dot = document.getElementById(`pd-${idx}`), lbl = document.getElementById(`ps-${idx}`);
+  if (!dot || !lbl) return;
+  dot.className = `pdot ${status}`;
+  const m = { running:'—', success:'pass', failed:'fail', healed:'heal' };
+  const c = { success:'pass', failed:'fail', healed:'heal' };
+  lbl.textContent = m[status] || '—'; lbl.className = `pst ${c[status]||''}`;
+  document.getElementById(`pr-${idx}`)?.scrollIntoView({ block:'nearest' });
+}
+
+function togglePlan() { planOpen2=!planOpen2; document.getElementById('plan-body').style.maxHeight=planOpen2?'180px':'0'; document.getElementById('plan-chev').classList.toggle('open',planOpen2); }
+
+// ── Heal card ─────────────────────────────────────────────────────────────────
+let pendingDiff = null;
+function showHealCard(d) {
+  const card = document.getElementById('heal-card');
+  card.style.display = 'block';
+  const clf = d.classification || {};
+  const canHeal = d.canHeal !== false;
+  const colorMap = {
+    AUTOMATION: { bg:'rgba(245,158,11,0.08)', border:'rgba(245,158,11,0.2)', text:'var(--amber)', label:'Automation failure — selector may have changed' },
+    FUNCTIONAL: { bg:'var(--red-dim)',          border:'rgba(239,68,68,0.2)', text:'var(--red)',   label:'Application bug detected' },
+    ASSERTION:  { bg:'var(--red-dim)',          border:'rgba(239,68,68,0.2)', text:'var(--red)',   label:'Assertion failed — real bug' },
+    NAVIGATION: { bg:'var(--red-dim)',          border:'rgba(239,68,68,0.2)', text:'var(--red)',   label:'Navigation bug' },
+    NETWORK:    { bg:'var(--sky-dim)',          border:'rgba(56,189,248,0.2)',text:'var(--sky)',   label:'Network error' },
+    UNKNOWN:    { bg:'var(--surface3)',         border:'var(--border)',        text:'var(--t2)',   label:'Unknown cause' },
   };
-  const c=clrMap[clf.type]||clrMap.UNKNOWN;
-
-  const card=document.createElement('div');
-  card.style.cssText=`border:1px solid ${c.border};border-radius:var(--rl);background:${c.bg};padding:12px 14px;max-width:88%`;
-
-  // Classification header
-  const hdrEl=document.createElement('div');
-  hdrEl.style.cssText='display:flex;align-items:center;gap:8px;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid rgba(0,0,0,0.06)';
-  hdrEl.innerHTML=`<div style="width:7px;height:7px;border-radius:50%;background:${c.text};flex-shrink:0"></div><span style="font-size:12px;font-weight:700;color:${c.text}">${c.label}</span>`;
-  card.appendChild(hdrEl);
-
-  // Error message
-  const errEl=document.createElement('div');
-  errEl.style.cssText='font-family:var(--mono);font-size:10px;color:var(--t2);background:rgba(0,0,0,0.04);border-radius:var(--r);padding:7px 10px;margin-bottom:8px;word-break:break-all;line-height:1.5';
-  errEl.textContent=errorMsg;
-  card.appendChild(errEl);
-
-  // Step context
-  if(meta?.failedStep){
-    const ctx=document.createElement('div');
-    ctx.style.cssText='font-size:10px;color:var(--t3);font-family:var(--mono);margin-bottom:6px';
-    ctx.innerHTML=`at step ${meta.failedIndex!=null?meta.failedIndex+1:''}: <strong style="color:var(--t2)">${esc(meta.failedStep.action)}</strong> <span>${esc(meta.failedStep.selector||meta.failedStep.value||'')}</span>`;
-    card.appendChild(ctx);
-  }
-  if(meta?.passedCount!=null){
-    const prog=document.createElement('div');
-    prog.style.cssText='font-size:10px;color:var(--t3);margin-bottom:10px';
-    prog.textContent=`${meta.passedCount} of ${meta.totalSteps} steps passed before this failure`;
-    card.appendChild(prog);
-  }
-
-  // Classifier reason
-  const reasonEl=document.createElement('div');
-  reasonEl.style.cssText=`font-size:10px;padding:7px 10px;border-radius:var(--r);border:1px solid ${c.border};color:${c.text};line-height:1.5;margin-bottom:${canHeal&&preview?'10px':'0'}`;
-  reasonEl.textContent=clf.reason||'';
-  card.appendChild(reasonEl);
-
-  // Heal preview — show what the system found in the live DOM
-  if(canHeal && preview && preview.candidates?.length>0){
-    const prevEl=document.createElement('div');
-    prevEl.style.cssText='border-top:1px solid rgba(217,119,6,0.15);padding-top:10px;margin-top:8px';
-    const ptitle=document.createElement('div');
-    ptitle.style.cssText='font-size:10px;font-weight:600;color:var(--amber);margin-bottom:6px;display:flex;align-items:center;gap:5px';
-    ptitle.innerHTML=`<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M5 1a4 4 0 100 8A4 4 0 005 1" stroke="var(--amber)" stroke-width="1.1" stroke-linecap="round"/><path d="M3.5 5h3M5 3.5v3" stroke="var(--amber)" stroke-width="1.1" stroke-linecap="round"/></svg>What the system found at the failure page`;
-    prevEl.appendChild(ptitle);
-    const plist=document.createElement('div');
-    plist.style.cssText='font-family:var(--mono);font-size:10px;color:var(--t2);background:rgba(217,119,6,0.05);border-radius:var(--r);padding:6px 8px;display:flex;flex-direction:column;gap:2px';
-    preview.candidates.forEach(c=>{
-      const row=document.createElement('div');row.style.cssText='color:var(--t2)';row.textContent=c;
-      plist.appendChild(row);
-    });
-    const pnote=document.createElement('div');
-    pnote.style.cssText='font-size:9px;color:var(--t3);margin-top:4px';
-    pnote.textContent=`Captured from: ${preview.liveUrl||''}  ·  ${preview.domElementCount||0} elements found`;
-    prevEl.appendChild(plist);prevEl.appendChild(pnote);
-    card.appendChild(prevEl);
-  }
-
-  // Bug note (no heal for bugs)
-  if(!canHeal){
-    const bugNote=document.createElement('div');
-    bugNote.style.cssText='margin-top:10px;font-size:10px;color:var(--red);padding:7px 10px;background:rgba(220,38,38,0.05);border-radius:var(--r);border:1px solid rgba(220,38,38,0.15);line-height:1.5';
-    bugNote.innerHTML='Auto-heal cannot fix incorrect application behaviour. This needs a developer to investigate.';
-    card.appendChild(bugNote);
-  }
-
-  w.appendChild(card);
-  const br=document.createElement('div');br.className='brow';
-
-  if(canHeal){
-    const hb=document.createElement('button');hb.className='btn heal';
-    hb.innerHTML='<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M5 1a4 4 0 100 8A4 4 0 005 1" stroke="var(--amber)" stroke-width="1.2" stroke-linecap="round"/><path d="M3.5 5h3M5 3.5v3" stroke="var(--amber)" stroke-width="1.2" stroke-linecap="round"/></svg>Auto-heal selector';
-    hb.onclick=()=>{addMsg('Auto-heal','user');sendAnswer('heal');br.remove()};
-    br.appendChild(hb);
-  }
-
-  // Stop button — always present. For bugs it's the only option.
-  const stb=document.createElement('button');
-  stb.className='btn ghost';
-  stb.textContent=canHeal?'Stop':'Stop & report bug';
-  stb.style.cssText=!canHeal?'border-color:rgba(220,38,38,0.3);color:var(--red)':'';
-  stb.onclick=()=>{addMsg(canHeal?'Stop':'Stop & report bug','user');sendAnswer('stop');br.remove()};
-  br.appendChild(stb);
-
-  w.appendChild(br);
-  const ts=document.createElement('span');ts.className='mts';ts.textContent=now();w.appendChild(ts);
-  msgs.appendChild(w);msgs.scrollTop=msgs.scrollHeight;
+  const C = colorMap[clf.type] || colorMap.UNKNOWN;
+  const preview = d.healPreview;
+  card.innerHTML = `
+    <div class="heal-section" style="background:${C.bg};border:1px solid ${C.border};border-radius:var(--rl)">
+      <div class="heal-header">
+        <div class="heal-dot" style="background:${C.text}"></div>
+        <span class="heal-title" style="color:${C.text}">${C.label}</span>
+      </div>
+      <div class="heal-error" style="background:rgba(0,0,0,0.2);color:var(--t2);border:1px solid rgba(255,255,255,0.05)">${esc(d.error)}</div>
+      ${d.failedStep ? `<div class="heal-step-ctx">Step ${(d.failedIndex||0)+1}: <strong style="color:var(--t2)">${esc(d.failedStep.action)}</strong> ${esc(d.failedStep.selector||d.failedStep.value||'')} &nbsp;·&nbsp; ${d.passedCount||0}/${d.totalSteps||0} steps passed</div>` : ''}
+      <div class="heal-reason" style="background:rgba(0,0,0,0.15);color:${C.text};border:1px solid ${C.border}">${esc(clf.reason||'')}</div>
+      ${canHeal && preview?.candidates?.length ? `
+        <div class="heal-preview-title">⊕ What the system found at the failure page</div>
+        <div class="heal-preview-list">${preview.candidates.map(c=>`<div>${esc(c)}</div>`).join('')}
+          <div class="heal-preview-note">From: ${esc(preview.liveUrl||'')} · ${preview.domElementCount||0} elements</div>
+        </div>` : ''}
+      ${!canHeal ? `<div class="heal-bug-note">Auto-heal cannot fix application behaviour issues. This needs developer investigation.</div>` : ''}
+      <div class="heal-buttons">
+        ${canHeal ? `<button class="hbtn heal" onclick="sendHealAnswer('heal')">⊕ Auto-heal selector</button>` : ''}
+        <button class="hbtn ${canHeal?'stop':'bug'}" onclick="sendHealAnswer('stop')">${canHeal ? 'Stop' : 'Stop & Report Bug'}</button>
+      </div>
+    </div>`;
 }
-function sendAnswer(val){ws.send(JSON.stringify({type:'answer',data:val}));mode='running';lockInput(true);setAgent('running',true)}
-
-function showReport(data){
-  lastReportData=data;const s=data.summary||{};
-  document.getElementById('m-total').textContent=s.total??0;
-  document.getElementById('m-pass').textContent=s.passed??0;
-  document.getElementById('m-fail').textContent=s.failed??0;
-  document.getElementById('m-skip').textContent=s.skipped??0;
-  document.getElementById('m-heal').textContent=s.healed??0;
-  document.getElementById('stats-bar').style.display='block';
-  setBadge(data.status==='success'?'passed':'failed',data.status==='success'?'passed':'failed');
-  setAgent('done');document.getElementById('scen-lbl').style.display='none';
-  allScenarioData=data.scenarios||[];buildDrawerContent(data);saveHistory(data);
-  const msg=data.status==='success'?`${data.type==='regression'?'Regression: ':''}All ${s.total} scenario${s.total>1?'s':''} passed.${s.healed?` (${s.healed} auto-healed)`:''}`:`${s.failed} failed${s.skipped?`, ${s.skipped} skipped`:''}. Click a stat to review.`;
-  addMsg(msg,'agent');resetInput();
+function hideHealCard() { document.getElementById('heal-card').style.display='none'; document.getElementById('heal-card').innerHTML=''; }
+function sendHealAnswer(val) {
+  hideHealCard();
+  ws.send(JSON.stringify({ type: 'heal_answer', data: val }));
 }
 
-function buildDrawerContent(data){
-  const s=data.summary||{},scens=data.scenarios||[];
-  const passedClean=s.passed??0, healedCount=s.healed??0;
-  const completedCount=passedClean+healedCount;
-  const pct=s.total>0?Math.round((completedCount/s.total)*100):0;
-  document.getElementById('dsdot').style.background=s.failed===0?'var(--green)':s.failed>0?'var(--red)':'var(--amber)';
-  document.getElementById('dtitle').textContent=data.type==='regression'?'Regression Report':'Test Report';
+// ── Log ───────────────────────────────────────────────────────────────────────
+function addLog(text, level='info') {
+  if (!text?.trim()) return;
+  const s = document.getElementById('log-stream');
+  const el = document.createElement('div');
+  if (level === 'phase') { el.className='lphase'; el.textContent=text; }
+  else { el.className='lrow'; el.innerHTML=`<span class="lts">${now()}</span><span class="ltxt ${level}">${esc(text)}</span>`; }
+  s.appendChild(el); s.scrollTop = s.scrollHeight;
+}
 
-  // ── Pass % pill ───────────────────────────────────────────────────────────
-  const pr=document.getElementById('dprate');
-  if(s.total>1){pr.textContent=`${pct}% passed`;pr.style.display=''}
+// ── Report ────────────────────────────────────────────────────────────────────
+function showReport(data) {
+  lastReportData = data; const s = data.summary || {};
+  document.getElementById('m-total').textContent  = s.total  ?? 0;
+  document.getElementById('m-pass').textContent   = s.passed ?? 0;
+  document.getElementById('m-fail').textContent   = s.failed ?? 0;
+  document.getElementById('m-skip').textContent   = s.skipped ?? 0;
+  document.getElementById('m-heal').textContent   = s.healed ?? 0;
+  document.getElementById('stats-bar').style.display = 'block';
+  const badge = document.getElementById('exec-state-badge');
+  badge.textContent = data.status === 'success' ? 'passed' : 'failed';
+  badge.className = data.status === 'success' ? (s.healed ? 'healed' : 'passed') : 'failed';
+  allScenarioData = data.scenarios || [];
+  buildDrawer(data);
+}
 
-  // ── SVG donut ring ────────────────────────────────────────────────────────
-  const rb=document.getElementById('rbar-wrap');
-  if(s.total>1){
-    rb.style.display='block';
-    const ringColor=pct===100?'var(--green)':pct>=50?'var(--amber)':'var(--red)';
-    const r=14,circ=2*Math.PI*r,dash=circ*(pct/100),gap=circ-dash;
-    rb.innerHTML=`
-      <div style="display:flex;align-items:center;gap:18px;padding:4px 0">
-        <svg width="40" height="40" viewBox="0 0 40 40">
-          <circle cx="20" cy="20" r="${r}" fill="none" stroke="var(--border)" stroke-width="4"/>
-          <circle cx="20" cy="20" r="${r}" fill="none" stroke="${ringColor}" stroke-width="4"
-            stroke-dasharray="${dash.toFixed(2)} ${gap.toFixed(2)}"
-            stroke-dashoffset="${(circ*0.25).toFixed(2)}" stroke-linecap="round"
-            style="transition:stroke-dasharray 0.7s ease"/>
-          <text x="20" y="24" text-anchor="middle" font-size="9" font-weight="700" fill="${ringColor}" font-family="var(--mono)">${pct}%</text>
-        </svg>
-        <div style="display:flex;gap:16px;font-size:11px">
-          ${passedClean?`<span><span style="font-weight:700;color:var(--green)">${passedClean}</span> <span style="color:var(--t3)">passed</span></span>`:''}
-          ${healedCount?`<span><span style="font-weight:700;color:var(--amber)">${healedCount}</span> <span style="color:var(--t3)">healed</span></span>`:''}
-          ${s.failed?`<span><span style="font-weight:700;color:var(--red)">${s.failed}</span> <span style="color:var(--t3)">failed</span></span>`:''}
-          ${s.skipped?`<span><span style="font-weight:700;color:var(--t2)">${s.skipped}</span> <span style="color:var(--t3)">skipped</span></span>`:''}
-        </div>
-      </div>`;
-  }
-
-  const counts={all:scens.length,passed:scens.filter(r=>r.result?.status==='success'&&!r.healCount).length,failed:scens.filter(r=>r.result?.status==='failed').length,skipped:scens.filter(r=>r.result?.status==='skipped').length,healed:scens.filter(r=>r.healCount>0).length};
-  document.querySelectorAll('.tab').forEach(b=>{const t=b.dataset.tab;const n=counts[t]??0;b.textContent=t.charAt(0).toUpperCase()+t.slice(1)+(n>0?` (${n})`:'')}); 
+function buildDrawer(data) {
+  const s = data.summary || {};
+  const passedClean = s.passed ?? 0, healed = s.healed ?? 0;
+  const pct = s.total > 0 ? Math.round(((passedClean+healed)/s.total)*100) : 0;
+  document.getElementById('dsdot').style.background = s.failed===0 ? 'var(--green)' : 'var(--red)';
+  document.getElementById('dtitle').textContent = data.type==='regression' ? 'Regression Report' : 'Test Report';
+  document.getElementById('dpct').textContent = s.total>1 ? `${pct}% passed` : '';
+  const counts = { all:allScenarioData.length, passed:allScenarioData.filter(r=>r.result?.status==='success'&&!r.healCount).length, failed:allScenarioData.filter(r=>r.result?.status==='failed').length, skipped:allScenarioData.filter(r=>r.result?.status==='skipped').length, healed:allScenarioData.filter(r=>r.healCount>0).length };
+  document.querySelectorAll('.dtab').forEach(b => { const t=b.dataset.tab; const n=counts[t]??0; b.textContent=t.charAt(0).toUpperCase()+t.slice(1)+(n>0?` (${n})`:''); });
   renderDrawerTab('all');
 }
 
-function renderDrawerTab(tab){
-  currentTab=tab;
-  document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
-  const content=document.getElementById('dcontent');content.innerHTML='';
-  let items=allScenarioData;
-  if(tab==='passed')items=allScenarioData.filter(r=>r.result?.status==='success'&&!r.healCount);
-  if(tab==='failed')items=allScenarioData.filter(r=>r.result?.status==='failed');
-  if(tab==='skipped')items=allScenarioData.filter(r=>r.result?.status==='skipped');
-  if(tab==='healed')items=allScenarioData.filter(r=>r.healCount>0);
-  if(!items.length){content.innerHTML=`<p style="color:var(--t3);font-size:12px;text-align:center;padding:32px 0">No ${tab==='all'?'':tab+' '}scenarios</p>`;return}
-  const multi=new Set(items.map(r=>r.scenario?.module)).size>1;
-  if(multi){const bm={};items.forEach(r=>{const m=r.scenario?.module||'general';(bm[m]=bm[m]||[]).push(r)});Object.entries(bm).forEach(([mod,arr])=>{const h=document.createElement('div');h.className='mod-hdr';h.textContent=mod;content.appendChild(h);arr.forEach(r=>content.appendChild(buildBlock(r)))})}
-  else items.forEach(r=>content.appendChild(buildBlock(r)));
+function renderDrawerTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.dtab').forEach(b => b.classList.toggle('active', b.dataset.tab===tab));
+  const content = document.getElementById('dcontent'); content.innerHTML = '';
+  let items = allScenarioData;
+  if (tab==='passed')  items = allScenarioData.filter(r=>r.result?.status==='success'&&!r.healCount);
+  if (tab==='failed')  items = allScenarioData.filter(r=>r.result?.status==='failed');
+  if (tab==='skipped') items = allScenarioData.filter(r=>r.result?.status==='skipped');
+  if (tab==='healed')  items = allScenarioData.filter(r=>r.healCount>0);
+  if (!items.length) { content.innerHTML=`<p style="color:var(--t3);font-size:12px;text-align:center;padding:32px 0">No ${tab==='all'?'':tab+' '}scenarios</p>`; return; }
+  // Group by module if multi-module
+  const multi = new Set(items.map(r=>r.scenario?.module)).size>1;
+  if (multi) {
+    const bm={};items.forEach(r=>{const m=r.scenario?.module||'general';(bm[m]=bm[m]||[]).push(r);});
+    Object.entries(bm).forEach(([mod,arr])=>{const h=document.createElement('div');h.className='mod-hdr-row';h.textContent=mod;content.appendChild(h);arr.forEach(r=>content.appendChild(buildBlock(r)));});
+  } else { items.forEach(r=>content.appendChild(buildBlock(r))); }
 }
 
-function buildBlock({scenario,result,healCount=0,healMeta=null}){
-  const status=result?.status,passed=status==='success',skipped=status==='skipped',steps=result?.results||[];
+function buildBlock({ scenario, result, healCount=0, healMeta=null }) {
+  const status=result?.status, passed=status==='success', skipped=status==='skipped', steps=result?.results||[];
   const dotC=passed?'var(--green)':skipped?'var(--t3)':'var(--red)';
-  const badC=passed?'pass':skipped?'skip':'fail',badT=passed?'PASS':skipped?'SKIP':'FAIL';
-
-  const block=document.createElement('div');block.className='scb';
-  const hdr=document.createElement('div');hdr.className='sch';
-  hdr.style.borderRadius=steps.length>0?'var(--rl) var(--rl) 0 0':'var(--rl)';
-
-  const dot=document.createElement('div');dot.className='scdot';dot.style.background=dotC;
-  const name=document.createElement('span');name.className='scname';name.textContent=scenario?.name||'Scenario';
-  const badge=document.createElement('span');badge.className=`scbadge ${badC}`;badge.textContent=badT;
-  hdr.appendChild(dot);hdr.appendChild(name);
-
-  if(healCount>0){const hb=document.createElement('span');hb.className='scheal-badge';hb.textContent=`${healCount} healed`;hdr.appendChild(hb)}
-  if(skipped){const sb=document.createElement('span');sb.style.cssText='font-size:10px;color:var(--t3);background:var(--surface2);padding:2px 7px;border-radius:4px;border:1px solid var(--border)';sb.textContent='no plan';hdr.appendChild(sb)}
+  const badC=passed?'pass':skipped?'skip':'fail', badT=passed?'PASS':skipped?'SKIP':'FAIL';
+  const block=document.createElement('div'); block.className='scb';
+  const hdr=document.createElement('div'); hdr.className='sch';
+  const dot=document.createElement('div'); dot.className='scdot'; dot.style.background=dotC;
+  const name=document.createElement('span'); name.className='scname'; name.textContent=scenario?.name||'Scenario';
+  const badge=document.createElement('span'); badge.className=`scbadge ${badC}`; badge.textContent=badT;
+  hdr.appendChild(dot); hdr.appendChild(name);
+  if(healCount>0){const hb=document.createElement('span');hb.className='scheal';hb.textContent=`${healCount} healed`;hdr.appendChild(hb);}
   hdr.appendChild(badge);
-
-  if(steps.length>0){
-    const chev=document.createElement('span');chev.className='scchev open';chev.textContent='›';hdr.appendChild(chev);
+  if (steps.length>0) {
+    const chev=document.createElement('span');chev.style.cssText='color:var(--t3);font-size:14px;transition:transform 0.2s;margin-left:4px';chev.textContent='›';chev.id=`ch-${scenario?.id}`;hdr.appendChild(chev);
     block.appendChild(hdr);
-
-    const table=document.createElement('div');table.className='sctable';
+    const table=document.createElement('div'); table.className='sctable';
     steps.forEach((r,i)=>{
       const ok=r.status==='success';
       const row=document.createElement('div');row.className='scrow';
       row.innerHTML=`<span class="scrn">${i+1}</span><div class="scrd" style="background:${ok?'var(--green)':'var(--red)'}"></div><span class="scra">${esc(r.step?.action||'')}</span><span class="scrt">${esc(r.step?.selector||r.step?.value||'')}</span><span class="scrs" style="color:${ok?'var(--green)':'var(--red)'}">${ok?'pass':'fail'}</span>`;
       table.appendChild(row);
-      if(!ok&&r.error){const er=document.createElement('div');er.className='scre';er.textContent=r.error;table.appendChild(er)}
+      if(!ok&&r.error){const er=document.createElement('div');er.className='scre';er.textContent=r.error;table.appendChild(er);}
     });
     block.appendChild(table);
-
-    // ── Enhanced heal diff ───────────────────────────────────────────────────
-    if(healCount>0){
-      const hs=document.createElement('div');hs.className='sc-heal';
-      const hm=healMeta||{};const diff=hm.diff||pendingHealDiff;
-      hs.innerHTML=`<div class="heal-hdr"><div class="heal-ico"><svg width="9" height="9" viewBox="0 0 9 9" fill="none"><path d="M4.5 1a3.5 3.5 0 100 7 3.5 3.5 0 000-7" stroke="var(--amber)" stroke-width="1.1" stroke-linecap="round"/><path d="M3 4.5h3M4.5 3v3" stroke="var(--amber)" stroke-width="1.1" stroke-linecap="round"/></svg></div><span class="heal-ttl">Auto-heal applied</span><span class="heal-meta">${diff&&diff.changes?.length?`${diff.changes.length} change${diff.changes.length!==1?'s':''}`:hm.fixedStep?'1 step fixed':''}</span></div>`;
-      const dw=document.createElement('div');dw.className='heal-diff';
-
-      if(diff&&diff.changes&&diff.changes.length>0){
-        const dl=document.createElement('div');dl.className='diff-lbl';dl.textContent='Plan diff';dw.appendChild(dl);
-        diff.changes.forEach(ch=>{
-          const r=document.createElement('div');r.className=`dr ${ch.type}`;
-          const m=document.createElement('span');m.className=`dm ${ch.type}`;m.textContent=ch.type==='added'?'+':ch.type==='removed'?'−':'~';
-          const c=document.createElement('div');c.className='dc';
-          if(ch.type==='changed'){c.innerHTML=`<div class="dci" style="color:var(--amber)">Step ${ch.index+1} changed</div><div class="dbefore">${esc(ch.original.action)} ${esc(ch.original.selector||ch.original.value||'')}</div><div class="dafter">${esc(ch.healed.action)} ${esc(ch.healed.selector||ch.healed.value||'')}</div>`}
-          else if(ch.type==='added'){c.innerHTML=`<div class="dci" style="color:var(--green)">Step ${ch.index+1} added</div><div class="dafter">${esc(ch.step.action)} ${esc(ch.step.selector||ch.step.value||'')}</div>`}
-          else{c.innerHTML=`<div class="dci" style="color:var(--red)">Step ${ch.index+1} removed</div><div class="dbefore">${esc(ch.step.action)} ${esc(ch.step.selector||ch.step.value||'')}</div>`}
-          r.appendChild(m);r.appendChild(c);dw.appendChild(r);
-        });
-      } else {
-        const dl=document.createElement('div');dl.className='diff-lbl';dl.textContent='Fix applied';dw.appendChild(dl);
-        if(hm.failedStep){const r=document.createElement('div');r.className='dr removed';r.innerHTML=`<span class="dm removed">−</span><div class="dc"><div class="dci" style="color:var(--red)">Original (failed)</div><div class="dbefore">${esc(hm.failedStep.action)} ${esc(hm.failedStep.selector||hm.failedStep.value||'')}</div></div>`;dw.appendChild(r)}
-        if(hm.fixedStep){const r=document.createElement('div');r.className='dr added';r.innerHTML=`<span class="dm added">+</span><div class="dc"><div class="dci" style="color:var(--green)">Healed (working)</div><div class="dafter">${esc(hm.fixedStep.action)} ${esc(hm.fixedStep.selector||hm.fixedStep.value||'')}</div></div>`;dw.appendChild(r)}
+    // Heal diff
+    if (healCount>0) {
+      const diff=healMeta?.diff||pendingDiff;
+      if(diff?.changes?.length){
+        const hd=document.createElement('div');hd.className='hdiff';
+        hd.innerHTML=`<div class="hdiff-title">Auto-heal diff &middot; ${diff.changes.length} change${diff.changes.length!==1?'s':''}</div>`;
+        diff.changes.forEach(ch=>{const r=document.createElement('div');r.className=`dr ${ch.type}`;const m=document.createElement('span');m.className=`dm ${ch.type}`;m.textContent=ch.type==='added'?'+':ch.type==='removed'?'−':'~';const c=document.createElement('div');c.style.cssText='flex:1;font-size:10px';if(ch.type==='changed')c.innerHTML=`<div class="dbefore">${esc(ch.original.action)} ${esc(ch.original.selector||ch.original.value||'')}</div><div class="dafter">${esc(ch.healed.action)} ${esc(ch.healed.selector||ch.healed.value||'')}</div>`;else if(ch.type==='added')c.innerHTML=`<div class="dafter">+ ${esc(ch.step.action)} ${esc(ch.step.selector||ch.step.value||'')}</div>`;else c.innerHTML=`<div class="dbefore">- ${esc(ch.step.action)} ${esc(ch.step.selector||ch.step.value||'')}</div>`;r.appendChild(m);r.appendChild(c);hd.appendChild(r);});
+        block.appendChild(hd);
       }
-      hs.appendChild(dw);block.appendChild(hs);
     }
-
     let expanded=true;
-    hdr.addEventListener('click',()=>{
-      expanded=!expanded;table.style.display=expanded?'':'none';
-      const hs2=block.querySelector('.sc-heal');if(hs2)hs2.style.display=expanded?'':'none';
-      block.querySelector('.scchev').classList.toggle('open',expanded);
-      hdr.style.borderRadius=expanded?'var(--rl) var(--rl) 0 0':'var(--rl)';
-    });
-  } else {block.appendChild(hdr)}
+    hdr.addEventListener('click',()=>{expanded=!expanded;table.style.display=expanded?'':'none';const hd=block.querySelector('.hdiff');if(hd)hd.style.display=expanded?'':'none';const cv=block.querySelector('[id^="ch-"]');if(cv)cv.style.transform=expanded?'':'rotate(-90deg)';});
+  } else { block.appendChild(hdr); }
   return block;
 }
 
-function switchTab(tab){renderDrawerTab(tab)}
-function openDrawer(tab='all'){if(!allScenarioData.length)return;renderDrawerTab(tab);document.getElementById('dbackdrop').style.display='block';document.getElementById('drawer').classList.add('open');drawerOpen=true}
-function closeDrawer(){document.getElementById('drawer').classList.remove('open');document.getElementById('dbackdrop').style.display='none';drawerOpen=false}
+function switchTab(tab) { renderDrawerTab(tab); }
+function openDrawer(tab='all') { if(!allScenarioData.length)return; renderDrawerTab(tab); document.getElementById('dbackdrop').style.display='block'; document.getElementById('drawer').classList.add('open'); }
+function closeDrawer() { document.getElementById('drawer').classList.remove('open'); document.getElementById('dbackdrop').style.display='none'; }
 
-function exportReport(){
+function exportReport() {
   if(!lastReportData)return;
   const ts=new Date().toISOString().replace(/[:.]/g,'-').slice(0,19);
   const blob=new Blob([JSON.stringify(lastReportData,null,2)],{type:'application/json'});
-  const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`qa-sentinel-${ts}.json`;a.click();URL.revokeObjectURL(url);toast('Report exported');
+  const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`qa-sentinel-${ts}.json`;a.click();URL.revokeObjectURL(url);toast('Exported');
 }
-function copyReport(){
+function copyReport() {
   if(!lastReportData)return;
-  const s=lastReportData.summary||{};const passedClean=s.passed??0, healedCount=s.healed??0;
-  const completedCount=passedClean+healedCount;
-  const pct=s.total>0?Math.round((completedCount/s.total)*100):0;
-  const lines=[`QA Sentinel — ${new Date().toLocaleString()}`,`Pass rate: ${pct}% (${s.passed}/${s.total})`,`Passed: ${s.passed}  Failed: ${s.failed}  Skipped: ${s.skipped}  Healed: ${s.healed}`,'',...(lastReportData.scenarios||[]).map(r=>`${r.result?.status==='success'?'✓':r.result?.status==='skipped'?'○':'✗'} ${r.scenario?.name} [${r.scenario?.module}]${r.healCount?` (healed ×${r.healCount})`:''}`)];
-  navigator.clipboard.writeText(lines.join('\n'));toast('Copied to clipboard');
+  const s=lastReportData.summary||{};
+  const lines=[`QA Sentinel — ${new Date().toLocaleString()}`,`${s.passed}/${s.total} passed (${s.healed} healed, ${s.failed} failed)`,'',...(lastReportData.scenarios||[]).map(r=>`${r.result?.status==='success'?'✓':r.result?.status==='skipped'?'○':'✗'} ${r.scenario?.name} [${r.scenario?.module}]${r.healCount?` (healed×${r.healCount})`:''}`).join('\n')];
+  navigator.clipboard.writeText(lines.join('\n'));toast('Copied');
 }
 
-function toast(msg){const t=document.createElement('div');t.className='toast';t.textContent=msg;document.body.appendChild(t);setTimeout(()=>t.remove(),2200)}
-
-function saveHistory(data){
-  testHistory.unshift({id:Date.now(),ts:new Date().toLocaleString(),type:data.type||'single',status:data.status,summary:data.summary,data});
-  if(testHistory.length>20)testHistory=testHistory.slice(0,20);
-  try{localStorage.setItem('qa_sentinel_h',JSON.stringify(testHistory))}catch{}renderHistory();
+// ── State & utils ─────────────────────────────────────────────────────────────
+function setAgentState(state) {
+  const dot=document.getElementById('status-dot'), lbl=document.getElementById('status-label');
+  const map={idle:{c:'var(--green)',l:'idle',cls:''},thinking:{c:'var(--amber)',l:'thinking',cls:'busy'},running:{c:'var(--sky)',l:'running',cls:'running'}};
+  const s=map[state]||map.idle;
+  dot.style.background=s.c; dot.className='status-dot '+s.cls; lbl.textContent=s.l;
 }
-function renderHistory(){
-  const list=document.getElementById('hlist');list.innerHTML='';
-  if(!testHistory.length){list.innerHTML='<p style="color:var(--t3);font-size:11px;text-align:center;padding:24px 0">No runs yet</p>';return}
-  testHistory.forEach(e=>{
-    const s=e.summary||{};const passedClean=s.passed??0, healedCount=s.healed??0;
-  const completedCount=passedClean+healedCount;
-  const pct=s.total>0?Math.round((completedCount/s.total)*100):0;
-    const color=e.status==='success'?'var(--green)':'var(--red)';
-    const card=document.createElement('div');card.className='hcard';
-    card.innerHTML=`<div class="htop"><div style="width:6px;height:6px;border-radius:50%;background:${color};flex-shrink:0"></div><span class="htype">${e.type==='regression'?'Regression':'Module test'}</span><span class="hpct" style="color:${color}">${pct}%</span></div><div class="hts">${e.ts}</div><div class="hstats"><span style="color:var(--green)">${s.passed||0} pass</span><span style="color:var(--red)">${s.failed||0} fail</span>${s.skipped?`<span style="color:var(--t3)">${s.skipped} skip</span>`:''} ${s.healed?`<span style="color:var(--amber)">${s.healed} healed</span>`:''}</div>`;
-    card.onclick=()=>{allScenarioData=e.data.scenarios||[];lastReportData=e.data;buildDrawerContent(e.data);toggleHistory();openDrawer('all')};
-    list.appendChild(card);
-  });
+function resetExec() {
+  document.getElementById('log-stream').innerHTML='';
+  document.getElementById('plan-section').style.display='none';
+  document.getElementById('plan-inner').innerHTML='';
+  document.getElementById('plan-cnt').textContent='0 steps';
+  document.getElementById('stats-bar').style.display='none';
+  document.getElementById('exec-scenario-name').textContent='Running...';
+  document.getElementById('exec-state-badge').className='running'; document.getElementById('exec-state-badge').textContent='running';
+  hideHealCard(); pendingDiff=null;
+  if(document.getElementById('drawer').classList.contains('open'))closeDrawer();
 }
-function toggleHistory(){const p=document.getElementById('hpanel'),b=document.getElementById('hbackdrop'),open=p.classList.contains('open');p.classList.toggle('open',!open);b.style.display=open?'none':'block'}
-function clearHistory(){testHistory=[];try{localStorage.removeItem('qa_sentinel_h')}catch{}renderHistory()}
-
-function resetExec(){
-  document.getElementById('log-stream').innerHTML='';document.getElementById('plan-section').style.display='none';
-  document.getElementById('plan-inner').innerHTML='';document.getElementById('plan-cnt').textContent='0 steps';
-  document.getElementById('stats-bar').style.display='none';document.getElementById('dprate').style.display='none';
-  document.getElementById('rbar-wrap').style.display='none';planOpen=true;if(drawerOpen)closeDrawer();
-}
-function setBadge(text,cls=''){const b=document.getElementById('exec-badge');b.textContent=text;b.className=cls;b.id='exec-badge'}
-function setAgent(state,busy=false){
-  document.getElementById('state-lbl').textContent=state;
-  const dot=document.getElementById('status-dot');
-  dot.style.background=busy?'var(--amber)':'var(--green)';
-  busy?dot.classList.add('blk'):dot.classList.remove('blk');
-}
-const SM={IDLE:{l:'ready',c:'var(--green)',b:false},GATHERING_CONTEXT:{l:'scanning',c:'var(--amber)',b:true},PLANNING:{l:'planning',c:'var(--accent)',b:true},EXECUTING:{l:'running',c:'var(--sky)',b:true}};
-function setStateBadge(state){
-  const s=SM[state]||SM.IDLE;
-  document.getElementById('state-lbl').textContent=s.l;
-  const dot=document.getElementById('status-dot');dot.style.background=s.c;
-  s.b?dot.classList.add('blk'):dot.classList.remove('blk');
-  const eb=document.getElementById('exec-badge');
-  if(state==='EXECUTING'){eb.textContent='running';eb.className='running';eb.id='exec-badge'}
-  else if(state==='IDLE'){eb.textContent='idle';eb.className='';eb.id='exec-badge'}
-}
-function resetInput(){mode='prompt';lockInput(false)}
-renderHistory();
+function now(){const d=new Date();return`${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`;}
+function esc(s){return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function toast(msg){const t=document.createElement('div');t.className='toast';t.textContent=msg;document.body.appendChild(t);setTimeout(()=>t.remove(),2200);}
 </script>
 </body>
 </html>
