@@ -83,3 +83,27 @@ export function saveToMemory(plan) {
 
   fs.writeFileSync(memoryPath, JSON.stringify(memory, null, 2));
 }
+
+export function listMemory() {
+  const memoryPath = path.join(process.cwd(), 'memory.json');
+  if (!fs.existsSync(memoryPath)) return [];
+  try {
+    const memory = JSON.parse(fs.readFileSync(memoryPath, 'utf8'));
+    return Object.values(memory);
+  } catch (e) {
+    return [];
+  }
+}
+
+export function repairMemory() {
+  const memoryPath = path.join(process.cwd(), 'memory.json');
+  if (!fs.existsSync(memoryPath)) return;
+
+  let memory = {};
+  try {
+    memory = JSON.parse(fs.readFileSync(memoryPath, 'utf8'));
+  } catch (e) { return; }
+
+  // We can implement any repair logic here. For now, we just rewrite it to ensure consistent formatting.
+  fs.writeFileSync(memoryPath, JSON.stringify(memory, null, 2));
+}

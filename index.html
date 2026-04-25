@@ -35,7 +35,7 @@
 html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--sans);color:var(--t1);font-size:13px;-webkit-font-smoothing:antialiased}
 
 /* ── Layout ─────────────────────────────────────────────────────────────── */
-#root{display:grid;grid-template-columns:260px 1fr 380px;grid-template-rows:48px 1fr;height:100vh;background:var(--bg)}
+#root{display:grid;grid-template-columns:350px 1fr 350px;grid-template-rows:48px 1fr;height:100vh;background:var(--bg)}
 
 /* ── Top bar ─────────────────────────────────────────────────────────────── */
 #topbar{grid-column:1/-1;display:flex;align-items:center;gap:0;border-bottom:1px solid var(--border);background:var(--surface);padding:0 16px;height:48px}
@@ -131,7 +131,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--san
 .mod-run-all{padding:4px 12px;border-radius:var(--r);background:var(--accent);border:none;color:#fff;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;transition:background 0.15s;flex-shrink:0}
 .mod-run-all:hover{background:var(--accent-h)}
 .mod-scenarios{padding:8px 10px}
-.scen-row{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:var(--r);cursor:pointer;transition:background 0.1s;group:true}
+.scen-row{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:var(--r);cursor:pointer;transition:background 0.1s;}
 .scen-row:hover{background:var(--surface2)}
 .scen-dot{width:6px;height:6px;border-radius:50%;background:var(--border2);flex-shrink:0;transition:background 0.15s}
 .scen-row:hover .scen-dot{background:var(--accent)}
