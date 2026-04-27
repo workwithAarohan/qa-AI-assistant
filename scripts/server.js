@@ -12,7 +12,7 @@ import dotenv from 'dotenv';
 import fs from 'fs';
 dotenv.config();
 
-import { generateAllScenarioSteps, fixSteps } from './agent.js';
+import { think, generateAllScenarioSteps, fixSteps, recordOutcome, recordHeal, recordFailure } from './agent.js';
 import { runSteps } from './executor.js';
 import { validatePlan } from './validator.js';
 import { saveToMemory, findSimilarPlan, listMemory, repairMemory } from './memory.js';
@@ -21,6 +21,8 @@ import { captureBrowserContext } from './browser-context.js';
 import { classifyFailure, DECISION_META } from './failure-classifier.js';
 import { guardCheck, IDENTITY_ANCHOR } from './guard.js';
 import { generate as llm } from './llm.js';
+import { runScenario as runWithRunner, getRunners } from './runners/runner-orchestrator.js';
+import mockApiRouter from './mock-api.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -55,8 +57,14 @@ function loadModulesForApp(app) {
 // ── Per-connection state ──────────────────────────────────────────────────────
 const connState = new WeakMap();
 function getState(ws) {
-  if (!connState.has(ws)) connState.set(ws, { currentApp: loadApps()[0], lastRun: null });
+  if (!connState.has(ws)) connState.set(ws, { currentApp: loadApps()[0], lastRun: null, history: [] });
   return connState.get(ws);
+}
+
+// Add a turn to conversation history — keep last 5 only
+function pushHistory(st, role, text) {
+  st.history.push({ role, text: text.slice(0, 300) });
+  if (st.history.length > 10) st.history = st.history.slice(-10);
 }
 
 // ── Express ───────────────────────────────────────────────────────────────────
@@ -86,6 +94,16 @@ app.delete('/api/memory/:mod/:scen', (req, res) => {
   } catch(e) { res.status(500).json({error:e.message}); }
 });
 app.post('/api/memory/repair', (_, res) => { try { res.json(repairMemory()); } catch(e) { res.status(500).json({error:e.message}); }});
+
+// ── DataApp mock API ──────────────────────────────────────────────────────────
+app.use('/api/dataapp', mockApiRouter);
+
+// ── DataApp HTML pages ────────────────────────────────────────────────────────
+app.get('/dataapp/tables',     (_, r) => r.sendFile(path.join(ROOT, 'public', 'dataapp-tables.html')));
+app.get('/dataapp/validation', (_, r) => r.sendFile(path.join(ROOT, 'public', 'dataapp-validation.html')));
+
+// ── Runner metadata REST ──────────────────────────────────────────────────────
+app.get('/api/runners', (_, res) => res.json(getRunners()));
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const send  = (ws, type, data) => { if (ws.readyState === 1) ws.send(JSON.stringify({ type, data })); };
@@ -173,7 +191,7 @@ async function getPlan(scenario, app) {
 }
 
 // ── Execute one scenario ──────────────────────────────────────────────────────
-async function executeScenario(ws, plan, scenario, baseUrl, browser) {
+async function executeScenario(ws, plan, scenario, baseUrl, browser, appId = 'default') {
   const finalPlan = injectUrl(plan, baseUrl);
   send(ws, 'execution_plan', { ...finalPlan, scenarioId: scenario.id });
   let liveDom = null, liveUrl = null;
@@ -236,6 +254,10 @@ async function executeScenario(ws, plan, scenario, baseUrl, browser) {
         log(ws, 'Heal succeeded ✓', 'success');
         saveToMemory(fixedPlan);
         healMeta = { failedStep: failedSR?.step??null, failedIndex: fi, fixedStep: fixedPlan.steps[fi]??null, diff, classification: clf };
+        // Record heal outcome in learning memory
+        if (failedSR?.step?.selector && fixedPlan.steps[fi]?.selector) {
+          recordHeal(appId, failedSR.step.selector, fixedPlan.steps[fi].selector, scenario.module);
+        }
       } else {
         log(ws, 'Heal also failed.', 'error');
         send(ws, 'heal_failed', { error: result.error, classification: clf });
@@ -250,86 +272,6 @@ async function executeScenario(ws, plan, scenario, baseUrl, browser) {
   }
 
   return { result, healCount, healMeta };
-}
-
-// ── Chat intent ───────────────────────────────────────────────────────────────
-const POST_RUN_P = [/\b(why|what|how|explain|root cause).*(fail|broke|error|issue|wrong)\b/i,/\b(what|how).*(heal|fix|change)\b/i,/\bstep \d+\b/i,/\b(last|previous).*(run|test|result)\b/i,/\b(what changed|what happened)\b/i];
-const DISCOVER_P = [/\b(what|list|show|tell).*(module|scenario|test|can (i|we) test)\b/i,/\b(describe|explain|about).*(module|login|dashboard|profile|project|navigation)\b/i,/\b(what scenarios?|which tests?|how (do|can) (i|we) test)\b/i];
-const BUILD_P    = [/\b(create|add|build|generate|make).*(test|scenario|flow)\b/i,/\b(custom test|new scenario|test that)\b/i];
-
-async function classifyChat(text, hasLastRun, docs) {
-  const l = text.toLowerCase().trim();
-  if (POST_RUN_P.some(p=>p.test(l)) && hasLastRun) return 'POST_RUN';
-  if (DISCOVER_P.some(p=>p.test(l))) return 'DISCOVER';
-  if (BUILD_P.some(p=>p.test(l))) return 'BUILD';
-  if (/^(hi|hello|hey)\b/.test(l)) return 'GREET';
-
-  const prompt = `${IDENTITY_ANCHOR}
-User: "${text}"
-Modules: ${docs.map(d=>d.name).join(', ')}
-Has recent test run: ${hasLastRun}
-Classify into ONE: DISCOVER | POST_RUN | BUILD | GREET | OUT_OF_SCOPE
-Return only the word.`;
-  try {
-    const r = await llm(prompt, { maxAttempts: 1 });
-    const t = r.response.text().trim().toUpperCase();
-    if (['DISCOVER','POST_RUN','BUILD','GREET','OUT_OF_SCOPE'].includes(t)) return t;
-  } catch {}
-  return 'DISCOVER';
-}
-
-function discoverReply(text, app, docs) {
-  const l = text.toLowerCase();
-  const matched = docs.find(d => l.includes(d.name.toLowerCase()));
-  if (matched) {
-    const sec = matched.content.match(/##\s*Test Scenarios\s*\n([\s\S]*?)(?=\n##|$)/i);
-    const scenes = sec ? sec[1].trim().split('\n').map(line => { const m=line.match(/[-*]\s*([a-z_]+):\s*(.+)/i); return m?`• **${m[1].replace(/_/g,' ')}** — ${m[2].trim()}`:null; }).filter(Boolean) : [];
-    const desc = matched.content.match(/##\s*Description\s*\n([\s\S]*?)(?=\n##|$)/i)?.[1]?.trim().split('\n')[0]||'';
-    const url  = matched.content.match(/##\s*URL\s*\n(https?:\/\/[^\s]+)/i)?.[1]||'';
-    return `**${matched.name.charAt(0).toUpperCase()+matched.name.slice(1)}**${url?` — ${url}`:''}\n${desc?desc+'\n':''}\n${scenes.length?'Scenarios:\n'+scenes.join('\n')+'\n\nUse the dashboard to run any scenario.':'No scenarios documented yet.'}`;
-  }
-  const list = docs.map(d => { const s=d.content.match(/##\s*Test Scenarios\s*\n([\s\S]*?)(?=\n##|$)/i); const n=s?(s[1].match(/[-*]\s*[a-z_]+:/gi)||[]).length:0; return `• **${d.name}** — ${n} scenario${n!==1?'s':''}`; }).join('\n');
-  return `**${app.name}** has ${docs.length} modules:\n\n${list}\n\nAsk about any module, or run tests from the dashboard.`;
-}
-
-async function postRunReply(text, lastRun) {
-  if (!lastRun) return "No test run yet. Run a test from the dashboard first.";
-  const { scenarios=[], summary={} } = lastRun;
-  const detail = scenarios.map(s => {
-    const failed = (s.result?.results||[]).find(r=>r.status==='failed');
-    return [`${s.scenario?.name} [${s.scenario?.module}] — ${(s.result?.status||'unknown').toUpperCase()}`, failed?`  Failed step ${s.result.results.indexOf(failed)+1}: ${failed.step?.action} ${failed.step?.selector||''} — ${failed.error||''}`:null, s.healCount>0?`  Healed: ${s.healMeta?.fixedStep?.selector||'updated'}`:null].filter(Boolean).join('\n');
-  }).join('\n\n');
-  const prompt = `${IDENTITY_ANCHOR}
-Question: "${text}"
-Last run: Total ${summary.total} | Passed ${summary.passed} | Failed ${summary.failed} | Healed ${summary.healed}
-${detail}
-Answer in 2-4 sentences. Be specific and direct. No filler.`;
-  try { const r = await llm(prompt,{maxAttempts:1}); return r.response.text().trim(); } catch {
-    return `Last run: ${summary.total} total — ${summary.passed} passed, ${summary.failed} failed, ${summary.healed} healed.`;
-  }
-}
-
-async function buildScenario(text, app, docs) {
-  const docCtx = docs.map(d=>`### ${d.name}\n${d.content}`).join('\n\n').slice(0,3000);
-  const prompt = `${IDENTITY_ANCHOR}
-User wants a custom test: "${text}"
-App: ${app.name} (${app.baseUrl})
-Docs:\n${docCtx}
-Return ONLY valid JSON:
-{"name":"short name","description":"one sentence","module":"module_name","id":"snake_case_id","steps":[{"action":"navigate","value":"http://..."},{"action":"type","selector":"#id","value":"text"},{"action":"click","selector":"#id"},{"action":"expect","selector":"#id"}]}`;
-  try {
-    const r = await llm(prompt,{maxAttempts:1});
-    const txt = r.response.text().replace(/```json|```/g,'').trim();
-    const match = txt.match(/\{[\s\S]*\}/);
-    if (match) {
-      const plan = JSON.parse(match[0]);
-      plan.module   = plan.module   || 'custom';
-      plan.scenario = plan.id       || plan.name.toLowerCase().replace(/\s+/g,'_');
-      validatePlan(plan); saveToMemory(plan);
-      return { plan, message:`Created **${plan.name}** — ${plan.steps.length} steps added to dashboard under "${plan.module}".` };
-    }
-  } catch {}
-  return { plan: null, message: "Couldn't generate that. Try: *'Create a test that logs in and verifies the project count'*" };
 }
 
 // ── WebSocket ─────────────────────────────────────────────────────────────────
@@ -350,36 +292,167 @@ wss.on('connection', ws => {
     // Switch app
     if (type === 'set_app') {
       const newApp = getApp(data);
-      if (newApp) { st.currentApp = newApp; st.lastRun = null; send(ws,'modules',loadModulesForApp(newApp)); send(ws,'chat_reply',{text:`Switched to **${newApp.name}**. Dashboard refreshed.`,intent:'system'}); }
+      if (newApp) { st.currentApp = newApp; st.lastRun = null; st.history = []; send(ws,'modules',loadModulesForApp(newApp)); send(ws,'chat_reply',{text:`Switched to **${newApp.name}**. Session reset — ready to test.`,intent:'system'}); }
       return;
     }
 
-    // Chat
+    // ── Chat — powered by think() ─────────────────────────────────────────────
     if (type === 'chat') {
       const text = (data||'').trim(); if (!text) return;
-      const g = guardCheck(text); if (!g.safe) { send(ws,'chat_reply',{text:g.reason,intent:'error'}); return; }
-      send(ws,'agent_state','thinking');
-      const docs = loadAllDocs(st.currentApp.docsDir);
-      const intent = await classifyChat(text, !!st.lastRun, docs);
-      let reply = '';
-      switch(intent) {
-        case 'GREET':
-          reply = `Hi! I'm your QA partner for **${st.currentApp.name}**.\n\nAsk me:\n• *"What can I test in the login module?"*\n• *"Why did step 5 fail?"*\n• *"Create a test that verifies the dashboard loads"*\n\nRun tests from the dashboard.`;
-          break;
-        case 'DISCOVER':
-          reply = discoverReply(text, st.currentApp, docs); break;
-        case 'POST_RUN':
-          reply = await postRunReply(text, st.lastRun); break;
-        case 'BUILD': {
-          const { plan, message } = await buildScenario(text, st.currentApp, docs);
-          reply = message;
-          if (plan) send(ws,'new_custom_scenario',{id:plan.scenario||plan.id,name:plan.name,description:plan.description||'Custom test',module:plan.module});
-          break;
-        }
-        default:
-          reply = "I can help with: exploring modules, analyzing test failures, or building custom scenarios.";
+      const g = guardCheck(text);
+      if (!g.safe) { send(ws, 'chat_reply', { text: g.reason, intent: 'error' }); return; }
+
+      send(ws, 'agent_state', 'thinking');
+      pushHistory(st, 'user', text);
+
+      const docs       = loadAllDocs(st.currentApp.docsDir);
+      const appContext = { ...st.currentApp, docs };
+      const sessionCtx = { lastRun: st.lastRun, history: st.history.slice(-10), appId: st.currentApp.id };
+
+      let decision;
+      try {
+        decision = await think(text, appContext, sessionCtx);
+      } catch (err) {
+        log(ws, `think() error: ${err.message}`, 'error');
+        send(ws, 'chat_reply', { text: "Something went wrong reasoning about that. Try again or rephrase.", intent: 'error' });
+        send(ws, 'agent_state', 'idle');
+        return;
       }
-      send(ws,'chat_reply',{text:reply,intent}); send(ws,'agent_state','idle'); return;
+
+      const { intent, confidence, response, scenarios, needs_clarification, clarifying_question } = decision;
+
+      // ── Clarification needed ───────────────────────────────────────────────
+      if (needs_clarification && clarifying_question) {
+        pushHistory(st, 'agent', clarifying_question);
+        send(ws, 'chat_reply', { text: clarifying_question, intent: 'CLARIFY' });
+        send(ws, 'agent_state', 'idle');
+        return;
+      }
+
+      // ── EXECUTE — agent identified runnable scenarios ──────────────────────
+      if (intent === 'EXECUTE' && scenarios?.length) {
+        // Record this interaction in learning memory
+        recordOutcome(st.currentApp.id, text, 'EXECUTE', scenarios);
+
+        if (scenarios.length === 1) {
+          // Single scenario — run immediately, tell user
+          const s = scenarios[0];
+          const replyText = `Running **${s.name}** in ${s.module}. Watch the execution panel →`;
+          pushHistory(st, 'agent', replyText);
+          send(ws, 'chat_reply', { text: replyText, intent: 'EXECUTE', scenarios });
+          send(ws, 'agent_state', 'idle');
+
+          // Trigger execution (non-blocking from chat perspective)
+          setImmediate(async () => {
+            const runApp = st.currentApp;
+            send(ws, 'agent_state', 'running');
+            send(ws, 'execution_start', { module: s.module, scenario: s.id, app: runApp.name });
+            phase(ws, `── ${s.module} / ${s.name} ──`);
+            let browser = null;
+            try {
+              const plan = await getPlan(s, runApp);
+              browser = await chromium.launch({ headless: false });
+              const { result, healCount, healMeta } = await executeScenario(ws, plan, s, runApp.baseUrl, browser, runApp.id);
+              const rpt = {
+                status: result.status, healCount,
+                scenarios: [{ scenario: s, result, healCount, healMeta }],
+                summary: { total: 1, passed: (result.status==='success'&&!healCount)?1:0, failed: result.status==='failed'?1:0, skipped: 0, healed: healCount },
+              };
+              send(ws, 'report', rpt);
+              st.lastRun = rpt;
+            } catch (e) { log(ws, e.message, 'error'); send(ws, 'execution_error', e.message); }
+            finally { if (browser) await browser.close(); send(ws, 'agent_state', 'idle'); }
+          });
+        } else {
+          // Multiple scenarios — show them, let user pick or run all from dashboard
+          const list = scenarios.map((s,i) => `${i+1}. **${s.name}** (${s.module}) — ${s.description||''}`).join('\n');
+          const replyText = `Found ${scenarios.length} scenarios:\n\n${list}\n\nClick any scenario in the dashboard to run it, or say *"run all"*.`;
+          pushHistory(st, 'agent', replyText);
+          send(ws, 'chat_reply', { text: replyText, intent: 'EXECUTE', scenarios });
+
+          // Emit each scenario so the dashboard can highlight them
+          scenarios.forEach(s => {
+            if (s.module === 'custom') {
+              send(ws, 'new_custom_scenario', { id: s.id, name: s.name, description: s.description||'', module: s.module });
+            }
+          });
+          send(ws, 'agent_state', 'idle');
+        }
+        return;
+      }
+
+      // ── DISCUSS — build a custom scenario ─────────────────────────────────
+      if (intent === 'DISCUSS' && /create|build|generate|make|add|custom/i.test(text)) {
+        const docCtx = docs.map(d=>`### ${d.name}\n${d.content}`).join('\n\n').slice(0,3000);
+        const buildPrompt = `${IDENTITY_ANCHOR}
+User wants a custom test: "${text}"
+App: ${appContext.name} (${appContext.baseUrl})
+Docs:
+${docCtx}
+Return ONLY valid JSON:
+{"name":"short name","description":"one sentence","module":"module_name","id":"snake_case_id","steps":[{"action":"navigate","value":"http://..."},{"action":"type","selector":"#id","value":"text"},{"action":"click","selector":"#id"},{"action":"expect","selector":"#id"}]}`;
+        try {
+          const r   = await llm(buildPrompt, { maxAttempts: 1 });
+          const txt = r.response.text().replace(/\`\`\`json|\`\`\`/g,'').trim();
+          const match = txt.match(/\{[\s\S]*\}/);
+          if (match) {
+            const plan = JSON.parse(match[0]);
+            plan.module   = plan.module   || 'custom';
+            plan.scenario = plan.id       || plan.name.toLowerCase().replace(/\s+/g,'_');
+            validatePlan(plan); saveToMemory(plan);
+            const msg = `Created **${plan.name}** — ${plan.steps.length} steps. Added to dashboard under "${plan.module}". Click Run to execute it.`;
+            pushHistory(st, 'agent', msg);
+            send(ws, 'chat_reply', { text: msg, intent: 'DISCUSS' });
+            send(ws, 'new_custom_scenario', { id: plan.scenario||plan.id, name: plan.name, description: plan.description||'Custom test', module: plan.module });
+            send(ws, 'agent_state', 'idle');
+            return;
+          }
+        } catch (e) { console.error('Custom scenario build failed:', e.message); }
+        const fallback = response || "Couldn't generate that scenario. Try: *'Create a test that logs in and checks the dashboard title'*";
+        pushHistory(st, 'agent', fallback);
+        send(ws, 'chat_reply', { text: fallback, intent: 'DISCUSS' });
+        send(ws, 'agent_state', 'idle');
+        return;
+      }
+
+      // ── EXPLORE / DISCUSS / POST_RUN_Q / OUT_OF_SCOPE — return response ───
+      const reply = response || "I can help you explore modules, analyse test failures, or build custom scenarios.";
+      pushHistory(st, 'agent', reply);
+      send(ws, 'chat_reply', { text: reply, intent });
+      send(ws, 'agent_state', 'idle');
+      return;
+    }
+
+    // ── Run with specific runner (UI / data / API / perf) ───────────────────────
+    if (type === 'run_with_runner') {
+      const { runnerId, scenario, appId } = data;
+      const runApp = appId ? getApp(appId) : st.currentApp;
+      send(ws, 'agent_state', 'running');
+      send(ws, 'execution_start', { module: scenario.module, scenario: scenario.id, app: runApp.name, runner: runnerId });
+      phase(ws, `── [${runnerId.toUpperCase()}] ${scenario.module} / ${scenario.name} ──`);
+      try {
+        const result = await runWithRunner(runnerId, scenario, {
+          baseUrl:  runApp.baseUrl,
+          headless: false,
+          onStep:   (i, s, st2) => send(ws, 'step', { index: i, status: st2 }),
+          onLog:    (t, l) => log(ws, t, l),
+        });
+        const rpt = {
+          runnerId,
+          status:    result.status,
+          healCount: 0,
+          scenarios: [{ scenario, result, healCount: 0, healMeta: null }],
+          summary:   { total: 1, passed: result.status === 'pass' ? 1 : 0, failed: result.status === 'fail' ? 1 : 0, skipped: 0, healed: 0 },
+        };
+        send(ws, 'report', rpt);
+        st.lastRun = rpt;
+      } catch (e) {
+        log(ws, e.message, 'error');
+        send(ws, 'execution_error', e.message);
+      } finally {
+        send(ws, 'agent_state', 'idle');
+      }
+      return;
     }
 
     // Run single scenario
@@ -393,9 +466,10 @@ wss.on('connection', ws => {
       try {
         const plan = await getPlan(scenario, runApp);
         browser = await chromium.launch({ headless: false });
-        const { result, healCount, healMeta } = await executeScenario(ws, plan, scenario, runApp.baseUrl, browser);
+        const { result, healCount, healMeta } = await executeScenario(ws, plan, scenario, runApp.baseUrl, browser, runApp.id);
         const rpt = { status:result.status, healCount, scenarios:[{scenario,result,healCount,healMeta}], summary:{total:1,passed:(result.status==='success'&&!healCount)?1:0,failed:result.status==='failed'?1:0,skipped:0,healed:healCount} };
         send(ws,'report',rpt); st.lastRun = rpt;
+        recordOutcome(runApp.id, scenarioName||scenarioId, 'EXECUTE', [scenario]);
       } catch(e) { log(ws,e.message,'error'); send(ws,'execution_error',e.message); }
       finally { if(browser) await browser.close(); send(ws,'agent_state','idle'); }
       return;
@@ -416,7 +490,7 @@ wss.on('connection', ws => {
         browser = await chromium.launch({headless:false});
         for(const s of scenarios){
           phase(ws,`── ${s.name} ──`); send(ws,'scenario_start',s);
-          try { const plan=await getPlan(s,runApp); const {result,healCount,healMeta}=await executeScenario(ws,plan,s,runApp.baseUrl,browser); results.push({scenario:s,result,healCount,healMeta}); healed+=healCount; }
+          try { const plan=await getPlan(s,runApp); const {result,healCount,healMeta}=await executeScenario(ws,plan,s,runApp.baseUrl,browser,runApp.id); results.push({scenario:s,result,healCount,healMeta}); healed+=healCount; }
           catch(e){ log(ws,`${s.name}: ${e.message}`,'error'); results.push({scenario:s,result:{status:'skipped',results:[]},healCount:0,healMeta:null}); }
           await new Promise(r=>setTimeout(r,300));
         }
@@ -438,7 +512,7 @@ wss.on('connection', ws => {
         browser=await chromium.launch({headless:false});
         for(const s of all){
           phase(ws,`── ${s.module}/${s.name} ──`); send(ws,'scenario_start',s);
-          try{const plan=await getPlan(s,runApp);const {result,healCount,healMeta}=await executeScenario(ws,plan,s,runApp.baseUrl,browser);results.push({scenario:s,result,healCount,healMeta});healed+=healCount;}
+          try{const plan=await getPlan(s,runApp);const {result,healCount,healMeta}=await executeScenario(ws,plan,s,runApp.baseUrl,browser,runApp.id);results.push({scenario:s,result,healCount,healMeta});healed+=healCount;}
           catch(e){log(ws,`${s.name}: ${e.message}`,'error');results.push({scenario:s,result:{status:'skipped',results:[]},healCount:0,healMeta:null});}
           await new Promise(r=>setTimeout(r,300));
         }

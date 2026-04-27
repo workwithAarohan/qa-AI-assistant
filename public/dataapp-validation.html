@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>DataApp — Validation</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#F8FAFC;--surface:#fff;--border:#E2E8F0;--t1:#0F172A;--t2:#475569;--t3:#94A3B8;
+  --accent:#059669;--red:#DC2626;--red-dim:rgba(220,38,38,0.06);--amber:#D97706;
+}
+body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--t1);font-size:13px;min-height:100vh}
+nav{background:var(--surface);border-bottom:1px solid var(--border);padding:0 24px;height:52px;display:flex;align-items:center;gap:24px}
+.nav-brand{font-size:15px;font-weight:700;color:var(--accent)}
+.nav-link{font-size:13px;color:var(--t2);text-decoration:none;padding:4px 0;border-bottom:2px solid transparent}
+.nav-link.active{color:var(--accent);border-bottom-color:var(--accent)}
+main{padding:28px 32px;max-width:600px}
+h1{font-size:20px;font-weight:700;margin-bottom:4px}
+.subtitle{font-size:13px;color:var(--t3);margin-bottom:28px}
+
+/* Form */
+.form-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:28px}
+.field{margin-bottom:20px}
+label{display:block;font-size:12px;font-weight:600;color:var(--t2);margin-bottom:5px}
+label .req{color:var(--red);margin-left:2px}
+input,select{width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;color:var(--t1);background:var(--surface);outline:none;transition:border-color 0.15s}
+input:focus,select:focus{border-color:var(--accent)}
+input.invalid,select.invalid{border-color:var(--red);background:var(--red-dim)}
+input.valid{border-color:var(--accent)}
+.field-error{display:none;font-size:11px;color:var(--red);margin-top:4px}
+.field-error.visible{display:block}
+.hint{font-size:11px;color:var(--t3);margin-top:4px}
+
+/* Error summary */
+#error-summary{display:none;padding:14px 16px;background:var(--red-dim);border:1px solid rgba(220,38,38,0.2);border-radius:8px;margin-bottom:20px}
+#error-summary h3{font-size:12px;font-weight:700;color:var(--red);margin-bottom:8px}
+#error-summary ul{padding-left:16px}
+#error-summary li{font-size:12px;color:var(--red);margin-bottom:3px}
+
+/* Success */
+#form-success{display:none;padding:14px 16px;background:rgba(5,150,105,0.06);border:1px solid rgba(5,150,105,0.2);border-radius:8px;margin-bottom:20px;font-size:13px;font-weight:500;color:var(--accent)}
+
+/* Submit */
+#form-submit{width:100%;padding:11px;border-radius:8px;background:var(--accent);color:#fff;border:none;font-size:14px;font-weight:600;cursor:pointer;transition:background 0.15s}
+#form-submit:hover{background:#047857}
+</style>
+</head>
+<body>
+<nav>
+  <span class="nav-brand">DataApp</span>
+  <a href="/dataapp/tables" class="nav-link" id="nav-tables">Tables</a>
+  <a href="/dataapp/validation" class="nav-link active" id="nav-validation">Validation</a>
+</nav>
+<main>
+  <h1>Employee Registration</h1>
+  <p class="subtitle">All required fields must be valid before submission</p>
+
+  <div id="error-summary"><h3>Please fix the following errors:</h3><ul id="error-list"></ul></div>
+  <div id="form-success">✓ Registration submitted successfully! The form has been reset.</div>
+
+  <div class="form-card">
+    <div id="validation-form">
+      <div class="field">
+        <label for="field-name">Full Name <span class="req">*</span></label>
+        <input id="field-name" type="text" placeholder="e.g. Jane Smith" autocomplete="off"/>
+        <div class="field-error" id="err-name">Name must be at least 3 characters</div>
+      </div>
+
+      <div class="field">
+        <label for="field-email">Email <span class="req">*</span></label>
+        <input id="field-email" type="text" placeholder="e.g. jane@company.com"/>
+        <div class="field-error" id="err-email">Please enter a valid email address</div>
+      </div>
+
+      <div class="field">
+        <label for="field-phone">Phone <span style="color:var(--t3);font-weight:400">(optional)</span></label>
+        <input id="field-phone" type="text" placeholder="e.g. 555-123-4567"/>
+        <div class="field-error" id="err-phone">Phone must match format: XXX-XXX-XXXX</div>
+        <div class="hint">Leave blank to skip. If entered, format must be XXX-XXX-XXXX</div>
+      </div>
+
+      <div class="field">
+        <label for="field-dept">Department <span class="req">*</span></label>
+        <select id="field-dept">
+          <option value="">— Select department —</option>
+          <option value="Engineering">Engineering</option>
+          <option value="QA">QA</option>
+          <option value="Product">Product</option>
+          <option value="Design">Design</option>
+        </select>
+        <div class="field-error" id="err-dept">Please select a department</div>
+      </div>
+
+      <div class="field">
+        <label for="field-start">Start Date <span class="req">*</span></label>
+        <input id="field-start" type="date"/>
+        <div class="field-error" id="err-start">Start date cannot be in the past</div>
+      </div>
+
+      <button type="button" id="form-submit" onclick="submitForm()">Submit Registration</button>
+    </div>
+  </div>
+</main>
+
+<script>
+// ── Validators ────────────────────────────────────────────────────────────────
+const RULES = {
+  'field-name':  { required: true, validate: v => v.trim().length >= 3, msg: 'Name must be at least 3 characters' },
+  'field-email': { required: true, validate: v => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim()), msg: 'Please enter a valid email address' },
+  'field-phone': { required: false, validate: v => !v.trim() || /^\d{3}-\d{3}-\d{4}$/.test(v.trim()), msg: 'Phone must match format: XXX-XXX-XXXX' },
+  'field-dept':  { required: true, validate: v => !!v, msg: 'Please select a department' },
+  'field-start': { required: true, validate: v => { if (!v) return false; return new Date(v) >= new Date(new Date().toDateString()); }, msg: 'Start date cannot be in the past' },
+};
+
+function validateField(id) {
+  const el   = document.getElementById(id);
+  const rule = RULES[id];
+  const val  = el.value;
+  const errEl = document.getElementById('err-' + id.replace('field-',''));
+
+  if (rule.required && !val.trim()) {
+    el.classList.add('invalid'); el.classList.remove('valid');
+    if (errEl) { errEl.textContent = `${rule.msg}`; errEl.classList.add('visible'); }
+    return false;
+  }
+  if (!rule.validate(val)) {
+    el.classList.add('invalid'); el.classList.remove('valid');
+    if (errEl) { errEl.textContent = rule.msg; errEl.classList.add('visible'); }
+    return false;
+  }
+  el.classList.remove('invalid'); el.classList.add('valid');
+  if (errEl) errEl.classList.remove('visible');
+  return true;
+}
+
+// Validate on blur
+Object.keys(RULES).forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('blur', () => validateField(id));
+  if (el) el.addEventListener('input', () => { if (el.classList.contains('invalid')) validateField(id); });
+});
+
+function submitForm() {
+  document.getElementById('error-summary').style.display = 'none';
+  document.getElementById('form-success').style.display  = 'none';
+
+  const fields  = Object.keys(RULES);
+  const results = fields.map(id => ({ id, valid: validateField(id) }));
+  const errors  = results.filter(r => !r.valid);
+
+  if (errors.length > 0) {
+    const summary = document.getElementById('error-summary');
+    const list    = document.getElementById('error-list');
+    list.innerHTML = errors.map(e => `<li>${RULES[e.id].msg}</li>`).join('');
+    summary.style.display = 'block';
+    summary.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    return;
+  }
+
+  // Success — reset
+  document.getElementById('form-success').style.display = 'block';
+  fields.forEach(id => {
+    const el = document.getElementById(id);
+    el.value = '';
+    el.classList.remove('valid','invalid');
+    const errEl = document.getElementById('err-' + id.replace('field-',''));
+    if (errEl) errEl.classList.remove('visible');
+  });
+  document.getElementById('form-success').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  setTimeout(() => { document.getElementById('form-success').style.display = 'none'; }, 4000);
+}
+</script>
+</body>
+</html>
