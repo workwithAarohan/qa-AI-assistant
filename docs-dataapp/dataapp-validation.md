@@ -1,7 +1,7 @@
 # Validation Module
 
 ## URL
-http://localhost:5000/validation
+http://localhost:4001/validation
 
 ## Description
 Form with complex validation rules — required fields, format checks (email, phone), min/max lengths, and cross-field dependencies. Validation runs on blur and on submit.
@@ -20,7 +20,7 @@ Form with complex validation rules — required fields, format checks (email, ph
 
 ## Prerequisites
 - No login required
-- Navigate directly to /validation
+- Navigate directly to http://localhost:4001/validation
 
 ## Behaviour
 - Each field validates on blur (leaving the field)

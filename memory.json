@@ -26,7 +26,7 @@
         "value": "http://localhost:4000/dashboard"
       }
     ],
-    "savedAt": "2026-04-21T03:59:58.344Z"
+    "savedAt": "2026-04-27T15:57:27.793Z"
   },
   "login__invalid_password": {
     "module": "login",
@@ -120,7 +120,7 @@
         "selector": "#welcome-msg"
       }
     ],
-    "savedAt": "2026-04-21T03:59:50.708Z"
+    "savedAt": "2026-04-30T01:07:17.214Z"
   },
   "dashboard__navigate_to_projects": {
     "module": "dashboard",
@@ -159,7 +159,7 @@
         "value": "http://localhost:4000/project"
       }
     ],
-    "savedAt": "2026-04-21T03:59:55.183Z"
+    "savedAt": "2026-04-28T05:24:57.367Z"
   },
   "navigation__full_login_flow": {
     "id": "full_login_flow",
@@ -444,5 +444,92 @@
       }
     ],
     "savedAt": "2026-04-21T04:00:48.988Z"
+  },
+  "Tables Module__filter_by_text": {
+    "id": "filter_by_text",
+    "module": "Tables Module",
+    "scenario": "filter_by_text",
+    "steps": [
+      {
+        "action": "navigateTo",
+        "url": "/tables"
+      },
+      {
+        "action": "interactWith",
+        "selector": "#filter-input",
+        "value": "search term"
+      },
+      {
+        "action": "assertElementCount",
+        "selector": "#data-table tr",
+        "expected": "lessThan",
+        "count": 0
+      }
+    ],
+    "savedAt": "2026-04-30T01:08:46.284Z"
+  },
+  "Validation Module__empty_submit": {
+    "id": "empty_submit",
+    "module": "Validation Module",
+    "scenario": "empty_submit",
+    "steps": [
+      {
+        "type": "navigate",
+        "action": "Go to the validation page",
+        "url": "http://localhost:4001/validation"
+      },
+      {
+        "type": "interaction",
+        "action": "Click the submit button without filling any fields",
+        "selector": "#form-submit"
+      },
+      {
+        "type": "assertion",
+        "action": "Verify that the error summary appears",
+        "selector": "#error-summary",
+        "validation": "toBeVisible"
+      }
+    ],
+    "savedAt": "2026-04-30T05:59:13.455Z"
+  },
+  "Validation Module__valid_submit": {
+    "id": "valid_submit",
+    "module": "Validation Module",
+    "scenario": "valid_submit",
+    "steps": [
+      {
+        "action": "navigateTo",
+        "url": "http://localhost:4001/validation"
+      },
+      {
+        "action": "fillField",
+        "selector": "#field-name",
+        "value": "John Doe"
+      },
+      {
+        "action": "fillField",
+        "selector": "#field-email",
+        "value": "john.doe@example.com"
+      },
+      {
+        "action": "selectOption",
+        "selector": "#field-dept",
+        "value": "Engineering"
+      },
+      {
+        "action": "fillField",
+        "selector": "#field-start",
+        "value": "2023-10-01"
+      },
+      {
+        "action": "clickButton",
+        "selector": "#form-submit"
+      },
+      {
+        "action": "assertElementVisible",
+        "selector": "#form-success"
+      }
+    ],
+    "savedAt": "2026-04-30T06:01:03.911Z"
   }
 }

@@ -12,7 +12,7 @@ import dotenv from 'dotenv';
 import fs from 'fs';
 dotenv.config();
 
-import { think, generateAllScenarioSteps, fixSteps, recordOutcome, recordHeal, recordFailure } from './agent.js';
+import { think, planFeature, generateAllScenarioSteps, fixSteps, recordOutcome, recordHeal, recordFailure } from './agent.js';
 import { runSteps } from './executor.js';
 import { validatePlan } from './validator.js';
 import { saveToMemory, findSimilarPlan, listMemory, repairMemory } from './memory.js';
@@ -177,16 +177,42 @@ function computeDiff(orig, healed) {
 }
 
 // ── Get or generate plan ──────────────────────────────────────────────────────
-async function getPlan(scenario, app) {
+// ws is optional — when provided, logs generation progress to the execution panel
+async function getPlan(scenario, app, ws = null) {
+  const logGen = (text, level = 'info') => {
+    console.log(`[getPlan] ${text}`);
+    if (ws) send(ws, 'log', { text, level });
+  };
+
+  // 1. Memory cache — fast path
   const cached = findSimilarPlan(scenario.module, scenario.id);
-  if (cached) return cached;
-  const docs = loadAllDocs(app.docsDir);
-  const docCtx = docs.find(d => d.name === scenario.module)?.content || '';
+  if (cached) {
+    logGen(`Cache hit: ${scenario.module}/${scenario.id} (${cached.steps?.length} steps)`, 'success');
+    return cached;
+  }
+
+  // 2. Not cached — generate via LLM
+  logGen(`No cached plan for "${scenario.name}" — generating via LLM...`, 'warn');
+  if (ws) send(ws, 'log', { text: 'Loading documentation context...', level: 'info' });
+
+  const docs    = loadAllDocs(app.docsDir);
+  const docCtx  = docs.find(d => d.name === scenario.module)?.content || '';
+
+  if (ws) send(ws, 'log', { text: 'Capturing live browser DOM...', level: 'info' });
   const browserCtx = await captureBrowserContext(app.baseUrl).catch(() => '');
+
+  if (ws) send(ws, 'log', { text: 'Asking LLM to generate test steps...', level: 'info' });
+
   const batch = await generateAllScenarioSteps([scenario], docCtx, browserCtx);
-  const plan = batch[0];
+  const plan  = batch[0];
+
+  if (!plan || !plan.steps?.length) {
+    throw new Error(`LLM returned empty plan for "${scenario.name}". Check your docs or try again.`);
+  }
+
   validatePlan(plan);
   saveToMemory(plan);
+  logGen(`Generated & cached: ${plan.module}/${plan.scenario} (${plan.steps.length} steps)`, 'success');
   return plan;
 }
 
@@ -329,6 +355,22 @@ wss.on('connection', ws => {
         return;
       }
 
+      // ── PLAN — QA analyst layer analysis before execution ────────────────────
+      if (intent === 'PLAN') {
+        send(ws, 'agent_state', 'thinking');
+        const planResult = await planFeature(text, { ...st.currentApp, docs }, { lastRun: st.lastRun, appId: st.currentApp.id });
+        pushHistory(st, 'agent', `Plan: ${planResult.feature}`);
+        // Send structured plan to UI for confirmation
+        send(ws, 'test_plan_proposal', planResult);
+        // Also send a chat summary
+        const riskEmoji = { critical:'🔴', high:'🟠', medium:'🟡', low:'🟢' }[planResult.risk] || '⚪';
+        const layerList = planResult.layers.map(l => `• **${l.type}** — ${l.reason}`).join('\n');
+        const reply = `${riskEmoji} **${planResult.feature}** — ${planResult.risk_reason}\n\n**Recommended test layers:**\n${layerList}\n\nSee the plan panel in the dashboard to run individual layers or all at once.`;
+        send(ws, 'chat_reply', { text: reply, intent: 'PLAN' });
+        send(ws, 'agent_state', 'idle');
+        return;
+      }
+
       // ── EXECUTE — agent identified runnable scenarios ──────────────────────
       if (intent === 'EXECUTE' && scenarios?.length) {
         // Record this interaction in learning memory
@@ -350,7 +392,7 @@ wss.on('connection', ws => {
             phase(ws, `── ${s.module} / ${s.name} ──`);
             let browser = null;
             try {
-              const plan = await getPlan(s, runApp);
+              const plan = await getPlan(s, runApp, ws);
               browser = await chromium.launch({ headless: false });
               const { result, healCount, healMeta } = await executeScenario(ws, plan, s, runApp.baseUrl, browser, runApp.id);
               const rpt = {
@@ -423,6 +465,75 @@ Return ONLY valid JSON:
       return;
     }
 
+    // ── Run a full layer plan (from planFeature) ──────────────────────────────
+    if (type === 'run_plan') {
+      const { plan, layerIndex } = data; // layerIndex = null means run all layers
+      const runApp = st.currentApp;
+      const layers = layerIndex != null ? [plan.layers[layerIndex]] : plan.layers;
+
+      send(ws, 'agent_state', 'running');
+      send(ws, 'execution_start', { module: plan.feature, scenario: 'layer-plan', app: runApp.name });
+      phase(ws, `── Plan: ${plan.feature} ──`);
+
+      const allResults = [];
+      let totalHealed = 0;
+
+      for (const layer of layers) {
+        phase(ws, `── Layer: ${layer.type} (${layer.runner}) ──`);
+        log(ws, `${layer.reason}`, 'info');
+
+        for (const scenario of layer.scenarios) {
+          // Tag scenario with its runner
+          const scenarioWithRunner = { ...scenario, runner: layer.runner };
+          send(ws, 'scenario_start', scenarioWithRunner);
+
+          if (layer.runner === 'ui') {
+            // Standard Playwright execution
+            let browser = null;
+            try {
+              const p = await getPlan(scenarioWithRunner, runApp, ws);
+              browser = await chromium.launch({ headless: false });
+              const { result, healCount, healMeta } = await executeScenario(ws, p, scenarioWithRunner, runApp.baseUrl, browser, runApp.id);
+              allResults.push({ scenario: scenarioWithRunner, result, healCount, healMeta, layer: layer.type });
+              totalHealed += healCount;
+            } catch(e) {
+              log(ws, `${scenario.name}: ${e.message}`, 'error');
+              allResults.push({ scenario: scenarioWithRunner, result: { status:'failed', results:[], error: e.message }, healCount:0, healMeta:null, layer: layer.type });
+            } finally {
+              if (browser) await browser.close();
+            }
+          } else {
+            // Specialist runner (api / data / perf)
+            try {
+              const result = await runWithRunner(layer.runner, scenarioWithRunner, {
+                baseUrl: runApp.baseUrl, headless: false,
+                onStep: (i, s, st2) => send(ws, 'step', { index: i, status: st2 }),
+                onLog:  (t, l) => log(ws, t, l),
+              });
+              allResults.push({ scenario: scenarioWithRunner, result, healCount: 0, healMeta: null, layer: layer.type });
+            } catch(e) {
+              log(ws, `${scenario.name}: ${e.message}`, 'error');
+              allResults.push({ scenario: scenarioWithRunner, result: { status:'failed', results:[], error: e.message }, healCount:0, healMeta:null, layer: layer.type });
+            }
+          }
+          await new Promise(r => setTimeout(r, 300));
+        }
+      }
+
+      const passed  = allResults.filter(r => r.result?.status === 'success' || r.result?.status === 'pass').length;
+      const failed  = allResults.filter(r => r.result?.status === 'failed' || r.result?.status === 'fail').length;
+      const skipped = allResults.filter(r => r.result?.status === 'skipped' || r.result?.status === 'skip').length;
+      const rpt = {
+        type: 'plan', status: failed === 0 ? 'success' : 'failed',
+        healCount: totalHealed, scenarios: allResults,
+        summary: { total: allResults.length, passed: passed - totalHealed, failed, skipped, healed: totalHealed },
+      };
+      send(ws, 'report', rpt);
+      st.lastRun = rpt;
+      send(ws, 'agent_state', 'idle');
+      return;
+    }
+
     // ── Run with specific runner (UI / data / API / perf) ───────────────────────
     if (type === 'run_with_runner') {
       const { runnerId, scenario, appId } = data;
@@ -464,7 +575,7 @@ Return ONLY valid JSON:
       const scenario = { id:scenarioId, name:scenarioName||scenarioId.replace(/_/g,' '), description:scenarioDesc||'', module:modId };
       let browser = null;
       try {
-        const plan = await getPlan(scenario, runApp);
+        const plan = await getPlan(scenario, runApp, ws);
         browser = await chromium.launch({ headless: false });
         const { result, healCount, healMeta } = await executeScenario(ws, plan, scenario, runApp.baseUrl, browser, runApp.id);
         const rpt = { status:result.status, healCount, scenarios:[{scenario,result,healCount,healMeta}], summary:{total:1,passed:(result.status==='success'&&!healCount)?1:0,failed:result.status==='failed'?1:0,skipped:0,healed:healCount} };
@@ -490,8 +601,8 @@ Return ONLY valid JSON:
         browser = await chromium.launch({headless:false});
         for(const s of scenarios){
           phase(ws,`── ${s.name} ──`); send(ws,'scenario_start',s);
-          try { const plan=await getPlan(s,runApp); const {result,healCount,healMeta}=await executeScenario(ws,plan,s,runApp.baseUrl,browser,runApp.id); results.push({scenario:s,result,healCount,healMeta}); healed+=healCount; }
-          catch(e){ log(ws,`${s.name}: ${e.message}`,'error'); results.push({scenario:s,result:{status:'skipped',results:[]},healCount:0,healMeta:null}); }
+          try { const plan=await getPlan(s,runApp,ws); const {result,healCount,healMeta}=await executeScenario(ws,plan,s,runApp.baseUrl,browser,runApp.id); results.push({scenario:s,result,healCount,healMeta}); healed+=healCount; }
+          catch(e){ log(ws,`Failed to get plan for ${s.name}: ${e.message}`,'error'); results.push({scenario:s,result:{status:'failed',results:[],error:e.message},healCount:0,healMeta:null}); }
           await new Promise(r=>setTimeout(r,300));
         }
       } finally { if(browser) await browser.close(); }
@@ -512,8 +623,8 @@ Return ONLY valid JSON:
         browser=await chromium.launch({headless:false});
         for(const s of all){
           phase(ws,`── ${s.module}/${s.name} ──`); send(ws,'scenario_start',s);
-          try{const plan=await getPlan(s,runApp);const {result,healCount,healMeta}=await executeScenario(ws,plan,s,runApp.baseUrl,browser,runApp.id);results.push({scenario:s,result,healCount,healMeta});healed+=healCount;}
-          catch(e){log(ws,`${s.name}: ${e.message}`,'error');results.push({scenario:s,result:{status:'skipped',results:[]},healCount:0,healMeta:null});}
+          try{const plan=await getPlan(s,runApp,ws);const {result,healCount,healMeta}=await executeScenario(ws,plan,s,runApp.baseUrl,browser,runApp.id);results.push({scenario:s,result,healCount,healMeta});healed+=healCount;}
+          catch(e){log(ws,`Failed to get plan for ${s.name}: ${e.message}`,'error');results.push({scenario:s,result:{status:'failed',results:[],error:e.message},healCount:0,healMeta:null});}
           await new Promise(r=>setTimeout(r,300));
         }
       } finally{if(browser)await browser.close();}
@@ -528,5 +639,29 @@ Return ONLY valid JSON:
 
 server.listen(4000, () => {
   console.log('QA Sentinel v2:  http://localhost:4000');
+  console.log('TestApp:         http://localhost:4000/testapp');
   try { const r=repairMemory(); console.log(`[Memory] ${r.total} plans, ${r.changed} repaired.`); } catch {}
+});
+
+// ── DataApp standalone server on port 4001 ────────────────────────────────────
+// Serves the DataApp HTML pages + proxies /api/dataapp/* to the same mock router.
+// This way DataApp feels like a real separate application at localhost:4001.
+const dataApp    = express();
+const dataServer = createServer(dataApp);
+
+dataApp.use(express.json());
+dataApp.use((_, res, next) => {
+  res.setHeader('Content-Security-Policy', ["default-src 'self'","connect-src 'self' ws:","script-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com","style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com","font-src https://fonts.gstatic.com data:","img-src 'self' data:"].join('; '));
+  next();
+});
+dataApp.use('/api/dataapp', mockApiRouter);
+dataApp.get('/',           (_, r) => r.sendFile(path.join(ROOT, 'public', 'dataapp-tables.html')));
+dataApp.get('/tables',     (_, r) => r.sendFile(path.join(ROOT, 'public', 'dataapp-tables.html')));
+dataApp.get('/dataapp/validation', (_, r) => r.sendFile(path.join(ROOT, 'public', 'dataapp-validation.html')));
+dataApp.use(express.static(path.join(ROOT, 'public')));
+dataApp.use(express.static(path.join(ROOT, 'scripts')));
+
+const DATAAPP_PORT = process.env.DATAAPP_PORT || 4001;
+dataServer.listen(DATAAPP_PORT, () => {
+  console.log(`DataApp:         http://localhost:${DATAAPP_PORT}`);
 });

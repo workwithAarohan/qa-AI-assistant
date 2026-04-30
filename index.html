@@ -35,7 +35,7 @@
 html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--sans);color:var(--t1);font-size:13px;-webkit-font-smoothing:antialiased}
 
 /* ── Layout ─────────────────────────────────────────────────────────────── */
-#root{display:grid;grid-template-columns:350px 1fr 350px;grid-template-rows:48px 1fr;height:100vh;background:var(--bg)}
+#root{display:grid;grid-template-columns:360px 1fr 360px;grid-template-rows:48px 1fr;height:100vh;background:var(--bg)}
 
 /* ── Top bar ─────────────────────────────────────────────────────────────── */
 #topbar{grid-column:1/-1;display:flex;align-items:center;gap:0;border-bottom:1px solid var(--border);background:var(--surface);padding:0 16px;height:48px}
@@ -87,6 +87,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--san
 .intent-post_run{background:var(--amber-dim);color:var(--amber)}
 .intent-build{background:var(--green-dim);color:var(--green)}
 .intent-greet{background:var(--surface3);color:var(--t3)}
+.intent-plan{background:rgba(56,189,248,0.12);color:var(--sky)}
 
 /* Typing indicator */
 #typing{display:flex;gap:4px;align-items:center;padding:8px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--rl);width:fit-content;border-bottom-left-radius:3px}
@@ -131,7 +132,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--san
 .mod-run-all{padding:4px 12px;border-radius:var(--r);background:var(--accent);border:none;color:#fff;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;transition:background 0.15s;flex-shrink:0}
 .mod-run-all:hover{background:var(--accent-h)}
 .mod-scenarios{padding:8px 10px}
-.scen-row{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:var(--r);cursor:pointer;transition:background 0.1s;}
+.scen-row{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:var(--r);cursor:pointer;transition:background 0.1s;group:true}
 .scen-row:hover{background:var(--surface2)}
 .scen-dot{width:6px;height:6px;border-radius:50%;background:var(--border2);flex-shrink:0;transition:background 0.15s}
 .scen-row:hover .scen-dot{background:var(--accent)}
@@ -231,6 +232,56 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--san
 .sval{font-size:18px;font-weight:600;line-height:1;font-family:var(--mono)}
 .slbl{font-size:9px;color:var(--t3);margin-top:2px;text-transform:uppercase;letter-spacing:0.04em}
 .scard.total .sval{color:var(--t1)}.scard.passed .sval{color:var(--green)}.scard.failed .sval{color:var(--red)}.scard.skipped .sval{color:var(--t2)}.scard.healed .sval{color:var(--amber)}
+/* Plan proposal panel */
+#plan-proposal{display:none;position:fixed;inset:0;z-index:70;background:rgba(0,0,0,0.6);align-items:center;justify-content:center;padding:20px}
+#plan-proposal.open{display:flex}
+#plan-panel{background:var(--surface);border:1px solid var(--border2);border-radius:var(--rxl);width:680px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,0.5)}
+#plan-panel-hdr{display:flex;align-items:flex-start;gap:12px;padding:20px 20px 16px;border-bottom:1px solid var(--border);flex-shrink:0}
+.plan-feature-name{font-size:16px;font-weight:700;color:var(--t1);flex:1}
+.plan-risk-badge{font-size:10px;font-weight:700;padding:3px 9px;border-radius:20px;text-transform:uppercase;letter-spacing:0.05em;flex-shrink:0}
+.plan-risk-badge.critical{background:rgba(239,68,68,0.15);color:var(--red);border:1px solid rgba(239,68,68,0.3)}
+.plan-risk-badge.high{background:rgba(245,158,11,0.15);color:var(--amber);border:1px solid rgba(245,158,11,0.3)}
+.plan-risk-badge.medium{background:rgba(56,189,248,0.15);color:var(--sky);border:1px solid rgba(56,189,248,0.3)}
+.plan-risk-badge.low{background:var(--green-dim);color:var(--green);border:1px solid rgba(34,197,94,0.3)}
+.plan-risk-reason{font-size:11px;color:var(--t3);margin-top:3px}
+#plan-panel-body{flex:1;overflow-y:auto;padding:16px 20px}
+#plan-panel-body::-webkit-scrollbar{width:4px}
+#plan-panel-body::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+.plan-layer{border:1px solid var(--border);border-radius:var(--rl);margin-bottom:12px;overflow:hidden}
+.plan-layer-hdr{display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--surface2)}
+.plan-layer-icon{width:28px;height:28px;border-radius:7px;display:grid;place-items:center;font-size:13px;flex-shrink:0}
+.plan-layer-info{flex:1}
+.plan-layer-type{font-size:12px;font-weight:700;color:var(--t1)}
+.plan-layer-reason{font-size:11px;color:var(--t3);margin-top:1px}
+.plan-layer-badge{font-size:9px;font-weight:700;padding:2px 7px;border-radius:3px;flex-shrink:0}
+.plan-layer-dep{font-size:10px;color:var(--t3);padding:6px 14px;background:var(--surface3);border-top:1px solid var(--border);font-family:var(--mono)}
+.plan-scenarios{padding:8px 10px}
+.plan-scen-row{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:var(--r)}
+.plan-scen-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0}
+.plan-scen-name{font-size:11px;font-weight:500;color:var(--t2);flex:1}
+.plan-scen-desc{font-size:10px;color:var(--t3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px}
+.plan-order{padding:12px 14px;background:var(--surface3);border-top:1px solid var(--border);font-size:11px;color:var(--t3);display:flex;align-items:center;gap:8px;flex-shrink:0}
+.plan-order-item{padding:3px 9px;border-radius:20px;font-size:10px;font-weight:600}
+.plan-order-arrow{color:var(--t3);font-size:12px}
+#plan-panel-footer{padding:14px 20px;border-top:1px solid var(--border);display:flex;gap:8px;flex-shrink:0}
+.pp-btn{padding:8px 18px;border-radius:var(--r);font-size:12px;font-weight:600;cursor:pointer;transition:all 0.15s;border:none}
+.pp-btn.primary{background:var(--accent);color:#fff}.pp-btn.primary:hover{background:var(--accent-h)}
+.pp-btn.ghost{background:var(--surface2);color:var(--t2);border:1px solid var(--border)}.pp-btn.ghost:hover{border-color:var(--border2);color:var(--t1)}
+.pp-btn.danger{background:var(--red-dim);color:var(--red);border:1px solid rgba(239,68,68,0.25)}.pp-btn.danger:hover{background:rgba(239,68,68,0.18)}
+/* Runner selector */
+.runner-tabs{display:flex;gap:4px;margin-bottom:14px;flex-wrap:wrap}
+.runner-tab{padding:5px 11px;border-radius:20px;border:1px solid var(--border);background:var(--surface);font-size:10px;font-weight:600;cursor:pointer;color:var(--t3);transition:all 0.15s;white-space:nowrap}
+.runner-tab:hover{border-color:var(--border2);color:var(--t2)}
+.runner-tab.active{color:#fff;border-color:transparent}
+.runner-tab[data-runner="ui"].active{background:#4F46E5}
+.runner-tab[data-runner="data"].active{background:#059669}
+.runner-tab[data-runner="api"].active{background:#0284C7}
+.runner-tab[data-runner="perf"].active{background:#D97706}
+.runner-badge{display:inline-block;font-size:9px;font-weight:700;padding:1px 6px;border-radius:3px;text-transform:uppercase;letter-spacing:0.04em}
+.runner-badge.ui{background:rgba(79,70,229,0.1);color:#4F46E5}
+.runner-badge.data{background:rgba(5,150,105,0.1);color:#059669}
+.runner-badge.api{background:rgba(2,132,199,0.1);color:#0284C7}
+.runner-badge.perf{background:rgba(217,119,6,0.1);color:#D97706}
 #view-rep{width:100%;padding:5px;border-radius:var(--r);background:transparent;border:1px solid var(--border);color:var(--t2);font-size:11px;font-weight:500;cursor:pointer;transition:all 0.15s;display:flex;align-items:center;justify-content:center;gap:4px}
 #view-rep:hover{border-color:var(--accent);color:var(--accent-h);background:var(--accent-dim)}
 
@@ -302,6 +353,13 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--san
 .btn.ghost{background:var(--surface2);color:var(--t2);border:1px solid var(--border)}.btn.ghost:hover{border-color:var(--border2);color:var(--t1)}
 .spin{animation:spinA 0.8s linear infinite;display:inline-block}
 @keyframes spinA{to{transform:rotate(360deg)}}
+.quick-chips{display:flex;flex-wrap:wrap;gap:6px;padding:10px 14px;border-top:1px solid var(--border);background:var(--surface);flex-shrink:0}
+.chip{padding:5px 11px;border-radius:20px;border:1px solid var(--border);background:var(--surface2);font-size:11px;color:var(--t2);cursor:pointer;transition:all 0.15s;white-space:nowrap}
+.chip:hover{border-color:var(--accent);color:var(--accent-h);background:var(--accent-dim)}
+.chip.amber{border-color:rgba(245,158,11,0.3);color:var(--amber)}
+.chip.amber:hover{background:var(--amber-dim)}
+.chip.red{border-color:rgba(239,68,68,0.3);color:var(--red)}
+.chip.red:hover{background:var(--red-dim)}
 .toast{position:fixed;bottom:20px;right:20px;z-index:999;background:var(--t1);color:var(--bg);padding:8px 14px;border-radius:var(--r);font-size:12px;font-weight:600;animation:fadeUp 0.2s ease both;pointer-events:none;box-shadow:0 4px 16px rgba(0,0,0,0.4)}
 .mod-hdr-row{font-size:10px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:0.07em;padding:10px 4px 5px;margin-top:6px}
 .mod-hdr-row:first-child{margin-top:0;padding-top:0}
@@ -341,6 +399,8 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--san
         <span class="msg-ts">now</span>
       </div>
     </div>
+    <!-- Post-run quick actions — appear after test completes -->
+    <div id="quick-chips" class="quick-chips" style="display:none"></div>
     <div id="chat-bar">
       <textarea id="chat-input" rows="1" placeholder="Ask about modules, failures, or build a test..."></textarea>
       <button id="send-btn" onclick="sendChat()">
@@ -372,6 +432,13 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--san
           Run All
         </button>
       </div>
+      <!-- Runner selector -->
+      <div class="runner-tabs" id="runner-tabs">
+        <button class="runner-tab active" data-runner="ui"   onclick="setActiveRunner('ui')"  >🖥 UI Tests</button>
+        <button class="runner-tab"        data-runner="data" onclick="setActiveRunner('data')" >🔍 Data Validation</button>
+        <button class="runner-tab"        data-runner="api"  onclick="setActiveRunner('api')"  >⚡ API Tests</button>
+        <button class="runner-tab"        data-runner="perf" onclick="setActiveRunner('perf')" >📊 Performance</button>
+      </div>
       <!-- Module cards -->
       <div id="modules-grid"></div>
       <!-- Custom scenarios -->
@@ -387,6 +454,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--san
     <div id="exec-hdr">
       <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M2 2l7 3.5L2 9V2z" stroke="var(--t3)" stroke-width="1.2" stroke-linejoin="round"/></svg>
       <span id="exec-scenario-name" style="color:var(--t3)">No test running</span>
+      <span id="exec-runner-badge" style="display:none;font-size:9px;font-weight:700;padding:2px 7px;border-radius:3px;background:var(--accent-dim);color:var(--accent-h);border:1px solid rgba(99,102,241,0.2)">UI</span>
       <span id="exec-state-badge">idle</span>
     </div>
     <div id="plan-section">
@@ -415,6 +483,29 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--san
         <div class="scard healed" onclick="openDrawer('healed')"><div class="sval" id="m-heal">0</div><div class="slbl">healed</div></div>
       </div>
       <button id="view-rep" onclick="openDrawer('all')">View full report ↓</button>
+    </div>
+  </div>
+</div>
+
+<!-- Plan Proposal Overlay -->
+<div id="plan-proposal" onclick="handlePlanOverlayClick(event)">
+  <div id="plan-panel">
+    <div id="plan-panel-hdr">
+      <div style="flex:1">
+        <div class="plan-feature-name" id="pp-feature">Feature name</div>
+        <div class="plan-risk-reason" id="pp-risk-reason"></div>
+      </div>
+      <span class="plan-risk-badge" id="pp-risk-badge">medium</span>
+      <button onclick="closePlanProposal()" style="background:none;border:none;color:var(--t3);cursor:pointer;font-size:18px;margin-left:8px;padding:0 4px">✕</button>
+    </div>
+    <div id="plan-panel-body"></div>
+    <div class="plan-order" id="pp-order"></div>
+    <div id="plan-panel-footer">
+      <button class="pp-btn primary" id="pp-run-all" onclick="runPlan(null)">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="margin-right:4px"><path d="M2.5 2l6 3-6 3V2z" fill="white"/></svg>
+        Run all layers
+      </button>
+      <button class="pp-btn ghost" onclick="closePlanProposal()">Maybe later</button>
     </div>
   </div>
 </div>
@@ -455,6 +546,16 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--san
 const ws = new WebSocket('ws://localhost:4000');
 let allScenarioData = [], currentTab = 'all', lastReportData = null, currentApp = null;
 let apps = [], modules = [], customScenarios = [], planOpen = true;
+let activeRunner = 'ui'; // currently selected test runner
+
+function setActiveRunner(r) {
+  activeRunner = r;
+  document.querySelectorAll('.runner-tab').forEach(t => t.classList.toggle('active', t.dataset.runner === r));
+  // Update run all button label
+  const labels = { ui:'Run All (UI)', data:'Run All (Data)', api:'Run All (API)', perf:'Run All (Perf)' };
+  const btn = document.getElementById('run-regression-btn');
+  if (btn) btn.textContent = labels[r] || 'Run All';
+}
 
 // ── WebSocket ─────────────────────────────────────────────────────────────────
 ws.onmessage = ({ data }) => {
@@ -468,6 +569,7 @@ ws.onmessage = ({ data }) => {
   else if (type === 'step')         updateStep(d.index, d.status);
   else if (type === 'log')          addLog(d.text, d.level);
   else if (type === 'heal_prompt')  showHealCard(d);
+  else if (type === 'test_plan_proposal') showPlanProposal(d);
   else if (type === 'heal_diff')    pendingDiff = d;
   else if (type === 'heal_failed')  hideHealCard();
   else if (type === 'report')       showReport(d);
@@ -564,9 +666,20 @@ function addCustomScenario(s) {
 }
 
 // ── Run triggers ──────────────────────────────────────────────────────────────
-function runScenario(module, scenarioId, scenarioName, scenarioDesc) {
+function runScenario(module, scenarioId, scenarioName, scenarioDesc, forceRunner) {
   resetExec();
-  ws.send(JSON.stringify({ type: 'run_scenario', data: { module, scenarioId, scenarioName, scenarioDesc, appId: currentApp?.id } }));
+  const runner = forceRunner || activeRunner;
+  if (runner === 'ui') {
+    // Standard Playwright scenario execution
+    ws.send(JSON.stringify({ type: 'run_scenario', data: { module, scenarioId, scenarioName, scenarioDesc, appId: currentApp?.id } }));
+  } else {
+    // Runner-specific execution (data / api / perf)
+    ws.send(JSON.stringify({ type: 'run_with_runner', data: {
+      runnerId: runner,
+      appId: currentApp?.id,
+      scenario: { id: scenarioId, name: scenarioName || scenarioId.replace(/_/g,' '), module, description: scenarioDesc || '' },
+    }}));
+  }
 }
 function runModule(modId) {
   resetExec();
@@ -634,9 +747,17 @@ function renderMarkdown(text) {
 }
 
 // ── Execution panel ───────────────────────────────────────────────────────────
-function onExecStart({ module, scenario, app }) {
+function onExecStart({ module, scenario, app, runner }) {
   document.getElementById('exec-scenario-name').textContent = `${module} / ${scenario}`;
   document.getElementById('exec-state-badge').className = 'running'; document.getElementById('exec-state-badge').textContent = 'running';
+  const rb = document.getElementById('exec-runner-badge');
+  if (runner && runner !== 'ui') {
+    rb.textContent = runner.toUpperCase(); rb.style.display = 'inline-block';
+    const clr = { data:'#059669', api:'#0284C7', perf:'#D97706' };
+    rb.style.background = (clr[runner]||'#4F46E5') + '18';
+    rb.style.color = clr[runner]||'#4F46E5';
+    rb.style.borderColor = (clr[runner]||'#4F46E5') + '40';
+  } else { rb.style.display = 'none'; }
   document.getElementById('plan-section').style.display = 'block';
   document.getElementById('plan-spin').style.display = 'inline-block';
   document.getElementById('plan-inner').innerHTML = `<div style="font-size:10px;color:var(--accent-h);padding:5px 0;font-family:var(--mono)">Loading plan...</div>`;
@@ -723,6 +844,37 @@ function addLog(text, level='info') {
 }
 
 // ── Report ────────────────────────────────────────────────────────────────────
+function showQuickChips(data) {
+  const chips = document.getElementById('quick-chips');
+  chips.innerHTML = '';
+  const s = data.summary || {};
+  const items = [];
+
+  if (s.failed > 0)  items.push({ label:'Why did it fail?',          cls:'red',   q:`Why did the last test fail?` });
+  if (s.healed > 0)  items.push({ label:'What did the heal change?', cls:'amber', q:`What did the auto-heal change?` });
+  if (s.total > 0)   items.push({ label:'Summarise results',         cls:'',      q:`Summarise the last test run results` });
+
+  // Module-specific chip
+  const mods = [...new Set((data.scenarios||[]).map(r=>r.scenario?.module).filter(Boolean))];
+  if (mods.length === 1) items.push({ label:`About ${mods[0]}`, cls:'', q:`Tell me about the ${mods[0]} module` });
+
+  if (!items.length) { chips.style.display='none'; return; }
+  items.forEach(item => {
+    const btn = document.createElement('button');
+    btn.className = `chip ${item.cls}`;
+    btn.textContent = item.label;
+    btn.onclick = () => { fireChip(item.q); chips.style.display='none'; };
+    chips.appendChild(btn);
+  });
+  chips.style.display = 'flex';
+}
+
+function fireChip(question) {
+  addChatMsg(question, 'user');
+  showTyping();
+  ws.send(JSON.stringify({ type: 'chat', data: question }));
+}
+
 function showReport(data) {
   lastReportData = data; const s = data.summary || {};
   document.getElementById('m-total').textContent  = s.total  ?? 0;
@@ -736,6 +888,7 @@ function showReport(data) {
   badge.className = data.status === 'success' ? (s.healed ? 'healed' : 'passed') : 'failed';
   allScenarioData = data.scenarios || [];
   buildDrawer(data);
+  showQuickChips(data);
 }
 
 function buildDrawer(data) {
@@ -771,7 +924,9 @@ function renderDrawerTab(tab) {
 function buildBlock({ scenario, result, healCount=0, healMeta=null }) {
   const status=result?.status, passed=status==='success', skipped=status==='skipped', steps=result?.results||[];
   const dotC=passed?'var(--green)':skipped?'var(--t3)':'var(--red)';
-  const badC=passed?'pass':skipped?'skip':'fail', badT=passed?'PASS':skipped?'SKIP':'FAIL';
+  const statusOk = status==='success'||status==='pass';
+  const badC=statusOk?'pass':skipped?'skip':'fail', badT=statusOk?'PASS':skipped?'SKIP':'FAIL';
+  passed = statusOk;
   const block=document.createElement('div'); block.className='scb';
   const hdr=document.createElement('div'); hdr.className='sch';
   const dot=document.createElement('div'); dot.className='scdot'; dot.style.background=dotC;
@@ -785,7 +940,7 @@ function buildBlock({ scenario, result, healCount=0, healMeta=null }) {
     block.appendChild(hdr);
     const table=document.createElement('div'); table.className='sctable';
     steps.forEach((r,i)=>{
-      const ok=r.status==='success';
+      const ok = r.status==='success' || r.status==='pass';
       const row=document.createElement('div');row.className='scrow';
       row.innerHTML=`<span class="scrn">${i+1}</span><div class="scrd" style="background:${ok?'var(--green)':'var(--red)'}"></div><span class="scra">${esc(r.step?.action||'')}</span><span class="scrt">${esc(r.step?.selector||r.step?.value||'')}</span><span class="scrs" style="color:${ok?'var(--green)':'var(--red)'}">${ok?'pass':'fail'}</span>`;
       table.appendChild(row);
@@ -826,6 +981,105 @@ function copyReport() {
 }
 
 // ── State & utils ─────────────────────────────────────────────────────────────
+// ── Plan Proposal ─────────────────────────────────────────────────────────────
+let currentPlan = null;
+
+const LAYER_META = {
+  API:             { icon:'⚡', color:'0284C7', label:'API Contract' },
+  DATA_VALIDATION: { icon:'🔍', color:'059669', label:'Data Validation' },
+  UI:              { icon:'🖥',  color:'4F46E5', label:'UI Tests' },
+  PERFORMANCE:     { icon:'📊', color:'D97706', label:'Performance' },
+};
+
+function showPlanProposal(plan) {
+  currentPlan = plan;
+  const overlay = document.getElementById('plan-proposal');
+  const body    = document.getElementById('plan-panel-body');
+
+  // Header
+  document.getElementById('pp-feature').textContent    = plan.feature || 'Test Plan';
+  document.getElementById('pp-risk-reason').textContent = plan.risk_reason || '';
+  const riskBadge = document.getElementById('pp-risk-badge');
+  riskBadge.textContent = (plan.risk || 'medium').toUpperCase();
+  riskBadge.className   = `plan-risk-badge ${plan.risk || 'medium'}`;
+
+  // Layers
+  body.innerHTML = '';
+  (plan.layers || []).forEach((layer, idx) => {
+    const meta  = LAYER_META[layer.type] || LAYER_META.UI;
+    const card  = document.createElement('div');
+    card.className = 'plan-layer';
+
+    // Header
+    const hdr = document.createElement('div');
+    hdr.className = 'plan-layer-hdr';
+    hdr.innerHTML = `
+      <div class="plan-layer-icon" style="background:rgba(${hexToRgb(meta.color)},0.15)">${meta.icon}</div>
+      <div class="plan-layer-info">
+        <div class="plan-layer-type">${meta.label}</div>
+        <div class="plan-layer-reason">${esc(layer.reason)}</div>
+      </div>
+      <span class="plan-layer-badge runner-badge ${layer.runner||'ui'}">${(layer.runner||'ui').toUpperCase()}</span>
+      <button onclick="runPlan(${idx})" style="margin-left:8px;padding:4px 12px;border-radius:var(--r);background:rgba(${hexToRgb(meta.color)},0.15);border:1px solid rgba(${hexToRgb(meta.color)},0.3);color:#${meta.color};font-size:10px;font-weight:600;cursor:pointer">
+        ▶ Run layer
+      </button>`;
+    card.appendChild(hdr);
+
+    // Dependency
+    if (layer.depends_on) {
+      const dep = document.createElement('div');
+      dep.className = 'plan-layer-dep';
+      dep.textContent = `Depends on: ${layer.depends_on} (must pass first)`;
+      card.appendChild(dep);
+    }
+
+    // Scenarios
+    if (layer.scenarios?.length) {
+      const scenList = document.createElement('div');
+      scenList.className = 'plan-scenarios';
+      layer.scenarios.forEach(s => {
+        const row = document.createElement('div');
+        row.className = 'plan-scen-row';
+        row.innerHTML = `
+          <div class="plan-scen-dot" style="background:#${meta.color}"></div>
+          <span class="plan-scen-name">${esc(s.name)}</span>
+          <span class="plan-scen-desc">${esc(s.description || '')}</span>`;
+        scenList.appendChild(row);
+      });
+      card.appendChild(scenList);
+    }
+
+    body.appendChild(card);
+  });
+
+  // Recommended order
+  const orderEl = document.getElementById('pp-order');
+  const order   = plan.recommended_order || [];
+  orderEl.innerHTML = '<span style="font-weight:600;color:var(--t2)">Recommended order:</span> ' +
+    order.map((t, i) => {
+      const m = LAYER_META[t] || {};
+      const clr = m.color || '6366F1';
+      return `<span class="plan-order-item" style="background:rgba(${hexToRgb(clr)},0.12);color:#${clr}">${m.icon||''} ${t}</span>${i < order.length-1 ? '<span class="plan-order-arrow">→</span>' : ''}`;
+    }).join('');
+
+  overlay.classList.add('open');
+}
+
+function closePlanProposal() {
+  document.getElementById('plan-proposal').classList.remove('open');
+}
+
+function handlePlanOverlayClick(e) {
+  if (e.target === document.getElementById('plan-proposal')) closePlanProposal();
+}
+
+function runPlan(layerIndex) {
+  if (!currentPlan) return;
+  closePlanProposal();
+  resetExec();
+  ws.send(JSON.stringify({ type: 'run_plan', data: { plan: currentPlan, layerIndex } }));
+}
+
 function setAgentState(state) {
   const dot=document.getElementById('status-dot'), lbl=document.getElementById('status-label');
   const map={idle:{c:'var(--green)',l:'idle',cls:''},thinking:{c:'var(--amber)',l:'thinking',cls:'busy'},running:{c:'var(--sky)',l:'running',cls:'running'}};
@@ -835,6 +1089,7 @@ function setAgentState(state) {
 function resetExec() {
   document.getElementById('log-stream').innerHTML='';
   document.getElementById('plan-section').style.display='none';
+  document.getElementById('quick-chips').style.display='none';
   document.getElementById('plan-inner').innerHTML='';
   document.getElementById('plan-cnt').textContent='0 steps';
   document.getElementById('stats-bar').style.display='none';

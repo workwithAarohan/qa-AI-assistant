@@ -2,7 +2,7 @@
   {
     "id": "testapp",
     "name": "TestApp",
-    "description": "Demo web app \u2014 login, dashboard, projects and profile modules",
+    "description": "Demo web app \u2014 login, dashboard, projects, profile",
     "baseUrl": "http://localhost:4000/testapp",
     "docsDir": "./docs",
     "color": "4F46E5",
@@ -12,7 +12,7 @@
     "id": "dataapp",
     "name": "DataApp",
     "description": "Backend-driven tables with filters and form validation",
-    "baseUrl": "http://localhost:5000",
+    "baseUrl": "http://localhost:4001",
     "docsDir": "./docs-dataapp",
     "color": "059669",
     "icon": "D"

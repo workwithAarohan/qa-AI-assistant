@@ -113,6 +113,161 @@ export function getLearningExamples(appId) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// planFeature()
+//
+// Senior QA analyst reasoning: classify the feature, assess risk,
+// recommend which test layers to run and in what order.
+// One LLM call. Returns a structured test plan for user confirmation.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * @param {string}  userInput   — what the user asked to test
+ * @param {object}  appContext  — { id, name, baseUrl, docs }
+ * @param {object}  sessionCtx — { lastRun, appId }
+ *
+ * @returns {Promise<{
+ *   feature:      string,
+ *   risk:         'critical' | 'high' | 'medium' | 'low',
+ *   risk_reason:  string,
+ *   ui_only:      boolean,
+ *   layers: [{
+ *     type:       'API' | 'DATA_VALIDATION' | 'UI' | 'PERFORMANCE',
+ *     reason:     string,
+ *     runner:     'api' | 'data' | 'ui' | 'perf',
+ *     scenarios:  Array<{id, name, module, description}>,
+ *     depends_on: string | null,
+ *   }],
+ *   recommended_order: string[],
+ * }>}
+ */
+export async function planFeature(userInput, appContext, sessionCtx = {}) {
+  const { id: appId = 'default', name: appName, baseUrl, docs = [] } = appContext;
+  const { lastRun = null } = sessionCtx;
+
+  const docSections   = getRelevantDocSections(userInput, docs);
+  const moduleIndex   = buildModuleIndex(docs);
+  const learnExamples = getLearningExamples(appId);
+
+  // Summarise past failures for risk assessment
+  const pastFailures = (lastRun?.scenarios || [])
+    .filter(r => r.result?.status === 'failed')
+    .map(r => `  - ${r.scenario?.module}/${r.scenario?.name} has failed before`)
+    .join('\n');
+
+  const prompt = `${IDENTITY_ANCHOR}
+
+You are a senior QA analyst embedded in AEGIS, an enterprise test platform.
+You think before you test. You plan before you execute.
+
+## Active application
+Name: ${appName}
+Base URL: ${baseUrl}
+
+## Available modules and scenarios
+${moduleIndex}
+
+## Relevant documentation
+${docSections}
+
+${learnExamples ? learnExamples + '\n' : ''}${pastFailures ? '## Known past failures\n' + pastFailures + '\n' : ''}
+## User wants to test
+"${userInput}"
+
+## Your task — QA analyst reasoning
+
+Step 1 — Classify the feature
+Determine which test layers apply:
+- UI only: static pages, navigation, client-side logic
+- UI + API: any dynamic or database-driven data
+- UI + API + Data validation: financial data, critical business data, backend-rendered tables
+- Performance: search, filters, large datasets, paginated tables
+
+Step 2 — Assess risk
+- Is this on the critical user path? (login, checkout, core data)
+- Has it failed before? (check past failures above)
+- Is there a backend dependency? (API-driven data, forms that POST)
+
+Step 3 — Plan sequence (always bottom-up)
+1. API contract first (does the backend return correct data?)
+2. Data validation second (does the browser render it correctly?)
+3. UI rendering third (are elements visible and correct?)
+4. UI interaction fourth (do clicks, forms, navigation work?)
+5. Performance last (only if dataset is large or filtering is complex)
+
+Step 4 — Match scenarios from the available modules above
+For each layer, list the specific scenario ids that apply.
+If no scenario exists, suggest one with a reasonable id and description.
+
+## Return ONLY this JSON — no explanation:
+{
+  "feature": "short feature name",
+  "risk": "critical | high | medium | low",
+  "risk_reason": "one sentence",
+  "ui_only": false,
+  "layers": [
+    {
+      "type": "API",
+      "reason": "why this layer is needed",
+      "runner": "api",
+      "scenarios": [
+        { "id": "scenario_id", "name": "Scenario name", "module": "module_name", "description": "what it tests" }
+      ],
+      "depends_on": null
+    },
+    {
+      "type": "DATA_VALIDATION",
+      "reason": "why",
+      "runner": "data",
+      "scenarios": [...],
+      "depends_on": "API"
+    },
+    {
+      "type": "UI",
+      "reason": "why",
+      "runner": "ui",
+      "scenarios": [...],
+      "depends_on": "DATA_VALIDATION"
+    }
+  ],
+  "recommended_order": ["API", "DATA_VALIDATION", "UI"]
+}`;
+
+  try {
+    const result = await llmGenerate(prompt, { maxAttempts: 1 });
+    const text   = result.response.text();
+    const parsed = extractJSON(text);
+
+    // Normalise
+    parsed.layers = (parsed.layers || []).map(l => ({
+      type:       l.type || 'UI',
+      reason:     l.reason || '',
+      runner:     l.runner || 'ui',
+      scenarios:  Array.isArray(l.scenarios) ? l.scenarios : [],
+      depends_on: l.depends_on || null,
+    }));
+    parsed.recommended_order = parsed.recommended_order || parsed.layers.map(l => l.type);
+    parsed.ui_only = !!parsed.ui_only;
+
+    return parsed;
+
+  } catch (err) {
+    console.error('[planFeature] LLM error:', err.message);
+    // Fallback: safe minimal plan
+    return {
+      feature:      userInput,
+      risk:         'medium',
+      risk_reason:  'Could not assess — proceeding with UI testing only.',
+      ui_only:      true,
+      layers: [{
+        type: 'UI', reason: 'Fallback — LLM unavailable', runner: 'ui',
+        scenarios: [], depends_on: null,
+      }],
+      recommended_order: ['UI'],
+    };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // DOC UTILITIES
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -268,13 +423,15 @@ Reason carefully about what the user wants.
 
 Intent options:
 - EXECUTE    → user wants to run one or more test scenarios right now
+- PLAN       → user wants to test a feature/module properly — needs layer analysis and risk assessment before running
 - EXPLORE    → user wants to know what can be tested, understand a module, or get scenario info
 - DISCUSS    → user wants to build a custom test, discuss approach, or needs guidance
 - POST_RUN_Q → user is asking about the last test run (failures, heals, results)
 - OUT_OF_SCOPE → unrelated to QA testing
 
 Rules:
-- If the user names a module or action that maps to known scenarios → EXECUTE with high confidence
+- If the user says "test X properly", "full test", "test everything in X", "test this feature" → PLAN
+- If the user says "run X", "test login", names a specific scenario → EXECUTE with high confidence
 - If the intent is clear but no matching scenario exists → EXECUTE with low confidence + clarifying_question
 - If EXECUTE, list ALL matching scenarios from the documentation (not just one)
 - For EXPLORE/DISCUSS/POST_RUN_Q, write the response directly — it will be shown verbatim to the user
@@ -371,44 +528,130 @@ export async function generateSteps(userInput, docContext = '', browserContext =
   return extractJSONFromText(text);
 }
 
-export async function generateAllScenarioSteps(scenarios, docContext = '', browserContext = '') {
+// ── Common pattern fallbacks — used when docs and DOM are both missing ──────────
+const COMMON_PATTERNS = {
+  sort_column:   (s, url) => [
+    { action:'navigate', value: url },
+    { action:'click', selector:`th[data-sort]:has-text("${s.name.replace(/sort_?/i,'').trim() || 'Name'}")` },
+    { action:'expect', selector:'tbody tr' },
+  ],
+  filter:        (s, url) => [
+    { action:'navigate', value: url },
+    { action:'type', selector:'#filter-input, input[type="search"], input[placeholder*="search" i]', value:'test' },
+    { action:'expect', selector:'tbody tr, #row-count, .results-count' },
+  ],
+  pagination:    (s, url) => [
+    { action:'navigate', value: url },
+    { action:'click', selector:'#page-next, [aria-label*="next" i], button:has-text("Next")' },
+    { action:'expect', selector:'#page-info, [aria-label*="page" i]' },
+  ],
+  export:        (s, url) => [
+    { action:'navigate', value: url },
+    { action:'click', selector:'#export-btn, button:has-text("Export"), a:has-text("Export")' },
+    { action:'wait', value:'1000' },
+  ],
+  valid_submit:  (s, url) => [
+    { action:'navigate', value: url },
+    { action:'type', selector:'input[type="text"]:first-of-type, #field-name', value:'Test User' },
+    { action:'click', selector:'button[type="submit"], #form-submit, button:has-text("Submit")' },
+    { action:'expect', selector:'#form-success, .success, [class*="success"]' },
+  ],
+  empty_submit:  (s, url) => [
+    { action:'navigate', value: url },
+    { action:'click', selector:'button[type="submit"], #form-submit, button:has-text("Submit")' },
+    { action:'expect', selector:'#error-summary, .error, [class*="error"]' },
+  ],
+  default:       (s, url) => [
+    { action:'navigate', value: url },
+    { action:'expect', selector:'body' },
+    { action:'expect', selector:`h1, h2, [id="${s.module}"], main` },
+  ],
+};
+
+function getFallbackSteps(scenario, baseUrl) {
+  const id = scenario.id?.toLowerCase() || '';
+  // Match by scenario id keywords
+  if (id.includes('sort'))       return COMMON_PATTERNS.sort_column(scenario, baseUrl);
+  if (id.includes('filter') || id.includes('search')) return COMMON_PATTERNS.filter(scenario, baseUrl);
+  if (id.includes('paginat') || id.includes('page'))  return COMMON_PATTERNS.pagination(scenario, baseUrl);
+  if (id.includes('export') || id.includes('csv'))    return COMMON_PATTERNS.export(scenario, baseUrl);
+  if (id.includes('valid_submit') || id.includes('valid submit')) return COMMON_PATTERNS.valid_submit(scenario, baseUrl);
+  if (id.includes('empty') || id.includes('blank'))  return COMMON_PATTERNS.empty_submit(scenario, baseUrl);
+  return COMMON_PATTERNS.default(scenario, baseUrl);
+}
+
+export async function generateAllScenarioSteps(scenarios, docContext = '', browserContext = '', baseUrl = '') {
   const scenarioList = scenarios
-    .map((s, i) => `${i + 1}. id: "${s.id}" — ${s.name}: ${s.description || ''}`)
+    .map((s, i) => `${i + 1}. id: "${s.id}" — ${s.name}: ${s.description || '(no description)'}`)
     .join('\n');
+
+  const hasDoc = docContext && docContext.trim().length > 20;
+  const hasDOM = browserContext && browserContext.trim().length > 20;
 
   const prompt = build(
     IDENTITY_ANCHOR,
-    systemPrompt(),
-    docContext     ? `## Relevant Documentation\n${docContext}` : null,
-    browserContext ? `## Current Browser State\n${browserContext}` : null,
-    `## Task
-Generate test steps for ALL of the following scenarios in one response.
-
-Scenarios:
+    `## Role
+You are a senior QA analyst. You ALWAYS return valid Playwright test steps — never empty.
+Priority order for generating steps:
+1. Documentation (use exact selectors from docs)
+2. Live DOM snapshot (use real element ids/roles you can see)
+3. Scenario name + common sense (use text-based selectors and common patterns)
+You always have enough to make a reasonable attempt. Never refuse.`,
+    hasDoc ? `## Documentation\n${docContext}` : '## Documentation\nNone — use DOM and scenario name.',
+    hasDOM ? `## Live DOM snapshot\n${browserContext}` : '## Live DOM\nNot captured — infer from scenario name and common patterns.',
+    `## Scenarios to generate steps for
 ${scenarioList}
 
-Return a JSON array where each item has:
-- id: the scenario id
-- module: the feature module name (snake_case)
-- scenario: the scenario id (snake_case)
-- steps: array of Playwright test steps
+Base URL: ${baseUrl || 'http://localhost:4000'}
 
-Each step must have "action" and either "selector", "value", or both.
-Supported actions: navigate, type, click, expect, expectUrl, waitForNavigation, wait, assertText
+## Rules
+- ALWAYS generate steps — never return empty steps array
+- Minimum 3 steps per scenario: navigate → interact → assert
+- Use selectors from documentation when available
+- Use element ids from DOM snapshot when docs missing
+- When both missing: use getByText(), getByRole(), or common patterns below
+- Fallback selectors: th:has-text("Column"), input[placeholder*="hint"], button:has-text("Action")
+- Common patterns for "sort": click column header → verify tbody reordered
+- Common patterns for "filter": type in search input → verify row count changes
+- Common patterns for "pagination": click next button → verify page indicator changes
+- Common patterns for "export": click export button → wait 1000ms
+- Common patterns for "submit valid": fill required fields → click submit → verify success message
+- Common patterns for "submit invalid": click submit without filling → verify error message
 
-Return ONLY the JSON array, no explanation:
-[{ "id": "...", "module": "...", "scenario": "...", "steps": [...] }]`
+## Required output — ONLY this JSON array, nothing else:
+[{ "id": "scenario_id", "module": "module_name", "scenario": "scenario_id", "steps": [...] }]`
   );
 
-  const result = await llmGenerate(prompt, { maxAttempts: 1 });
-  const text   = result.response.text();
-
   try {
+    const result = await llmGenerate(prompt, { maxAttempts: 2 });
+    const text   = result.response.text();
     const parsed = extractJSONFromText(text);
-    return Array.isArray(parsed) ? parsed : (parsed.scenarios || []);
+    const arr    = Array.isArray(parsed) ? parsed : (parsed.scenarios || [parsed]);
+
+    // Validate each plan — if steps empty, inject fallback
+    return arr.map((plan, i) => {
+      const scenario = scenarios[i] || scenarios[0];
+      if (!plan.steps || plan.steps.length === 0) {
+        console.warn(`[generateAllScenarioSteps] Empty steps for ${plan.id} — applying fallback`);
+        plan.steps = getFallbackSteps(scenario, baseUrl);
+      }
+      // Ensure required fields
+      plan.module   = plan.module   || scenario?.module   || 'general';
+      plan.scenario = plan.scenario || plan.id || scenario?.id || 'unknown';
+      plan.id       = plan.id       || plan.scenario;
+      return plan;
+    });
+
   } catch (err) {
-    console.error('generateAllScenarioSteps parse error:', err.message);
-    throw new Error('Could not parse batch scenario steps: ' + err.message);
+    // Total LLM failure — return fallback plans for every scenario
+    console.error('[generateAllScenarioSteps] LLM failed, using fallbacks:', err.message);
+    return scenarios.map(s => ({
+      id:       s.id,
+      module:   s.module,
+      scenario: s.id,
+      steps:    getFallbackSteps(s, baseUrl),
+      _fallback: true,
+    }));
   }
 }
 
