@@ -145,6 +145,22 @@ function buildPlanInput(text, decision) {
   return text;
 }
 
+function speakExploreDecision(decision, appName = 'this app') {
+  const module = decision.intent?.scope?.module;
+  const testType = decision.intent?.scope?.testType;
+  if (module) {
+    const scenarios = module.scenarios || [];
+    const scenarioText = scenarios.length
+      ? scenarios.slice(0, 6).map(s => `- **${s.name}**: ${s.description}`).join('\n')
+      : '- No documented scenarios yet.';
+    return `The **${module.name}** module has ${scenarios.length} documented scenario${scenarios.length === 1 ? '' : 's'}.\n${scenarioText}`;
+  }
+  if (testType === 'api') {
+    return `API testing checks HTTP contracts, schemas, status codes, validation errors, and cross-endpoint consistency. Switch to the API Tests runner, then use a scenario Run button, module Run all, or Run All (API).`;
+  }
+  return speakExploreFallback(null, appName);
+}
+
 function enforcePlanScope(plan, moduleId, docs = []) {
   if (!moduleId || !plan?.layers) return plan;
   const doc = docs.find(d => d.name === moduleId);
@@ -209,6 +225,86 @@ function enforcePlanScope(plan, moduleId, docs = []) {
 
 function titleCase(text) {
   return String(text || '').replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function parseScenariosFromDoc(doc) {
+  const sec = doc?.content.match(/##\s*Test Scenarios\s*\n([\s\S]*?)(?=\n##|$)/i);
+  return sec ? sec[1].trim().split('\n').map(line => {
+    const m = line.match(/[-*]\s*([a-z_]+):\s*(.+)/i);
+    return m ? {
+      id: m[1].trim().toLowerCase(),
+      name: m[1].trim().replace(/_/g, ' '),
+      description: m[2].trim(),
+      module: doc.name,
+    } : null;
+  }).filter(Boolean) : [];
+}
+
+function runnerAppliesToScenario(runnerId, scenario = {}) {
+  if (!runnerId || runnerId === 'ui') return true;
+  const id = String(scenario.id || scenario.name || '').toLowerCase();
+  const mod = String(scenario.module || '').toLowerCase();
+  if (runnerId === 'data') {
+    return mod.includes('table') || id.includes('table') || id.includes('filter') ||
+      id.includes('sort') || id.includes('paginat') || id.includes('export');
+  }
+  if (runnerId === 'api') {
+    return mod.includes('table') || mod.includes('validation') || mod.includes('dataapp') ||
+      id.includes('api') || id.includes('validate');
+  }
+  if (runnerId === 'perf') {
+    return id.includes('filter') || id.includes('search') || id.includes('load') ||
+      mod.includes('table') || id.includes('paginat');
+  }
+  return true;
+}
+
+function reportFromRunnerResults(results, runnerId, type = 'runner') {
+  const passed = results.filter(r => r.result?.status === 'success' || r.result?.status === 'pass').length;
+  const failed = results.filter(r => r.result?.status === 'failed' || r.result?.status === 'fail').length;
+  const skipped = results.filter(r => r.result?.status === 'skipped' || r.result?.status === 'skip').length;
+  return {
+    type,
+    runnerId,
+    status: failed === 0 ? 'success' : 'failed',
+    healCount: 0,
+    scenarios: results,
+    summary: { total: results.length, passed, failed, skipped, healed: 0 },
+  };
+}
+
+async function runSpecialistSuite(ws, runnerId, scenarios, runApp, type = 'runner') {
+  const filtered = scenarios.filter(s => runnerAppliesToScenario(runnerId, s));
+  if (!filtered.length) {
+    send(ws, 'chat_reply', { text: `No ${runnerId.toUpperCase()} scenarios are available for this scope.`, intent: 'warn' });
+    send(ws, 'agent_state', 'idle');
+    return null;
+  }
+
+  const results = [];
+  let stepOffset = 0;
+  for (const scenario of filtered) {
+    phase(ws, `── [${runnerId.toUpperCase()}] ${scenario.module}/${scenario.name} ──`);
+    send(ws, 'scenario_start', scenario);
+    try {
+      const result = await runWithRunner(runnerId, scenario, {
+        baseUrl: runApp.baseUrl,
+        headless: false,
+        onStep: (i, step, status) => send(ws, 'step', { index: stepOffset + i, step, status }),
+        onLog: (text, level) => log(ws, text, level),
+      });
+      results.push({ scenario, result, healCount: 0, healMeta: null });
+      stepOffset += result.steps?.length || 0;
+    } catch (e) {
+      log(ws, `${scenario.name}: ${e.message}`, 'error');
+      results.push({ scenario, result: { status: 'fail', steps: [], error: e.message }, healCount: 0, healMeta: null });
+    }
+    await new Promise(r => setTimeout(r, 300));
+  }
+
+  const rpt = reportFromRunnerResults(results, runnerId, type);
+  send(ws, 'report', rpt);
+  return rpt;
 }
 
 function waitForHealAnswer(ws, ms = 1_800_000) {
@@ -334,7 +430,7 @@ async function executeScenario(ws, plan, scenario, baseUrl, browser, appId = 'de
 
   let result = await runSteps(finalPlan.steps, {
     browser, baseUrl,
-    onStep:  (i, s, st) => send(ws, 'step', { index: i, status: st }),
+    onStep:  (i, s, st) => send(ws, 'step', { index: i, step: s, status: st }),
     onLog:   (t, l) => log(ws, t, l),
     onFail:  async (page) => { try { liveUrl = page.url(); liveDom = await captureLiveDom(page); log(ws, `DOM captured: ${liveUrl}`, 'info'); } catch {} },
   });
@@ -381,7 +477,7 @@ async function executeScenario(ws, plan, scenario, baseUrl, browser, appId = 'de
       liveDom = null; liveUrl = null;
       result = await runSteps(fixedU.steps, {
         browser, baseUrl,
-        onStep: (i,s,st) => send(ws,'step',{index:i,status:st}),
+        onStep: (i,s,st) => send(ws,'step',{index:i,step:s,status:st}),
         onLog:  (t,l) => log(ws,t,l),
         onFail: async (page) => { try { liveUrl=page.url(); liveDom=await captureLiveDom(page); } catch {} },
       });
@@ -499,6 +595,14 @@ wss.on('connection', ws => {
         const reply = speakExecutionProposal(scenarios);
         pushHistory(st, 'agent', reply);
         send(ws, 'chat_reply', { text: reply, intent: 'EXECUTE', scenarios });
+        send(ws, 'agent_state', 'idle');
+        return;
+      }
+
+      if (conversationDecision.mode === 'EXPLORE') {
+        const reply = speakExploreDecision(conversationDecision, st.currentApp.name);
+        pushHistory(st, 'agent', reply);
+        send(ws, 'chat_reply', { text: reply, intent: 'EXPLORE' });
         send(ws, 'agent_state', 'idle');
         return;
       }
@@ -663,9 +767,10 @@ Return ONLY valid JSON:
           } else {
             // Specialist runner (api / data / perf)
             try {
+              const stepOffset = allResults.reduce((n, r) => n + (r.result?.steps?.length || 0), 0);
               const result = await runWithRunner(layer.runner, scenarioWithRunner, {
                 baseUrl: runApp.baseUrl, headless: false,
-                onStep: (i, s, st2) => send(ws, 'step', { index: i, status: st2 }),
+                onStep: (i, s, st2) => send(ws, 'step', { index: stepOffset + i, step: s, status: st2 }),
                 onLog:  (t, l) => log(ws, t, l),
               });
               allResults.push({ scenario: scenarioWithRunner, result, healCount: 0, healMeta: null, layer: layer.type });
@@ -708,7 +813,7 @@ Return ONLY valid JSON:
         const result = await runWithRunner(runnerId, scenario, {
           baseUrl:  runApp.baseUrl,
           headless: false,
-          onStep:   (i, s, st2) => send(ws, 'step', { index: i, status: st2 }),
+          onStep:   (i, s, st2) => send(ws, 'step', { index: i, step: s, status: st2 }),
           onLog:    (t, l) => log(ws, t, l),
         });
         const rpt = {
@@ -751,14 +856,19 @@ Return ONLY valid JSON:
 
     // Run full module
     if (type === 'run_module') {
-      const { module: modId } = data;
-      const runApp = st.currentApp;
-      send(ws,'agent_state','running'); send(ws,'execution_start',{module:modId,scenario:'all',app:runApp.name});
+      const { module: modId, runnerId = 'ui', appId } = data;
+      const runApp = appId ? getApp(appId) : st.currentApp;
+      send(ws,'agent_state','running'); send(ws,'execution_start',{module:modId,scenario:'all',app:runApp.name,runner:runnerId});
       const docs = loadAllDocs(runApp.docsDir);
       const doc = docs.find(d=>d.name===modId);
-      const sec = doc?.content.match(/##\s*Test Scenarios\s*\n([\s\S]*?)(?=\n##|$)/i);
-      const scenarios = sec ? sec[1].trim().split('\n').map(l=>{const m=l.match(/[-*]\s*([a-z_]+):\s*(.+)/i);return m?{id:m[1].toLowerCase(),name:m[1].replace(/_/g,' '),description:m[2].trim(),module:modId}:null;}).filter(Boolean) : [];
+      const scenarios = parseScenariosFromDoc(doc);
       if(!scenarios.length){send(ws,'chat_reply',{text:`No scenarios for "${modId}".`,intent:'warn'});send(ws,'agent_state','idle');return;}
+      if (runnerId !== 'ui') {
+        const rpt = await runSpecialistSuite(ws, runnerId, scenarios, runApp, 'module');
+        if (rpt) st.lastRun = rpt;
+        send(ws,'agent_state','idle');
+        return;
+      }
       const results=[]; let healed=0, browser=null;
       try {
         browser = await chromium.launch({headless:false});
@@ -776,11 +886,18 @@ Return ONLY valid JSON:
 
     // Run regression
     if (type === 'run_regression') {
-      const runApp = st.currentApp;
-      send(ws,'agent_state','running'); send(ws,'execution_start',{module:'all',scenario:'regression',app:runApp.name});
+      const { runnerId = 'ui', appId } = data || {};
+      const runApp = appId ? getApp(appId) : st.currentApp;
+      send(ws,'agent_state','running'); send(ws,'execution_start',{module:'all',scenario:'regression',app:runApp.name,runner:runnerId});
       const docs = loadAllDocs(runApp.docsDir);
       const all = [];
-      docs.forEach(d=>{const sec=d.content.match(/##\s*Test Scenarios\s*\n([\s\S]*?)(?=\n##|$)/i);if(!sec)return;sec[1].trim().split('\n').forEach(l=>{const m=l.match(/[-*]\s*([a-z_]+):\s*(.+)/i);if(m)all.push({id:m[1].toLowerCase(),name:m[1].replace(/_/g,' '),description:m[2].trim(),module:d.name});});});
+      docs.forEach(d=>all.push(...parseScenariosFromDoc(d)));
+      if (runnerId !== 'ui') {
+        const rpt = await runSpecialistSuite(ws, runnerId, all, runApp, 'regression');
+        if (rpt) st.lastRun = rpt;
+        send(ws,'agent_state','idle');
+        return;
+      }
       const results=[]; let healed=0, browser=null;
       try {
         browser=await chromium.launch({headless:false});

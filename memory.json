@@ -463,7 +463,7 @@
         "selector": "#row-count"
       }
     ],
-    "savedAt": "2026-05-02T11:06:05.787Z"
+    "savedAt": "2026-05-02T18:19:12.814Z"
   },
   "dataapp-tables__filter_by_text": {
     "id": "filter_by_text",
@@ -492,7 +492,7 @@
         "selector": "#row-count"
       }
     ],
-    "savedAt": "2026-05-01T00:00:00.000Z"
+    "savedAt": "2026-05-02T18:19:18.835Z"
   },
   "dataapp-tables__sort_column": {
     "id": "sort_column",
@@ -520,7 +520,7 @@
         "selector": "#data-table"
       }
     ],
-    "savedAt": "2026-05-01T00:00:00.000Z"
+    "savedAt": "2026-05-02T18:19:24.450Z"
   },
   "dataapp-tables__pagination": {
     "id": "pagination",
@@ -548,7 +548,7 @@
         "selector": "#page-info"
       }
     ],
-    "savedAt": "2026-05-01T00:00:00.000Z"
+    "savedAt": "2026-05-02T18:19:29.469Z"
   },
   "dataapp-tables__export_csv": {
     "id": "export_csv",
@@ -572,7 +572,7 @@
         "value": "1000"
       }
     ],
-    "savedAt": "2026-05-01T00:00:00.000Z"
+    "savedAt": "2026-05-02T18:19:33.373Z"
   },
   "dataapp-validation__valid_submit": {
     "id": "valid_submit",

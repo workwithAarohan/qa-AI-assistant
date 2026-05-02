@@ -292,6 +292,67 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--san
 #view-rep{width:100%;padding:5px;border-radius:var(--r);background:transparent;border:1px solid var(--border);color:var(--t2);font-size:11px;font-weight:500;cursor:pointer;transition:all 0.15s;display:flex;align-items:center;justify-content:center;gap:4px}
 #view-rep:hover{border-color:var(--accent);color:var(--accent-h);background:var(--accent-dim)}
 
+/* API Run Console */
+#api-console{display:none;position:fixed;inset:0;z-index:85;background:rgba(5,7,11,0.86);backdrop-filter:blur(8px);padding:22px}
+#api-console.open{display:flex}
+#api-console-panel{width:min(1120px,100%);height:min(780px,100%);margin:auto;background:var(--surface);border:1px solid var(--border2);border-radius:var(--rxl);box-shadow:0 28px 90px rgba(0,0,0,0.56);display:grid;grid-template-rows:auto auto 1fr auto;overflow:hidden}
+#api-console-hdr{display:flex;align-items:center;gap:12px;padding:18px 20px;border-bottom:1px solid var(--border)}
+.api-console-mark{width:36px;height:36px;border-radius:9px;background:var(--sky-dim);border:1px solid rgba(56,189,248,0.25);display:grid;place-items:center;color:var(--sky);font-family:var(--mono);font-size:15px;font-weight:800;flex-shrink:0}
+.api-console-title{font-size:15px;font-weight:800;color:var(--t1)}
+.api-console-sub{font-size:11px;color:var(--t3);margin-top:2px;font-family:var(--mono)}
+#api-console-status{margin-left:auto;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;padding:4px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface3);color:var(--t3)}
+#api-console-status.running{background:var(--sky-dim);border-color:rgba(56,189,248,0.25);color:var(--sky)}
+#api-console-status.passed{background:var(--green-dim);border-color:rgba(34,197,94,0.25);color:var(--green)}
+#api-console-status.failed{background:var(--red-dim);border-color:rgba(239,68,68,0.25);color:var(--red)}
+#api-console-close{width:30px;height:30px;border-radius:var(--r);border:1px solid var(--border);background:transparent;color:var(--t3);cursor:pointer;font-size:17px;display:grid;place-items:center}
+#api-console-close:hover{color:var(--t1);border-color:var(--border2)}
+#api-console-summary{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;padding:14px 20px;border-bottom:1px solid var(--border);background:rgba(255,255,255,0.015)}
+.api-metric{background:var(--surface2);border:1px solid var(--border);border-radius:var(--rl);padding:10px 12px}
+.api-metric-v{font-family:var(--mono);font-size:20px;font-weight:700;color:var(--t1);line-height:1}
+.api-metric-l{font-size:9px;color:var(--t3);text-transform:uppercase;letter-spacing:0.07em;margin-top:5px}
+.api-metric.pass .api-metric-v{color:var(--green)}.api-metric.fail .api-metric-v{color:var(--red)}.api-metric.time .api-metric-v{color:var(--sky)}
+#api-console-body{display:grid;grid-template-columns:minmax(320px,430px) 1fr;min-height:0}
+#api-timeline{border-right:1px solid var(--border);overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:8px;min-height:0}
+#api-timeline::-webkit-scrollbar,#api-detail::-webkit-scrollbar{width:4px}
+#api-timeline::-webkit-scrollbar-thumb,#api-detail::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+.api-step{width:100%;text-align:left;border:1px solid var(--border);background:var(--surface2);border-radius:var(--rl);padding:10px 11px;cursor:pointer;display:grid;grid-template-columns:auto 1fr auto;gap:9px;align-items:start;transition:border-color 0.15s,background 0.15s}
+.api-step:hover,.api-step.active{border-color:rgba(56,189,248,0.32);background:rgba(56,189,248,0.045)}
+.api-step-dot{width:9px;height:9px;border-radius:50%;background:var(--t3);margin-top:4px}
+.api-step.running .api-step-dot{background:var(--sky);animation:pulse 0.6s infinite}.api-step.pass .api-step-dot{background:var(--green)}.api-step.fail .api-step-dot{background:var(--red)}
+.api-step-title{font-size:12px;font-weight:700;color:var(--t1);line-height:1.3}
+.api-step-route{font-family:var(--mono);font-size:10px;color:var(--t3);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.api-method{font-family:var(--mono);font-size:9px;font-weight:800;color:var(--sky);background:var(--sky-dim);border:1px solid rgba(56,189,248,0.22);border-radius:4px;padding:2px 5px}
+.api-code{font-family:var(--mono);font-size:10px;font-weight:800;color:var(--t3);margin-top:6px;text-align:right}
+.api-step.pass .api-code{color:var(--green)}.api-step.fail .api-code{color:var(--red)}
+#api-detail{overflow-y:auto;padding:18px;min-height:0}
+.api-detail-empty{height:100%;display:grid;place-items:center;color:var(--t3);font-size:12px}
+.api-detail-card{border:1px solid var(--border);border-radius:var(--rxl);background:var(--surface2);overflow:hidden}
+.api-detail-h{display:flex;align-items:center;gap:8px;padding:14px 16px;border-bottom:1px solid var(--border)}
+.api-detail-title{font-size:14px;font-weight:800;color:var(--t1);flex:1}
+.api-detail-pill{font-family:var(--mono);font-size:10px;font-weight:800;padding:3px 7px;border-radius:5px;background:var(--surface3);color:var(--t2);border:1px solid var(--border)}
+.api-detail-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:12px 16px;border-bottom:1px solid var(--border)}
+.api-kv{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:8px}
+.api-k{font-size:9px;color:var(--t3);text-transform:uppercase;letter-spacing:0.07em}.api-v{font-family:var(--mono);font-size:12px;color:var(--t1);margin-top:4px;word-break:break-word}
+.api-assertions{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:5px}
+.api-assert{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;font-family:var(--mono);font-size:10px;padding:5px 7px;border-radius:var(--r);background:var(--surface)}
+.api-assert.pass{color:var(--green)}.api-assert.fail{color:var(--red);background:var(--red-dim)}
+.api-json-wrap{padding:12px 16px;display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.api-json{min-width:0}
+.api-json-title{font-size:10px;font-weight:800;color:var(--t3);text-transform:uppercase;letter-spacing:0.07em;margin-bottom:6px}
+.api-json pre{font-family:var(--mono);font-size:10px;line-height:1.5;color:var(--t2);background:var(--bg);border:1px solid var(--border);border-radius:var(--r);padding:9px;max-height:220px;overflow:auto;white-space:pre-wrap;word-break:break-word}
+#api-console-footer{display:flex;align-items:center;gap:10px;padding:12px 20px;border-top:1px solid var(--border);background:var(--surface2)}
+#api-console-note{font-size:11px;color:var(--t3);flex:1}
+@media (max-width: 760px){
+  #api-console{padding:10px}
+  #api-console-panel{height:100%;border-radius:var(--rl)}
+  #api-console-summary{grid-template-columns:repeat(2,1fr)}
+  #api-console-body{grid-template-columns:1fr;grid-template-rows:minmax(180px,34%) 1fr}
+  #api-timeline{border-right:none;border-bottom:1px solid var(--border)}
+  .api-detail-grid,.api-json-wrap{grid-template-columns:1fr}
+  #api-console-footer{align-items:stretch;flex-wrap:wrap}
+  #api-console-note{width:100%;flex-basis:100%}
+}
+
 /* ── Report Drawer ───────────────────────────────────────────────────────── */
 #dbackdrop{display:none;position:fixed;inset:0;z-index:40;background:rgba(0,0,0,0.5)}
 #drawer{position:fixed;bottom:0;left:0;right:0;z-index:50;background:var(--surface);border-top:1px solid var(--border);border-radius:14px 14px 0 0;display:flex;flex-direction:column;max-height:80vh;transform:translateY(100%);transition:transform 0.28s cubic-bezier(.4,0,.2,1);box-shadow:0 -8px 40px rgba(0,0,0,0.4)}
@@ -573,6 +634,37 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--san
   </div>
 </div>
 
+<!-- API Run Console -->
+<div id="api-console">
+  <div id="api-console-panel">
+    <div id="api-console-hdr">
+      <div class="api-console-mark">API</div>
+      <div>
+        <div class="api-console-title" id="api-console-title">API Run Console</div>
+        <div class="api-console-sub" id="api-console-sub">Waiting for API execution</div>
+      </div>
+      <span id="api-console-status">idle</span>
+      <button id="api-console-close" onclick="closeApiConsole()">×</button>
+    </div>
+    <div id="api-console-summary">
+      <div class="api-metric"><div class="api-metric-v" id="api-total">0</div><div class="api-metric-l">checks</div></div>
+      <div class="api-metric pass"><div class="api-metric-v" id="api-passed">0</div><div class="api-metric-l">passed</div></div>
+      <div class="api-metric fail"><div class="api-metric-v" id="api-failed">0</div><div class="api-metric-l">failed</div></div>
+      <div class="api-metric"><div class="api-metric-v" id="api-assertions">0</div><div class="api-metric-l">assertions</div></div>
+      <div class="api-metric time"><div class="api-metric-v" id="api-duration">—</div><div class="api-metric-l">duration</div></div>
+    </div>
+    <div id="api-console-body">
+      <div id="api-timeline"></div>
+      <div id="api-detail"><div class="api-detail-empty">API request details will appear here as checks run.</div></div>
+    </div>
+    <div id="api-console-footer">
+      <div id="api-console-note">Request and response payloads stay collapsed until you select an API check.</div>
+      <button class="btn ghost" onclick="openDrawer('all')">Open report</button>
+      <button class="btn primary" onclick="closeApiConsole()">Close console</button>
+    </div>
+  </div>
+</div>
+
 <!-- Plan Proposal Overlay -->
 <div id="plan-proposal" onclick="handlePlanOverlayClick(event)">
   <div id="plan-panel">
@@ -638,6 +730,7 @@ let apps = [], modules = [], customScenarios = [], planOpen = true;
 let activeRunner = 'ui'; // currently selected test runner
 let highlightedScenarios = [];
 let planCompleted = false;
+let apiConsole = { open:false, meta:null, steps:[], selected:0, summary:null, final:false };
 
 ws.onopen = () => {
   ws.send(JSON.stringify({ type: 'session_init', data: { sessionId: SESSION_ID } }));
@@ -662,7 +755,7 @@ ws.onmessage = ({ data }) => {
   else if (type === 'chat_reply')   renderChatReply(d);
   else if (type === 'execution_start') onExecStart(d);
   else if (type === 'execution_plan')  renderPlan(d.steps);
-  else if (type === 'step')         updateStep(d.index, d.status);
+  else if (type === 'step')         updateStep(d.index, d.status, d.step);
   else if (type === 'log')          addLog(d.text, d.level);
   else if (type === 'plan_progress') updatePlanProgress(d);
   else if (type === 'heal_prompt')  showHealCard(d);
@@ -827,13 +920,13 @@ function runScenario(module, scenarioId, scenarioName, scenarioDesc, forceRunner
 }
 function runModule(modId) {
   resetExec();
-  addLog(`User started all checks in ${modId}.`, 'phase');
-  ws.send(JSON.stringify({ type: 'run_module', data: { module: modId, appId: currentApp?.id } }));
+  addLog(`User started all ${activeRunner.toUpperCase()} checks in ${modId}.`, 'phase');
+  ws.send(JSON.stringify({ type: 'run_module', data: { module: modId, runnerId: activeRunner, appId: currentApp?.id } }));
 }
 function runRegression() {
   resetExec();
-  addLog('User started the full regression suite.', 'phase');
-  ws.send(JSON.stringify({ type: 'run_regression' }));
+  addLog(`User started the full ${activeRunner.toUpperCase()} suite.`, 'phase');
+  ws.send(JSON.stringify({ type: 'run_regression', data: { runnerId: activeRunner, appId: currentApp?.id } }));
 }
 
 // ── Chat ──────────────────────────────────────────────────────────────────────
@@ -926,6 +1019,7 @@ function onExecStart({ module, scenario, app, runner }) {
   document.getElementById('plan-inner').innerHTML = `<div style="font-size:10px;color:var(--accent-h);padding:5px 0;font-family:var(--mono)">Loading plan...</div>`;
   updateChatPlaceholder('running');
   addLog(`Starting ${scenario === 'layer-plan' ? 'the planned run' : scenario} for ${module}.`, 'phase');
+  if (runner === 'api') openApiConsole({ module, scenario, app });
 }
 
 let planOpen2 = true;
@@ -947,6 +1041,8 @@ function humanStep(step = {}) {
   const action = String(step.action || '').toLowerCase();
   const target = step.selector || step.value || '';
   const cleanTarget = humanTarget(target);
+  if (action === 'api_test') return { action:'API check', target: humanTarget(step.target || target) };
+  if (action === 'api_check') return { action:'assert API', target: humanTarget(step.target || target) };
   if (action === 'type' || action === 'fill') return { action:'type', target: cleanTarget };
   if (action === 'click') return { action:'click', target: cleanTarget };
   if (action === 'navigate') return { action:'open', target: cleanTarget };
@@ -967,17 +1063,208 @@ function humanTarget(target) {
     .trim();
 }
 
-function updateStep(idx, status) {
+function ensureStepRow(idx, step = {}) {
+  if (document.getElementById(`pr-${idx}`)) return;
+  document.getElementById('plan-section').style.display = 'block';
+  document.getElementById('plan-spin').style.display = 'none';
+  const inner = document.getElementById('plan-inner');
+  if (!inner.querySelector('.prow')) inner.innerHTML = '';
+  const row = document.createElement('div');
+  row.className = 'prow';
+  row.id = `pr-${idx}`;
+  const h = humanStep(step);
+  row.innerHTML = `<div class="pdot" id="pd-${idx}"></div><span class="pact">${esc(h.action)}</span><span class="ptgt">${esc(h.target)}</span><span class="pst" id="ps-${idx}">—</span>`;
+  inner.appendChild(row);
+  document.getElementById('plan-cnt').textContent = `${inner.querySelectorAll('.prow').length} steps`;
+  document.getElementById('plan-chev').classList.add('open');
+}
+
+function updateStep(idx, status, step) {
+  ensureStepRow(idx, step);
+  if (step?.action === 'api_test' || step?.action === 'api_check') updateApiConsoleStep(idx, status, step);
   const dot = document.getElementById(`pd-${idx}`), lbl = document.getElementById(`ps-${idx}`);
   if (!dot || !lbl) return;
   dot.className = `pdot ${status}`;
-  const m = { running:'—', success:'pass', failed:'fail', healed:'heal' };
-  const c = { success:'pass', failed:'fail', healed:'heal' };
+  const m = { running:'—', success:'pass', pass:'pass', failed:'fail', fail:'fail', healed:'heal' };
+  const c = { success:'pass', pass:'pass', failed:'fail', fail:'fail', healed:'heal' };
   lbl.textContent = m[status] || '—'; lbl.className = `pst ${c[status]||''}`;
   document.getElementById(`pr-${idx}`)?.scrollIntoView({ block:'nearest' });
 }
 
 function togglePlan() { planOpen2=!planOpen2; document.getElementById('plan-body').style.maxHeight=planOpen2?'180px':'0'; document.getElementById('plan-chev').classList.toggle('open',planOpen2); }
+
+// ── API run console ───────────────────────────────────────────────────────────
+function openApiConsole(meta = {}) {
+  apiConsole = { open:true, meta, steps:[], selected:0, summary:null, final:false };
+  document.getElementById('api-console').classList.add('open');
+  document.getElementById('api-console-title').textContent = `${meta.module || 'API'} / ${meta.scenario || 'run'}`;
+  document.getElementById('api-console-sub').textContent = `${meta.app || currentApp?.name || 'Application'} · Live API execution`;
+  setApiConsoleStatus('running');
+  renderApiConsole();
+}
+
+function closeApiConsole() {
+  apiConsole.open = false;
+  document.getElementById('api-console').classList.remove('open');
+}
+
+function resetApiConsole() {
+  apiConsole = { open:false, meta:null, steps:[], selected:0, summary:null, final:false };
+  document.getElementById('api-console').classList.remove('open');
+  renderApiConsole();
+}
+
+function setApiConsoleStatus(status) {
+  const el = document.getElementById('api-console-status');
+  if (!el) return;
+  const normalized = status === 'success' || status === 'pass' ? 'passed' : status === 'failed' || status === 'fail' ? 'failed' : status || 'idle';
+  el.className = normalized;
+  el.textContent = normalized;
+}
+
+function updateApiConsoleStep(index, status, step = {}) {
+  if (!apiConsole.open && !apiConsole.meta) openApiConsole({ module:'API', scenario:'run', app:currentApp?.name });
+  const existing = apiConsole.steps[index] || {};
+  apiConsole.steps[index] = normalizeApiConsoleStep(index, { ...existing, ...step, status });
+  apiConsole.selected = index;
+  apiConsole.final = false;
+  setApiConsoleStatus('running');
+  renderApiConsole();
+}
+
+function finishApiConsoleFromReport(data) {
+  const isApi = data?.runnerId === 'api' || (data?.scenarios || []).some(r => r.result?.runnerId === 'api');
+  if (!isApi) return;
+  const scenarioRows = data.scenarios || [];
+  let offset = 0;
+  scenarioRows.forEach(r => {
+    (r.result?.steps || []).forEach(s => {
+      const index = offset++;
+      apiConsole.steps[index] = normalizeApiConsoleStep(index, s);
+    });
+  });
+  apiConsole.summary = {
+    duration: scenarioRows.reduce((n, r) => n + (Number(r.result?.summary?.duration) || 0), 0),
+  };
+  apiConsole.final = true;
+  setApiConsoleStatus(data.status);
+  renderApiConsole();
+}
+
+function normalizeApiConsoleStep(index, raw = {}) {
+  const detail = raw.detail || {};
+  const meta = detail.meta || {};
+  const checks = raw.checks || detail.checks || [];
+  const assertions = raw.assertions || meta.assertions || {
+    total: checks.length,
+    passed: checks.filter(c => c.pass).length,
+    failed: checks.filter(c => c.pass === false).length,
+  };
+  const status = raw.status === 'success' || raw.status === 'pass' ? 'pass'
+    : raw.status === 'failed' || raw.status === 'fail' ? 'fail'
+    : raw.status || 'running';
+  return {
+    index,
+    status,
+    title: raw.title || raw.target || detail.name || `API check ${index + 1}`,
+    method: raw.method || meta.method || 'CHECK',
+    endpoint: raw.endpoint || meta.endpoint || '',
+    expectedStatus: raw.expectedStatus ?? meta.expectedStatus ?? '—',
+    actualStatus: raw.actualStatus ?? meta.actualStatus ?? (status === 'running' ? '—' : ''),
+    duration: raw.duration ?? meta.duration,
+    assertions,
+    checks,
+    message: raw.message || detail.message || '',
+    request: raw.request ?? meta.request ?? null,
+    response: raw.response ?? meta.response ?? null,
+  };
+}
+
+function renderApiConsole() {
+  const timeline = document.getElementById('api-timeline');
+  const detail = document.getElementById('api-detail');
+  if (!timeline || !detail) return;
+  const steps = apiConsole.steps.filter(Boolean);
+  const passed = steps.filter(s => s.status === 'pass').length;
+  const failed = steps.filter(s => s.status === 'fail').length;
+  const assertions = steps.reduce((n, s) => n + (s.assertions?.total || 0), 0);
+  const duration = apiConsole.summary?.duration ?? steps.reduce((n, s) => n + (Number(s.duration) || 0), 0);
+
+  document.getElementById('api-total').textContent = steps.length;
+  document.getElementById('api-passed').textContent = passed;
+  document.getElementById('api-failed').textContent = failed;
+  document.getElementById('api-assertions').textContent = assertions;
+  document.getElementById('api-duration').textContent = duration ? `${duration}ms` : '—';
+  document.getElementById('api-console-note').textContent = apiConsole.final
+    ? (failed ? 'API run finished with failures. Select a failed check for assertion details.' : 'API run passed. The console remains open for inspection.')
+    : 'API requests are running live. Select any check to inspect its details.';
+
+  timeline.innerHTML = steps.length ? steps.map(s => `
+    <button class="api-step ${s.status} ${s.index === apiConsole.selected ? 'active' : ''}" onclick="selectApiStep(${s.index})">
+      <span class="api-step-dot"></span>
+      <span>
+        <div class="api-step-title">${esc(s.title)}</div>
+        <div class="api-step-route"><span class="api-method">${esc(s.method)}</span> ${esc(s.endpoint || 'local check')}</div>
+      </span>
+      <span class="api-code">${esc(apiStatusText(s))}</span>
+    </button>`).join('') : '<div class="api-detail-empty">Waiting for the first API request...</div>';
+
+  const selected = steps.find(s => s.index === apiConsole.selected) || steps.at(-1);
+  detail.innerHTML = selected ? renderApiDetail(selected) : '<div class="api-detail-empty">API request details will appear here as checks run.</div>';
+}
+
+function selectApiStep(index) {
+  apiConsole.selected = index;
+  renderApiConsole();
+}
+
+function apiStatusText(step) {
+  if (step.status === 'running') return 'running';
+  if (step.actualStatus !== '' && step.actualStatus !== undefined && step.actualStatus !== null) return step.actualStatus;
+  return step.status;
+}
+
+function renderApiDetail(step) {
+  const failedChecks = (step.checks || []).filter(c => c.pass === false).length;
+  return `
+    <div class="api-detail-card">
+      <div class="api-detail-h">
+        <span class="api-method">${esc(step.method)}</span>
+        <div class="api-detail-title">${esc(step.title)}</div>
+        <span class="api-detail-pill">${esc(step.status)}</span>
+      </div>
+      <div class="api-detail-grid">
+        <div class="api-kv"><div class="api-k">Endpoint</div><div class="api-v">${esc(step.endpoint || 'local check')}</div></div>
+        <div class="api-kv"><div class="api-k">Expected</div><div class="api-v">${esc(step.expectedStatus)}</div></div>
+        <div class="api-kv"><div class="api-k">Actual</div><div class="api-v">${esc(apiStatusText(step))}</div></div>
+        <div class="api-kv"><div class="api-k">Latency</div><div class="api-v">${step.duration ? `${esc(step.duration)}ms` : '—'}</div></div>
+      </div>
+      <div class="api-assertions">
+        ${(step.checks || []).length ? step.checks.map(c => `
+          <div class="api-assert ${c.pass ? 'pass' : 'fail'}">
+            <span>${c.pass ? 'PASS' : 'FAIL'}</span>
+            <span>${esc(c.label)}</span>
+            <span>${esc(c.actual ?? '')}</span>
+          </div>`).join('') : `<div class="api-assert ${step.status === 'fail' ? 'fail' : 'pass'}"><span>${step.status === 'running' ? 'RUN' : step.status.toUpperCase()}</span><span>${esc(step.message || 'Waiting for assertions')}</span><span></span></div>`}
+        ${failedChecks && step.message ? `<div class="scre" style="margin-top:4px">${esc(step.message)}</div>` : ''}
+      </div>
+      <div class="api-json-wrap">
+        <div class="api-json">
+          <div class="api-json-title">Request</div>
+          <pre>${esc(formatJson(step.request))}</pre>
+        </div>
+        <div class="api-json">
+          <div class="api-json-title">Response</div>
+          <pre>${esc(formatJson(step.response))}</pre>
+        </div>
+      </div>
+    </div>`;
+}
+
+function formatJson(value) {
+  if (value === undefined || value === null || value === '') return 'No payload captured';
+  try { return JSON.stringify(value, null, 2); } catch { return String(value); }
+}
 
 // ── Heal card ─────────────────────────────────────────────────────────────────
 let pendingDiff = null;
@@ -1127,6 +1414,7 @@ function fireChip(question) {
 
 function showReport(data) {
   lastReportData = data; const s = data.summary || {};
+  finishApiConsoleFromReport(data);
   document.getElementById('m-total').textContent  = s.total  ?? 0;
   document.getElementById('m-pass').textContent   = s.passed ?? 0;
   document.getElementById('m-fail').textContent   = s.failed ?? 0;
@@ -1156,6 +1444,10 @@ function reportSummaryText(data) {
   return `The run passed: **${passed + healed}/${s.total ?? 0} checks successful**${healed ? `, including ${healed} healed` : ''}. You can ask for a summary or run another focused check.`;
 }
 
+function isResultPassed(status) { return status === 'success' || status === 'pass'; }
+function isResultFailed(status) { return status === 'failed' || status === 'fail'; }
+function isResultSkipped(status) { return status === 'skipped' || status === 'skip'; }
+
 function buildDrawer(data) {
   const s = data.summary || {};
   const passedClean = s.passed ?? 0, healed = s.healed ?? 0;
@@ -1163,7 +1455,7 @@ function buildDrawer(data) {
   document.getElementById('dsdot').style.background = s.failed===0 ? 'var(--green)' : 'var(--red)';
   document.getElementById('dtitle').textContent = data.type==='regression' ? 'Regression Report' : 'Test Report';
   document.getElementById('dpct').textContent = s.total>1 ? `${pct}% passed` : '';
-  const counts = { all:allScenarioData.length, passed:allScenarioData.filter(r=>r.result?.status==='success'&&!r.healCount).length, failed:allScenarioData.filter(r=>r.result?.status==='failed').length, skipped:allScenarioData.filter(r=>r.result?.status==='skipped').length, healed:allScenarioData.filter(r=>r.healCount>0).length };
+  const counts = { all:allScenarioData.length, passed:allScenarioData.filter(r=>isResultPassed(r.result?.status)&&!r.healCount).length, failed:allScenarioData.filter(r=>isResultFailed(r.result?.status)).length, skipped:allScenarioData.filter(r=>isResultSkipped(r.result?.status)).length, healed:allScenarioData.filter(r=>r.healCount>0).length };
   document.querySelectorAll('.dtab').forEach(b => { const t=b.dataset.tab; const n=counts[t]??0; b.textContent=t.charAt(0).toUpperCase()+t.slice(1)+(n>0?` (${n})`:''); });
   renderDrawerTab('all');
 }
@@ -1173,9 +1465,9 @@ function renderDrawerTab(tab) {
   document.querySelectorAll('.dtab').forEach(b => b.classList.toggle('active', b.dataset.tab===tab));
   const content = document.getElementById('dcontent'); content.innerHTML = '';
   let items = allScenarioData;
-  if (tab==='passed')  items = allScenarioData.filter(r=>r.result?.status==='success'&&!r.healCount);
-  if (tab==='failed')  items = allScenarioData.filter(r=>r.result?.status==='failed');
-  if (tab==='skipped') items = allScenarioData.filter(r=>r.result?.status==='skipped');
+  if (tab==='passed')  items = allScenarioData.filter(r=>isResultPassed(r.result?.status)&&!r.healCount);
+  if (tab==='failed')  items = allScenarioData.filter(r=>isResultFailed(r.result?.status));
+  if (tab==='skipped') items = allScenarioData.filter(r=>isResultSkipped(r.result?.status));
   if (tab==='healed')  items = allScenarioData.filter(r=>r.healCount>0);
   if (!items.length) { content.innerHTML=`<p style="color:var(--t3);font-size:12px;text-align:center;padding:32px 0">No ${tab==='all'?'':tab+' '}scenarios</p>`; return; }
   // Group by module if multi-module
@@ -1187,8 +1479,8 @@ function renderDrawerTab(tab) {
 }
 
 function buildBlock({ scenario, result, healCount=0, healMeta=null }) {
-  const status=result?.status, skipped=status==='skipped', steps=result?.results||[];
-  const statusOk = status==='success'||status==='pass';
+  const status=result?.status, skipped=isResultSkipped(status), steps=result?.results||result?.steps||[];
+  const statusOk = isResultPassed(status);
   const dotC=statusOk?'var(--green)':skipped?'var(--t3)':'var(--red)';
   const badC=statusOk?'pass':skipped?'skip':'fail', badT=statusOk?'PASS':skipped?'SKIP':'FAIL';
   const block=document.createElement('div'); block.className='scb';
@@ -1206,9 +1498,12 @@ function buildBlock({ scenario, result, healCount=0, healMeta=null }) {
     steps.forEach((r,i)=>{
       const ok = r.status==='success' || r.status==='pass';
       const row=document.createElement('div');row.className='scrow';
-      row.innerHTML=`<span class="scrn">${i+1}</span><div class="scrd" style="background:${ok?'var(--green)':'var(--red)'}"></div><span class="scra">${esc(r.step?.action||'')}</span><span class="scrt">${esc(r.step?.selector||r.step?.value||'')}</span><span class="scrs" style="color:${ok?'var(--green)':'var(--red)'}">${ok?'pass':'fail'}</span>`;
+      const action = r.step?.action || r.action || '';
+      const target = r.step?.selector || r.step?.value || r.target || r.detail?.name || '';
+      row.innerHTML=`<span class="scrn">${i+1}</span><div class="scrd" style="background:${ok?'var(--green)':'var(--red)'}"></div><span class="scra">${esc(action)}</span><span class="scrt">${esc(target)}</span><span class="scrs" style="color:${ok?'var(--green)':'var(--red)'}">${ok?'pass':'fail'}</span>`;
       table.appendChild(row);
       if(!ok&&r.error){const er=document.createElement('div');er.className='scre';er.textContent=r.error;table.appendChild(er);}
+      if(r.detail?.message){const detail=document.createElement('div');detail.className='scre';detail.style.color=ok?'var(--t3)':'var(--red)';detail.textContent=r.detail.message;table.appendChild(detail);}
     });
     block.appendChild(table);
     // Heal diff
@@ -1240,7 +1535,7 @@ function exportReport() {
 function copyReport() {
   if(!lastReportData)return;
   const s=lastReportData.summary||{};
-  const lines=[`QA Sentinel — ${new Date().toLocaleString()}`,`${s.passed}/${s.total} passed (${s.healed} healed, ${s.failed} failed)`,'',...(lastReportData.scenarios||[]).map(r=>`${r.result?.status==='success'?'✓':r.result?.status==='skipped'?'○':'✗'} ${r.scenario?.name} [${r.scenario?.module}]${r.healCount?` (healed×${r.healCount})`:''}`).join('\n')];
+  const lines=[`QA Sentinel — ${new Date().toLocaleString()}`,`${s.passed}/${s.total} passed (${s.healed} healed, ${s.failed} failed)`,'',...(lastReportData.scenarios||[]).map(r=>`${isResultPassed(r.result?.status)?'✓':isResultSkipped(r.result?.status)?'○':'✗'} ${r.scenario?.name} [${r.scenario?.module}]${r.healCount?` (healed×${r.healCount})`:''}`).join('\n')];
   navigator.clipboard.writeText(lines.join('\n'));toast('Copied');
 }
 
@@ -1445,6 +1740,7 @@ function setAgentState(state) {
 }
 function resetExec() {
   addLog('Starting a new execution activity.', 'phase');
+  resetApiConsole();
   document.getElementById('plan-section').style.display='none';
   document.getElementById('quick-chips').style.display='none';
   document.getElementById('plan-inner').innerHTML='';

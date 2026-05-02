@@ -149,7 +149,25 @@ function scoreConfidence(mode, intent, gaps) {
 }
 
 function findModule(lower, catalog) {
-  return catalog.modules.find(m => lower.includes(m.id.toLowerCase()) || lower.includes(m.name.toLowerCase())) || null;
+  const normalizedInput = normalizeWords(lower);
+  return catalog.modules.find(m => {
+    const id = String(m.id || '').toLowerCase();
+    const name = String(m.name || '').toLowerCase();
+    if (lower.includes(id) || lower.includes(name)) return true;
+
+    const words = normalizeWords(`${id} ${name}`)
+      .split(' ')
+      .filter(w => w.length > 2 && !['app', 'dataapp', 'testapp', 'module'].includes(w));
+    return words.some(w => new RegExp(`\\b${escapeRegExp(w)}\\b`).test(normalizedInput));
+  }) || null;
+}
+
+function normalizeWords(text) {
+  return String(text || '').toLowerCase().replace(/[-_]/g, ' ').replace(/[^a-z0-9\s]/g, ' ');
+}
+
+function escapeRegExp(text) {
+  return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function findScenario(lower, catalog) {

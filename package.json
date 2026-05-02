@@ -3,7 +3,12 @@
   "version": "1.0.0",
   "type": "module",
   "private": true,
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
+    "start": "node scripts/server.js",
+    "test:api": "node scripts/test-api-runner.js",
     "test-login": "node scripts/test-login.js"
   },
   "devDependencies": {
