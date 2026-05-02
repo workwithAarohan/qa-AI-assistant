@@ -88,6 +88,9 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--san
 .intent-build{background:var(--green-dim);color:var(--green)}
 .intent-greet{background:var(--surface3);color:var(--t3)}
 .intent-plan{background:rgba(56,189,248,0.12);color:var(--sky)}
+.intent-success{background:var(--green-dim);color:var(--green)}
+.intent-failed{background:var(--red-dim);color:var(--red)}
+.intent-memory{background:var(--surface3);color:var(--t3)}
 
 /* Typing indicator */
 #typing{display:flex;gap:4px;align-items:center;padding:8px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--rl);width:fit-content;border-bottom-left-radius:3px}
@@ -124,6 +127,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--san
 #modules-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 .mod-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--rxl);overflow:hidden;transition:border-color 0.15s}
 .mod-card:hover{border-color:var(--border2)}
+.mod-card.highlight{border-color:rgba(99,102,241,0.65);box-shadow:0 0 0 1px rgba(99,102,241,0.18),0 0 28px rgba(99,102,241,0.08)}
 .mod-card-header{padding:14px 16px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border)}
 .mod-icon{width:32px;height:32px;border-radius:8px;display:grid;place-items:center;font-size:14px;flex-shrink:0;font-family:var(--mono)}
 .mod-meta{flex:1;min-width:0}
@@ -134,6 +138,8 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--san
 .mod-scenarios{padding:8px 10px}
 .scen-row{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:var(--r);cursor:pointer;transition:background 0.1s;group:true}
 .scen-row:hover{background:var(--surface2)}
+.scen-row.highlight{background:var(--accent-dim);outline:1px solid rgba(99,102,241,0.25)}
+.scen-row.highlight .scen-dot{background:var(--accent)}
 .scen-dot{width:6px;height:6px;border-radius:50%;background:var(--border2);flex-shrink:0;transition:background 0.15s}
 .scen-row:hover .scen-dot{background:var(--accent)}
 .scen-dot.cached{background:var(--green)}
@@ -363,6 +369,63 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--san
 .toast{position:fixed;bottom:20px;right:20px;z-index:999;background:var(--t1);color:var(--bg);padding:8px 14px;border-radius:var(--r);font-size:12px;font-weight:600;animation:fadeUp 0.2s ease both;pointer-events:none;box-shadow:0 4px 16px rgba(0,0,0,0.4)}
 .mod-hdr-row{font-size:10px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:0.07em;padding:10px 4px 5px;margin-top:6px}
 .mod-hdr-row:first-child{margin-top:0;padding-top:0}
+
+/* Persistent planning workspace */
+#planning-workspace{display:block;background:var(--surface);border:1px solid var(--border);border-radius:var(--rxl);overflow:hidden}
+#planning-workspace.is-hidden{display:none}
+.workspace-tabs{display:flex;gap:4px;margin-left:10px}
+.workspace-tab{padding:4px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);color:var(--t3);font-size:10px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;cursor:pointer}
+.workspace-tab.active{background:var(--accent-dim);border-color:rgba(99,102,241,0.35);color:var(--accent-h)}
+.workspace-panel{display:none}
+.workspace-panel.active{display:block}
+.pw-hdr{display:flex;align-items:flex-start;gap:12px;padding:16px;border-bottom:1px solid var(--border)}
+.pw-title{font-size:15px;font-weight:700;color:var(--t1)}
+.pw-sub{font-size:11px;color:var(--t3);margin-top:3px;line-height:1.45}
+.pw-actions{margin-left:auto;display:flex;gap:8px;flex-shrink:0}
+.pw-body{padding:14px 16px;display:flex;flex-direction:column;gap:14px}
+.pw-flow{display:flex;align-items:center;gap:8px;overflow-x:auto;padding-bottom:2px}
+.pw-flow-node{display:flex;align-items:center;gap:6px;border:1px solid var(--border);background:var(--surface2);border-radius:999px;padding:5px 10px;font-size:10px;font-weight:700;color:var(--t2);white-space:nowrap;text-transform:uppercase;letter-spacing:0.04em}
+.pw-flow-node.running{border-color:rgba(56,189,248,0.35);color:var(--sky);background:var(--sky-dim)}
+.pw-flow-node.passed{border-color:rgba(34,197,94,0.3);color:var(--green);background:var(--green-dim)}
+.pw-flow-node.failed{border-color:rgba(239,68,68,0.3);color:var(--red);background:var(--red-dim)}
+.pw-flow-node.skipped{opacity:0.55}
+.pw-flow-arrow{color:var(--t3);font-size:12px;flex-shrink:0}
+.pw-mod{border:1px solid var(--border);border-radius:var(--rl);overflow:hidden;background:rgba(255,255,255,0.01)}
+.pw-mod-h{display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--surface2);border-bottom:1px solid var(--border)}
+.pw-mod-dot{width:8px;height:8px;border-radius:50%;background:var(--accent)}
+.pw-mod-name{font-size:12px;font-weight:700;color:var(--t1);text-transform:capitalize}
+.pw-mod-count{font-size:10px;color:var(--t3);margin-left:auto}
+.pw-layer{border-top:1px solid var(--border)}
+.pw-layer:first-child{border-top:none}
+.pw-layer-h{display:flex;align-items:center;gap:9px;padding:10px 12px}
+.pw-layer-icon{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;font-size:12px;flex-shrink:0}
+.pw-layer-main{flex:1;min-width:0}
+.pw-layer-title{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:var(--t1)}
+.pw-layer-reason{font-size:10.5px;color:var(--t3);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pw-status{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:0.05em;padding:2px 7px;border-radius:999px;background:var(--surface3);color:var(--t3);border:1px solid var(--border)}
+.pw-status.running{background:var(--sky-dim);color:var(--sky);border-color:rgba(56,189,248,0.25)}
+.pw-status.passed{background:var(--green-dim);color:var(--green);border-color:rgba(34,197,94,0.25)}
+.pw-status.failed{background:var(--red-dim);color:var(--red);border-color:rgba(239,68,68,0.25)}
+.pw-status.skipped{opacity:0.6}
+.pw-layer-actions{display:flex;gap:6px;align-items:center}
+.pw-layer-btn{padding:4px 10px;border-radius:var(--r);font-size:10px;font-weight:700;cursor:pointer;border:1px solid var(--border);background:var(--surface3);color:var(--t2)}
+.pw-layer-btn:hover{border-color:var(--accent);color:var(--accent-h);background:var(--accent-dim)}
+.pw-layer-btn:disabled{opacity:0.45;cursor:not-allowed}
+.pw-scenarios{padding:0 12px 10px 47px;display:flex;flex-direction:column;gap:4px}
+.pw-scen{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;font-size:10.5px;color:var(--t2);padding:5px 7px;border-radius:var(--r);background:rgba(255,255,255,0.015)}
+.pw-scen.active{background:var(--sky-dim);color:var(--sky)}
+.pw-empty{padding:18px;color:var(--t3);font-size:12px;text-align:center}
+
+/* Narrative live log */
+.nlog{border:1px solid var(--border);background:var(--surface2);border-radius:var(--r);padding:7px 8px;margin-bottom:5px}
+.nlog-h{display:flex;gap:7px;align-items:flex-start}
+.nlog-dot{width:7px;height:7px;border-radius:50%;background:var(--t3);margin-top:6px;flex-shrink:0}
+.nlog.success .nlog-dot{background:var(--green)}.nlog.error .nlog-dot{background:var(--red)}.nlog.warn .nlog-dot{background:var(--amber)}.nlog.phase .nlog-dot{background:var(--accent-h)}
+.nlog-text{font-size:11.5px;line-height:1.45;color:var(--t2)}
+.nlog.success .nlog-text{color:var(--green)}.nlog.error .nlog-text{color:var(--red)}.nlog.warn .nlog-text{color:var(--amber)}.nlog.phase .nlog-text{color:var(--accent-h);font-weight:700}
+.nlog details{margin-top:5px;padding-left:14px}
+.nlog summary{font-size:9.5px;color:var(--t3);cursor:pointer;user-select:none}
+.nlog-raw{font-family:var(--mono);font-size:9.5px;color:var(--t3);margin-top:4px;word-break:break-word}
 </style>
 </head>
 <body>
@@ -414,10 +477,15 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--san
   <div id="dash-col">
     <div class="col-header">
       <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="1" y="1" width="4.5" height="4.5" rx="1.2" stroke="var(--t3)" stroke-width="1.2"/><rect x="6.5" y="1" width="4.5" height="4.5" rx="1.2" stroke="var(--t3)" stroke-width="1.2"/><rect x="1" y="6.5" width="4.5" height="4.5" rx="1.2" stroke="var(--t3)" stroke-width="1.2"/><rect x="6.5" y="6.5" width="4.5" height="4.5" rx="1.2" stroke="var(--t3)" stroke-width="1.2"/></svg>
-      <span class="col-title">Dashboard</span>
+      <span class="col-title">Workspace</span>
+      <div class="workspace-tabs">
+        <button class="workspace-tab active" data-workspace-tab="dashboard" onclick="switchWorkspaceTab('dashboard')">Dashboard</button>
+        <button class="workspace-tab" data-workspace-tab="plan" onclick="switchWorkspaceTab('plan')">Current Plan</button>
+      </div>
       <span class="col-badge" id="dash-app-badge">—</span>
     </div>
     <div id="dash-scroll">
+      <div id="dashboard-panel" class="workspace-panel active">
       <!-- Regression bar -->
       <div id="regression-bar">
         <div class="reg-info">
@@ -447,6 +515,23 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--san
         <div class="custom-header">Custom Scenarios</div>
         <div id="custom-list"></div>
       </div>
+      </div>
+      <section id="planning-workspace" class="workspace-panel">
+        <div class="pw-hdr">
+          <div>
+            <div class="pw-title" id="pw-title">Current plan</div>
+            <div class="pw-sub" id="pw-sub">The assistant will map modules, test layers, and execution order here.</div>
+          </div>
+          <div class="pw-actions">
+            <button class="btn primary" id="pw-run-all" onclick="runPlan(null)" disabled>Run plan</button>
+            <button class="btn ghost" onclick="switchWorkspaceTab('dashboard')">Dashboard</button>
+          </div>
+        </div>
+        <div class="pw-body">
+          <div class="pw-flow" id="pw-flow"></div>
+          <div id="pw-modules"><div class="pw-empty">Ask for a test plan and I’ll show the module flow, test layers, and execution order here.</div></div>
+        </div>
+      </section>
     </div>
   </div>
 
@@ -544,10 +629,19 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--san
 
 <script>
 // ── State ─────────────────────────────────────────────────────────────────────
+const SESSION_ID_KEY = 'qa-sentinel-session-id';
+const SESSION_ID = localStorage.getItem(SESSION_ID_KEY) || crypto.randomUUID();
+localStorage.setItem(SESSION_ID_KEY, SESSION_ID);
 const ws = new WebSocket('ws://localhost:4000');
 let allScenarioData = [], currentTab = 'all', lastReportData = null, currentApp = null;
 let apps = [], modules = [], customScenarios = [], planOpen = true;
 let activeRunner = 'ui'; // currently selected test runner
+let highlightedScenarios = [];
+let planCompleted = false;
+
+ws.onopen = () => {
+  ws.send(JSON.stringify({ type: 'session_init', data: { sessionId: SESSION_ID } }));
+};
 
 function setActiveRunner(r) {
   activeRunner = r;
@@ -570,6 +664,7 @@ ws.onmessage = ({ data }) => {
   else if (type === 'execution_plan')  renderPlan(d.steps);
   else if (type === 'step')         updateStep(d.index, d.status);
   else if (type === 'log')          addLog(d.text, d.level);
+  else if (type === 'plan_progress') updatePlanProgress(d);
   else if (type === 'heal_prompt')  showHealCard(d);
   else if (type === 'test_plan_proposal') showPlanProposal(d);
   else if (type === 'heal_diff')    pendingDiff = d;
@@ -577,7 +672,19 @@ ws.onmessage = ({ data }) => {
   else if (type === 'report')       showReport(d);
   else if (type === 'execution_error') { addLog('Error: ' + d, 'error'); setAgentState('idle'); }
   else if (type === 'new_custom_scenario') addCustomScenario(d);
+  else if (type === 'conversation_history') restoreConversation(d);
 };
+
+function switchWorkspaceTab(tab) {
+  document.querySelectorAll('.workspace-tab').forEach(b => b.classList.toggle('active', b.dataset.workspaceTab === tab));
+  document.getElementById('dashboard-panel').classList.toggle('active', tab === 'dashboard');
+  document.getElementById('planning-workspace').classList.toggle('active', tab === 'plan');
+}
+
+function setDashboardHighlights(scenarios = []) {
+  highlightedScenarios = scenarios.map(s => `${s.module}:${s.id}`);
+  if (modules.length) renderModules(modules);
+}
 
 // ── App management ────────────────────────────────────────────────────────────
 function renderApps(list) {
@@ -591,6 +698,7 @@ function renderApps(list) {
   document.getElementById('app-switcher-icon').textContent = list[0]?.icon || 'A';
   document.getElementById('app-switcher-icon').style.background = '#' + (list[0]?.color || '4F46E5');
   document.getElementById('app-switcher-name').textContent = list[0]?.name || 'App';
+  updateChatPlaceholder('idle');
 }
 
 function selectApp(id) {
@@ -603,6 +711,7 @@ function selectApp(id) {
   document.querySelectorAll('.app-item').forEach(el => el.classList.toggle('active', el.querySelector('.app-item-name').textContent === a.name));
   ws.send(JSON.stringify({ type: 'set_app', data: id }));
   toggleAppOverlay();
+  updateChatPlaceholder('app');
 }
 
 function toggleAppOverlay() { document.getElementById('app-overlay').classList.toggle('open'); }
@@ -654,8 +763,9 @@ function renderModules(list) {
     totalCached += mod.cachedCount;
     const color = MOD_COLORS[mod.id] || '6366F1';
     const icon  = MOD_ICONS[mod.id]  || '🧪';
+    const modHighlighted = visibleScenarios.some(s => highlightedScenarios.includes(`${mod.id}:${s.id}`));
     const card = document.createElement('div');
-    card.className = 'mod-card';
+    card.className = `mod-card ${modHighlighted ? 'highlight' : ''}`;
     card.innerHTML = `
       <div class="mod-card-header">
         <div class="mod-icon" style="background:rgba(${hexToRgb(color)},0.15)">${icon}</div>
@@ -667,7 +777,7 @@ function renderModules(list) {
       </div>
       <div class="mod-scenarios">
         ${visibleScenarios.map(s => `
-          <div class="scen-row" onclick="runScenario('${mod.id}','${s.id}','${esc(s.name)}','${esc(s.description)}')">
+          <div class="scen-row ${highlightedScenarios.includes(`${mod.id}:${s.id}`) ? 'highlight' : ''}" onclick="runScenario('${mod.id}','${s.id}','${esc(s.name)}','${esc(s.description)}')">
             <div class="scen-dot ${s.cached ? 'cached' : ''}"></div>
             <span class="scen-name">${esc(s.name)}</span>
             <span class="scen-desc">${esc(s.description)}</span>
@@ -701,6 +811,7 @@ function addCustomScenario(s) {
 // ── Run triggers ──────────────────────────────────────────────────────────────
 function runScenario(module, scenarioId, scenarioName, scenarioDesc, forceRunner) {
   resetExec();
+  addLog(`User started ${scenarioName || scenarioId} in ${module}.`, 'phase');
   const runner = forceRunner || activeRunner;
   if (runner === 'ui') {
     // Standard Playwright scenario execution
@@ -716,10 +827,12 @@ function runScenario(module, scenarioId, scenarioName, scenarioDesc, forceRunner
 }
 function runModule(modId) {
   resetExec();
+  addLog(`User started all checks in ${modId}.`, 'phase');
   ws.send(JSON.stringify({ type: 'run_module', data: { module: modId, appId: currentApp?.id } }));
 }
 function runRegression() {
   resetExec();
+  addLog('User started the full regression suite.', 'phase');
   ws.send(JSON.stringify({ type: 'run_regression' }));
 }
 
@@ -733,6 +846,8 @@ function sendChat() {
   ta.value = ''; ta.style.height = 'auto';
   addChatMsg(val, 'user');
   showTyping();
+  updateChatPlaceholder('thinking');
+  addLog(`User asked: ${val}`, 'info');
   ws.send(JSON.stringify({ type: 'chat', data: val }));
 }
 
@@ -753,11 +868,26 @@ function addChatMsg(text, who, intent) {
   msgs.appendChild(w); msgs.scrollTop = msgs.scrollHeight;
 }
 
-function renderChatReply({ text, intent }) {
+function restoreConversation(history = []) {
+  if (!history.length) return;
+  const msgs = document.getElementById('chat-msgs');
+  msgs.innerHTML = '';
+  history.slice(-12).forEach(turn => addChatMsg(turn.text, turn.role === 'user' ? 'user' : 'agent', turn.role === 'agent' ? 'memory' : null));
+  addLog(`Restored ${history.length} remembered conversation turn${history.length === 1 ? '' : 's'}.`, 'info');
+}
+
+function renderChatReply({ text, intent, scenarios }) {
   removeTyping();
   addChatMsg(text, 'agent', intent);
   const badge = document.getElementById('chat-intent-badge');
   badge.textContent = intent || 'ready';
+  if (intent === 'PLAN' || intent === 'DESIGN') switchWorkspaceTab('plan');
+  if (intent === 'EXECUTE' && scenarios?.length) {
+    setDashboardHighlights(scenarios);
+    switchWorkspaceTab('dashboard');
+  }
+  addLog(`Assistant mode: ${intent || 'reply'}.`, 'info');
+  updateChatPlaceholder(intent === 'PLAN' ? 'planning' : 'idle');
 }
 
 function showTyping() {
@@ -794,6 +924,8 @@ function onExecStart({ module, scenario, app, runner }) {
   document.getElementById('plan-section').style.display = 'block';
   document.getElementById('plan-spin').style.display = 'inline-block';
   document.getElementById('plan-inner').innerHTML = `<div style="font-size:10px;color:var(--accent-h);padding:5px 0;font-family:var(--mono)">Loading plan...</div>`;
+  updateChatPlaceholder('running');
+  addLog(`Starting ${scenario === 'layer-plan' ? 'the planned run' : scenario} for ${module}.`, 'phase');
 }
 
 let planOpen2 = true;
@@ -803,11 +935,36 @@ function renderPlan(steps) {
   const inner = document.getElementById('plan-inner'); inner.innerHTML = '';
   steps.forEach((s, i) => {
     const row = document.createElement('div'); row.className = 'prow'; row.id = `pr-${i}`;
-    row.innerHTML = `<div class="pdot" id="pd-${i}"></div><span class="pact">${esc(s.action)}</span><span class="ptgt">${esc(s.selector||s.value||'')}</span><span class="pst" id="ps-${i}">—</span>`;
+    const h = humanStep(s);
+    row.innerHTML = `<div class="pdot" id="pd-${i}"></div><span class="pact">${esc(h.action)}</span><span class="ptgt">${esc(h.target)}</span><span class="pst" id="ps-${i}">—</span>`;
     inner.appendChild(row);
   });
   document.getElementById('plan-cnt').textContent = `${steps.length} steps`;
   document.getElementById('plan-chev').classList.add('open');
+}
+
+function humanStep(step = {}) {
+  const action = String(step.action || '').toLowerCase();
+  const target = step.selector || step.value || '';
+  const cleanTarget = humanTarget(target);
+  if (action === 'type' || action === 'fill') return { action:'type', target: cleanTarget };
+  if (action === 'click') return { action:'click', target: cleanTarget };
+  if (action === 'navigate') return { action:'open', target: cleanTarget };
+  if (action === 'expect' || action === 'assert') return { action:'check', target: cleanTarget };
+  if (action === 'expecturl') return { action:'check URL', target: cleanTarget };
+  return { action: action || 'step', target: cleanTarget };
+}
+
+function humanTarget(target) {
+  return String(target || '')
+    .replace(/^#/, '')
+    .replace(/^\./, '')
+    .replace(/\[data-testid=["']?([^"'\]]+)["']?\]/i, '$1')
+    .replace(/\[aria-label=["']?([^"'\]]+)["']?\]/i, '$1')
+    .replace(/-/g, ' ')
+    .replace(/_/g, ' ')
+    .replace(/^https?:\/\/localhost:\d+\//, '/')
+    .trim();
 }
 
 function updateStep(idx, status) {
@@ -871,9 +1028,69 @@ function addLog(text, level='info') {
   if (!text?.trim()) return;
   const s = document.getElementById('log-stream');
   const el = document.createElement('div');
-  if (level === 'phase') { el.className='lphase'; el.textContent=text; }
-  else { el.className='lrow'; el.innerHTML=`<span class="lts">${now()}</span><span class="ltxt ${level}">${esc(text)}</span>`; }
+  const narrative = naturalizeLog(text, level);
+  el.className = `nlog ${level}`;
+  el.innerHTML = `
+    <div class="nlog-h">
+      <span class="nlog-dot"></span>
+      <div style="flex:1">
+        <div class="nlog-text">${esc(narrative)}</div>
+        <details>
+          <summary>Technical detail</summary>
+          <div class="nlog-raw">${esc(text)}</div>
+        </details>
+      </div>
+    </div>`;
   s.appendChild(el); s.scrollTop = s.scrollHeight;
+}
+
+function naturalizeLog(text, level='info') {
+  const raw = String(text || '').replace(/[─]/g, '').trim();
+  const lower = raw.toLowerCase();
+  if (level === 'phase') {
+    if (/^plan:/i.test(raw)) return `I’m starting the planned test run for ${raw.replace(/^plan:\s*/i, '')}.`;
+    if (/^layer:/i.test(raw)) {
+      const m = raw.match(/^layer:\s*([A-Z_]+)\s*\(([^)]+)\)/i);
+      return m ? `Moving into ${humanLayer(m[1])} using the ${m[2].toUpperCase()} runner.` : `Moving into the next part of the plan.`;
+    }
+    return raw.replace(/^\s+|\s+$/g, '') || 'Moving to the next test section.';
+  }
+  if (/cache hit/i.test(raw)) return 'I found a saved test plan, so I can start this scenario faster.';
+  if (/understanding request/i.test(raw)) return raw.replace(/^Understanding request:/i, 'I’m reading');
+  if (/checking conversation mode/i.test(raw)) return 'I’m deciding whether to answer, plan, design, or prepare execution.';
+  if (/decision:\s*plan/i.test(raw)) return 'I understood this as a planning request.';
+  if (/decision:\s*execute/i.test(raw)) return 'I understood this as an execution request, so I’m resolving matching scenarios.';
+  if (/decision:\s*design/i.test(raw)) return 'I understood this as a test design request.';
+  if (/decision:\s*explore/i.test(raw)) return 'I understood this as an exploration question.';
+  if (/generating visual plan/i.test(raw)) return 'I’m building the visual test plan now.';
+  if (/resolved \d+ runnable scenario/i.test(raw)) return raw.replace(/^Resolved/i, 'I found');
+  if (/session restored/i.test(raw)) return raw;
+  if (/no cached plan/i.test(raw)) return 'I do not have a saved plan for this scenario yet, so I’m generating one now.';
+  if (/loading documentation/i.test(raw)) return 'I’m reading the module documentation before generating steps.';
+  if (/capturing live browser dom/i.test(raw)) return 'I’m checking the live page structure so the steps match the current UI.';
+  if (/asking llm/i.test(raw)) return 'I’m drafting precise test steps from the docs and page state.';
+  if (/generated & cached/i.test(raw)) return 'The test steps are ready and saved for future runs.';
+  if (/cached:/i.test(raw)) return 'This successful plan has been saved for reuse.';
+  if (/failure:/i.test(raw)) return raw.replace(/^Failure:/i, 'I classified the failure as');
+  if (/dom captured/i.test(raw)) return 'I captured the page state at the failure point for diagnosis.';
+  if (/sending live dom/i.test(raw)) return 'I’m sending the failure page context to the repair flow.';
+  if (/heal succeeded/i.test(raw)) return 'The repaired selector worked and the test passed on retry.';
+  if (/heal also failed/i.test(raw)) return 'The repair attempt also failed, so this needs a closer look.';
+  if (/stopped by user/i.test(raw)) return 'I stopped the run as requested.';
+  if (/selector .* not found|locator|strict mode|timeout/i.test(lower)) return 'I could not interact with the expected page element. The UI may have changed, or the page may not have loaded as expected.';
+  if (level === 'error') return raw || 'Something failed during this test run.';
+  if (level === 'warn') return raw || 'I found something that may need attention.';
+  if (level === 'success') return raw || 'That check passed.';
+  return raw;
+}
+
+function humanLayer(layer) {
+  return ({
+    API: 'API checks',
+    DATA_VALIDATION: 'data validation',
+    UI: 'UI testing',
+    PERFORMANCE: 'performance testing',
+  })[layer] || String(layer || 'testing').replace(/_/g, ' ').toLowerCase();
 }
 
 // ── Report ────────────────────────────────────────────────────────────────────
@@ -917,11 +1134,26 @@ function showReport(data) {
   document.getElementById('m-heal').textContent   = s.healed ?? 0;
   document.getElementById('stats-bar').style.display = 'block';
   const badge = document.getElementById('exec-state-badge');
-  badge.textContent = data.status === 'success' ? 'passed' : 'failed';
-  badge.className = data.status === 'success' ? (s.healed ? 'healed' : 'passed') : 'failed';
+  const passedRun = data.status === 'success' || data.status === 'pass';
+  badge.textContent = passedRun ? 'passed' : 'failed';
+  badge.className = passedRun ? (s.healed ? 'healed' : 'passed') : 'failed';
   allScenarioData = data.scenarios || [];
   buildDrawer(data);
   showQuickChips(data);
+  updatePlanningFromReport(data);
+  addChatMsg(reportSummaryText(data), 'agent', data.status === 'success' || data.status === 'pass' ? 'SUCCESS' : 'FAILED');
+  addLog(reportSummaryText(data), data.status === 'success' || data.status === 'pass' ? 'success' : 'error');
+  updateChatPlaceholder(s.failed > 0 ? 'failed' : 'postrun');
+}
+
+function reportSummaryText(data) {
+  const s = data.summary || {};
+  const passed = s.passed ?? 0;
+  const failed = s.failed ?? 0;
+  const skipped = s.skipped ?? 0;
+  const healed = s.healed ?? 0;
+  if (failed > 0) return `The run finished with **${failed} failed**, ${passed} passed, ${skipped} skipped, and ${healed} healed. Ask me why it failed or open the report.`;
+  return `The run passed: **${passed + healed}/${s.total ?? 0} checks successful**${healed ? `, including ${healed} healed` : ''}. You can ask for a summary or run another focused check.`;
 }
 
 function buildDrawer(data) {
@@ -955,11 +1187,10 @@ function renderDrawerTab(tab) {
 }
 
 function buildBlock({ scenario, result, healCount=0, healMeta=null }) {
-  const status=result?.status, passed=status==='success', skipped=status==='skipped', steps=result?.results||[];
-  const dotC=passed?'var(--green)':skipped?'var(--t3)':'var(--red)';
+  const status=result?.status, skipped=status==='skipped', steps=result?.results||[];
   const statusOk = status==='success'||status==='pass';
+  const dotC=statusOk?'var(--green)':skipped?'var(--t3)':'var(--red)';
   const badC=statusOk?'pass':skipped?'skip':'fail', badT=statusOk?'PASS':skipped?'SKIP':'FAIL';
-  passed = statusOk;
   const block=document.createElement('div'); block.className='scb';
   const hdr=document.createElement('div'); hdr.className='sch';
   const dot=document.createElement('div'); dot.className='scdot'; dot.style.background=dotC;
@@ -1016,6 +1247,9 @@ function copyReport() {
 // ── State & utils ─────────────────────────────────────────────────────────────
 // ── Plan Proposal ─────────────────────────────────────────────────────────────
 let currentPlan = null;
+let planLayerStates = {};
+let planScenarioStates = {};
+let skippedPlanLayers = new Set();
 
 const LAYER_META = {
   API:             { icon:'⚡', color:'0284C7', label:'API Contract' },
@@ -1026,76 +1260,143 @@ const LAYER_META = {
 
 function showPlanProposal(plan) {
   currentPlan = plan;
-  const overlay = document.getElementById('plan-proposal');
-  const body    = document.getElementById('plan-panel-body');
+  planCompleted = false;
+  planLayerStates = {};
+  planScenarioStates = {};
+  skippedPlanLayers = new Set();
+  document.getElementById('pw-run-all').disabled = false;
+  document.getElementById('pw-run-all').textContent = 'Run plan';
+  renderPlanningWorkspace(plan);
+  switchWorkspaceTab('plan');
+  addLog(`Planning workspace opened for ${plan.feature || 'the requested test plan'}.`, 'phase');
+  updateChatPlaceholder('planning');
+}
 
-  // Header
-  document.getElementById('pp-feature').textContent    = plan.feature || 'Test Plan';
-  document.getElementById('pp-risk-reason').textContent = plan.risk_reason || '';
-  const riskBadge = document.getElementById('pp-risk-badge');
-  riskBadge.textContent = (plan.risk || 'medium').toUpperCase();
-  riskBadge.className   = `plan-risk-badge ${plan.risk || 'medium'}`;
+function renderPlanningWorkspace(plan) {
+  const wsEl = document.getElementById('planning-workspace');
+  const title = document.getElementById('pw-title');
+  const sub = document.getElementById('pw-sub');
+  const flow = document.getElementById('pw-flow');
+  const mods = document.getElementById('pw-modules');
+  const layers = plan.layers || [];
+  const scenarioCount = layers.reduce((n, l) => n + (l.scenarios?.length || 0), 0);
+  const moduleCount = new Set(layers.flatMap(l => (l.scenarios || []).map(s => s.module || 'general'))).size || 1;
 
-  // Layers
-  body.innerHTML = '';
-  (plan.layers || []).forEach((layer, idx) => {
-    const meta  = LAYER_META[layer.type] || LAYER_META.UI;
-    const card  = document.createElement('div');
-    card.className = 'plan-layer';
+  title.textContent = plan.feature || 'Test plan';
+  sub.textContent = `${moduleCount} module${moduleCount === 1 ? '' : 's'} · ${layers.length} test layer${layers.length === 1 ? '' : 's'} · ${scenarioCount} scenario${scenarioCount === 1 ? '' : 's'}. ${plan.risk_reason || 'Review the order, then run the plan when ready.'}`;
 
-    // Header
-    const hdr = document.createElement('div');
-    hdr.className = 'plan-layer-hdr';
-    hdr.innerHTML = `
-      <div class="plan-layer-icon" style="background:rgba(${hexToRgb(meta.color)},0.15)">${meta.icon}</div>
-      <div class="plan-layer-info">
-        <div class="plan-layer-type">${meta.label}</div>
-        <div class="plan-layer-reason">${esc(layer.reason)}</div>
-      </div>
-      <span class="plan-layer-badge runner-badge ${layer.runner||'ui'}">${(layer.runner||'ui').toUpperCase()}</span>
-      <button onclick="runPlan(${idx})" style="margin-left:8px;padding:4px 12px;border-radius:var(--r);background:rgba(${hexToRgb(meta.color)},0.15);border:1px solid rgba(${hexToRgb(meta.color)},0.3);color:#${meta.color};font-size:10px;font-weight:600;cursor:pointer">
-        ▶ Run layer
-      </button>`;
-    card.appendChild(hdr);
+  const order = plan.recommended_order?.length ? plan.recommended_order : layers.map(l => l.type);
+  flow.innerHTML = order.map((type, i) => {
+    const meta = LAYER_META[type] || LAYER_META.UI;
+    const state = planLayerStates[type] || 'pending';
+    return `<span class="pw-flow-node ${state}" data-flow-layer="${type}">${meta.icon} ${meta.label}</span>${i < order.length - 1 ? '<span class="pw-flow-arrow">→</span>' : ''}`;
+  }).join('');
 
-    // Dependency
-    if (layer.depends_on) {
-      const dep = document.createElement('div');
-      dep.className = 'plan-layer-dep';
-      dep.textContent = `Depends on: ${layer.depends_on} (must pass first)`;
-      card.appendChild(dep);
-    }
-
-    // Scenarios
-    if (layer.scenarios?.length) {
-      const scenList = document.createElement('div');
-      scenList.className = 'plan-scenarios';
-      layer.scenarios.forEach(s => {
-        const row = document.createElement('div');
-        row.className = 'plan-scen-row';
-        row.innerHTML = `
-          <div class="plan-scen-dot" style="background:#${meta.color}"></div>
-          <span class="plan-scen-name">${esc(s.name)}</span>
-          <span class="plan-scen-desc">${esc(s.description || '')}</span>`;
-        scenList.appendChild(row);
-      });
-      card.appendChild(scenList);
-    }
-
-    body.appendChild(card);
+  const grouped = {};
+  layers.forEach((layer, layerIndex) => {
+    const scenarios = layer.scenarios?.length ? layer.scenarios : [{ id:`${layer.type}-${layerIndex}`, name: layer.type, module:'general', description:'Layer-level check' }];
+    scenarios.forEach(s => {
+      const mod = s.module || 'general';
+      grouped[mod] = grouped[mod] || [];
+      grouped[mod].push({ layer, layerIndex, scenario: s });
+    });
   });
 
-  // Recommended order
-  const orderEl = document.getElementById('pp-order');
-  const order   = plan.recommended_order || [];
-  orderEl.innerHTML = '<span style="font-weight:600;color:var(--t2)">Recommended order:</span> ' +
-    order.map((t, i) => {
-      const m = LAYER_META[t] || {};
-      const clr = m.color || '6366F1';
-      return `<span class="plan-order-item" style="background:rgba(${hexToRgb(clr)},0.12);color:#${clr}">${m.icon||''} ${t}</span>${i < order.length-1 ? '<span class="plan-order-arrow">→</span>' : ''}`;
-    }).join('');
+  mods.innerHTML = '';
+  Object.entries(grouped).forEach(([mod, rows]) => {
+    const modEl = document.createElement('div');
+    modEl.className = 'pw-mod';
+    modEl.innerHTML = `
+      <div class="pw-mod-h">
+        <span class="pw-mod-dot"></span>
+        <span class="pw-mod-name">${esc(mod)}</span>
+        <span class="pw-mod-count">${rows.length} planned check${rows.length === 1 ? '' : 's'}</span>
+      </div>`;
+    const byLayer = {};
+    rows.forEach(r => {
+      const key = `${r.layer.type}:${r.layerIndex}`;
+      byLayer[key] = byLayer[key] || { layer:r.layer, layerIndex:r.layerIndex, scenarios:[] };
+      byLayer[key].scenarios.push(r.scenario);
+    });
+    Object.values(byLayer).forEach(({ layer, layerIndex, scenarios }) => {
+      const meta = LAYER_META[layer.type] || LAYER_META.UI;
+      const layerState = planLayerStates[layer.type] || 'pending';
+      const completed = ['passed', 'failed', 'healed', 'skipped'].includes(layerState);
+      const runLabel = completed ? 'Run again' : 'Run layer';
+      const layerEl = document.createElement('div');
+      layerEl.className = 'pw-layer';
+      layerEl.dataset.layer = layer.type;
+      layerEl.innerHTML = `
+        <div class="pw-layer-h">
+          <div class="pw-layer-icon" style="background:rgba(${hexToRgb(meta.color)},0.15);color:#${meta.color}">${meta.icon}</div>
+          <div class="pw-layer-main">
+            <div class="pw-layer-title">${meta.label} <span class="runner-badge ${layer.runner||'ui'}">${(layer.runner||'ui').toUpperCase()}</span></div>
+            <div class="pw-layer-reason">${esc(layer.reason || 'Planned coverage for this module.')}${layer.depends_on ? ` · Depends on ${esc(layer.depends_on)}` : ''}</div>
+          </div>
+          <span class="pw-status ${layerState}" data-layer-status="${layer.type}">${layerState}</span>
+          <div class="pw-layer-actions">
+            <button class="pw-layer-btn" onclick="runPlan(${layerIndex})">${runLabel}</button>
+            ${planCompleted ? '' : `<button class="pw-layer-btn" onclick="markLayerSkipped('${layer.type}')">Skip</button>`}
+          </div>
+        </div>
+        <div class="pw-scenarios">
+          ${scenarios.map(s => {
+            const key = scenarioKey(layer.type, s);
+            const state = planScenarioStates[key] || 'pending';
+            return `<div class="pw-scen ${state === 'running' ? 'active' : ''}" data-scenario-key="${esc(key)}">
+              <span>${esc(s.name || s.id)}${s.description ? ` · ${esc(s.description)}` : ''}</span>
+              <span class="pw-status ${state}">${state}</span>
+            </div>`;
+          }).join('')}
+        </div>`;
+      modEl.appendChild(layerEl);
+    });
+    mods.appendChild(modEl);
+  });
 
-  overlay.classList.add('open');
+  if (!mods.innerHTML) mods.innerHTML = '<div class="pw-empty">No runnable scenarios were mapped yet.</div>';
+  wsEl.classList.remove('is-hidden');
+}
+
+function updatePlanProgress(evt) {
+  if (!evt) return;
+  if (evt.layer) planLayerStates[evt.layer] = evt.status || 'running';
+  if (evt.scenario) planScenarioStates[scenarioKey(evt.layer, evt.scenario)] = evt.status || 'running';
+  if (currentPlan) renderPlanningWorkspace(currentPlan);
+}
+
+function updatePlanningFromReport(data) {
+  if (!currentPlan || data?.type !== 'plan') return;
+  planCompleted = true;
+  (data.scenarios || []).forEach(r => {
+    const status = resultToPlanState(r.result?.status, r.healCount);
+    if (r.layer) planLayerStates[r.layer] = planLayerStates[r.layer] === 'failed' ? 'failed' : status;
+    if (r.scenario) planScenarioStates[scenarioKey(r.layer, r.scenario)] = status;
+  });
+  document.getElementById('pw-run-all').textContent = 'Run again';
+  renderPlanningWorkspace(currentPlan);
+}
+
+function resultToPlanState(status, healCount=0) {
+  if (healCount > 0) return 'healed';
+  if (status === 'success' || status === 'pass') return 'passed';
+  if (status === 'skipped' || status === 'skip') return 'skipped';
+  if (status === 'failed' || status === 'fail') return 'failed';
+  return 'pending';
+}
+
+function scenarioKey(layer, scenario) {
+  return `${layer || 'UI'}:${scenario?.module || 'general'}:${scenario?.id || scenario?.name || 'scenario'}`;
+}
+
+function markLayerSkipped(layerType) {
+  skippedPlanLayers.add(layerType);
+  planLayerStates[layerType] = 'skipped';
+  if (currentPlan) renderPlanningWorkspace(currentPlan);
+}
+
+function clearPlanningWorkspace() {
+  document.getElementById('planning-workspace').classList.add('is-hidden');
 }
 
 function closePlanProposal() {
@@ -1108,9 +1409,28 @@ function handlePlanOverlayClick(e) {
 
 function runPlan(layerIndex) {
   if (!currentPlan) return;
+  if (layerIndex != null && skippedPlanLayers.has(currentPlan.layers?.[layerIndex]?.type)) {
+    toast('That layer is skipped');
+    return;
+  }
+  const runnablePlan = layerIndex == null && skippedPlanLayers.size
+    ? {
+        ...currentPlan,
+        layers: (currentPlan.layers || []).filter(l => !skippedPlanLayers.has(l.type)),
+        recommended_order: (currentPlan.recommended_order || []).filter(t => !skippedPlanLayers.has(t)),
+      }
+    : currentPlan;
+  if (!(runnablePlan.layers || []).length) {
+    toast('No layers left to run');
+    return;
+  }
   closePlanProposal();
   resetExec();
-  ws.send(JSON.stringify({ type: 'run_plan', data: { plan: currentPlan, layerIndex } }));
+  planCompleted = false;
+  document.getElementById('pw-run-all').textContent = 'Run plan';
+  renderPlanningWorkspace(currentPlan);
+  addLog(`User started ${layerIndex == null ? 'the full visual plan' : 'one layer from the visual plan'}.`, 'phase');
+  ws.send(JSON.stringify({ type: 'run_plan', data: { plan: runnablePlan, layerIndex } }));
 }
 
 function setAgentState(state) {
@@ -1118,9 +1438,13 @@ function setAgentState(state) {
   const map={idle:{c:'var(--green)',l:'idle',cls:''},thinking:{c:'var(--amber)',l:'thinking',cls:'busy'},running:{c:'var(--sky)',l:'running',cls:'running'}};
   const s=map[state]||map.idle;
   dot.style.background=s.c; dot.className='status-dot '+s.cls; lbl.textContent=s.l;
+  if (state === 'running') updateChatPlaceholder('running');
+  else if (state === 'thinking') updateChatPlaceholder('thinking');
+  else if (currentPlan && !document.getElementById('planning-workspace')?.classList.contains('is-hidden')) updateChatPlaceholder('planning');
+  else updateChatPlaceholder(lastReportData?.summary?.failed > 0 ? 'failed' : 'idle');
 }
 function resetExec() {
-  document.getElementById('log-stream').innerHTML='';
+  addLog('Starting a new execution activity.', 'phase');
   document.getElementById('plan-section').style.display='none';
   document.getElementById('quick-chips').style.display='none';
   document.getElementById('plan-inner').innerHTML='';
@@ -1130,6 +1454,20 @@ function resetExec() {
   document.getElementById('exec-state-badge').className='running'; document.getElementById('exec-state-badge').textContent='running';
   hideHealCard(); pendingDiff=null;
   if(document.getElementById('drawer').classList.contains('open'))closeDrawer();
+}
+function updateChatPlaceholder(mode='idle') {
+  const input = document.getElementById('chat-input');
+  const appName = currentApp?.name || 'this app';
+  const examples = {
+    idle: `Ask what to test, plan coverage, or design a scenario for ${appName}...`,
+    app: `Ask about testing ${appName} flows, data, UI, or performance...`,
+    thinking: 'I’m reading that. You can add context if there is a specific module in mind...',
+    planning: 'Refine the plan, remove a layer, or ask what each part covers...',
+    running: 'Ask about progress or what this test is checking...',
+    failed: 'Ask why it failed, retry, or design a stronger check...',
+    postrun: 'Ask for a summary, failure details, or the next test to run...',
+  };
+  input.placeholder = examples[mode] || examples.idle;
 }
 function now(){const d=new Date();return`${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`;}
 function esc(s){return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}

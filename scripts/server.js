@@ -23,6 +23,14 @@ import { guardCheck, IDENTITY_ANCHOR } from './guard.js';
 import { generate as llm } from './llm.js';
 import { runScenario as runWithRunner, getRunners } from './runners/runner-orchestrator.js';
 import mockApiRouter from './mock-api.js';
+import { decideConversation } from './conversation-decision.js';
+import {
+  speakClarification,
+  speakPlanReady,
+  speakExecutionProposal,
+  speakExploreFallback,
+  speakDesignPrompt,
+} from './conversation-speaker.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -56,6 +64,7 @@ function loadModulesForApp(app) {
 
 // ── Per-connection state ──────────────────────────────────────────────────────
 const connState = new WeakMap();
+const sessionState = new Map();
 function getState(ws) {
   if (!connState.has(ws)) connState.set(ws, { currentApp: loadApps()[0], lastRun: null, history: [] });
   return connState.get(ws);
@@ -109,6 +118,28 @@ app.get('/api/runners', (_, res) => res.json(getRunners()));
 const send  = (ws, type, data) => { if (ws.readyState === 1) ws.send(JSON.stringify({ type, data })); };
 const log   = (ws, text, level = 'info') => { console.log(`[${level}] ${text}`); send(ws, 'log', { text, level }); };
 const phase = (ws, text) => send(ws, 'log', { text, level: 'phase' });
+const planProgress = (ws, data) => send(ws, 'plan_progress', data);
+
+function layerLabel(type) {
+  return ({
+    API: 'API checks',
+    DATA_VALIDATION: 'data validation',
+    UI: 'UI testing',
+    PERFORMANCE: 'performance testing',
+  })[type] || String(type || 'testing').replace(/_/g, ' ').toLowerCase();
+}
+
+function summarizePlanForChat(plan) {
+  return speakPlanReady(plan);
+}
+
+function buildPlanInput(text, decision) {
+  const moduleName = decision.intent?.scope?.module?.name;
+  if (moduleName && /^(yes|yeah|yep|sure|ok|okay|please do|do it|go ahead|sounds good|proceed)\b/i.test(text)) {
+    return `Create a comprehensive layered test plan for the ${moduleName} module`;
+  }
+  return text;
+}
 
 function waitForHealAnswer(ws, ms = 1_800_000) {
   return new Promise((resolve, reject) => {
@@ -315,6 +346,21 @@ wss.on('connection', ws => {
     const { type, data } = msg;
     const st = getState(ws);
 
+    if (type === 'session_init') {
+      const sessionId = String(data?.sessionId || '').slice(0, 80);
+      if (sessionId) {
+        const existing = sessionState.get(sessionId) || st;
+        existing.sessionId = sessionId;
+        connState.set(ws, existing);
+        sessionState.set(sessionId, existing);
+        send(ws, 'apps', loadApps());
+        send(ws, 'modules', loadModulesForApp(existing.currentApp || loadApps()[0]));
+        send(ws, 'conversation_history', existing.history || []);
+        log(ws, `Session restored with ${(existing.history || []).length} remembered turns.`, 'info');
+      }
+      return;
+    }
+
     // Switch app
     if (type === 'set_app') {
       const newApp = getApp(data);
@@ -330,10 +376,52 @@ wss.on('connection', ws => {
 
       send(ws, 'agent_state', 'thinking');
       pushHistory(st, 'user', text);
+      log(ws, `Understanding request: "${text}"`, 'info');
 
       const docs       = loadAllDocs(st.currentApp.docsDir);
       const appContext = { ...st.currentApp, docs };
       const sessionCtx = { lastRun: st.lastRun, history: st.history.slice(-10), appId: st.currentApp.id };
+      log(ws, 'Checking conversation mode and readiness.', 'info');
+      const conversationDecision = decideConversation(text, appContext, sessionCtx);
+      log(ws, `Decision: ${conversationDecision.mode} -> ${conversationDecision.nextAction.type}`, 'info');
+
+      if (conversationDecision.nextAction.type === 'ask_question') {
+        const reply = speakClarification(conversationDecision, st.currentApp.name);
+        pushHistory(st, 'agent', reply);
+        send(ws, 'chat_reply', { text: reply, intent: 'CLARIFY' });
+        send(ws, 'agent_state', 'idle');
+        return;
+      }
+
+      if (conversationDecision.mode === 'PLAN') {
+        const planInput = buildPlanInput(text, conversationDecision);
+        log(ws, `Generating visual plan from: "${planInput}"`, 'info');
+        const planResult = await planFeature(planInput, { ...st.currentApp, docs }, { lastRun: st.lastRun, appId: st.currentApp.id });
+        const reply = speakPlanReady(planResult);
+        pushHistory(st, 'agent', reply);
+        send(ws, 'test_plan_proposal', planResult);
+        send(ws, 'chat_reply', { text: reply, intent: 'PLAN' });
+        send(ws, 'agent_state', 'idle');
+        return;
+      }
+
+      if (conversationDecision.mode === 'EXECUTE') {
+        const scenarios = conversationDecision.scenarios || [];
+        log(ws, `Resolved ${scenarios.length} runnable scenario${scenarios.length === 1 ? '' : 's'} for dashboard selection.`, 'success');
+        const reply = speakExecutionProposal(scenarios);
+        pushHistory(st, 'agent', reply);
+        send(ws, 'chat_reply', { text: reply, intent: 'EXECUTE', scenarios });
+        send(ws, 'agent_state', 'idle');
+        return;
+      }
+
+      if (conversationDecision.mode === 'DESIGN' && !/create|build|generate|make|add|custom/i.test(text)) {
+        const reply = speakDesignPrompt(conversationDecision);
+        pushHistory(st, 'agent', reply);
+        send(ws, 'chat_reply', { text: reply, intent: 'DESIGN' });
+        send(ws, 'agent_state', 'idle');
+        return;
+      }
 
       let decision;
       try {
@@ -363,9 +451,7 @@ wss.on('connection', ws => {
         // Send structured plan to UI for confirmation
         send(ws, 'test_plan_proposal', planResult);
         // Also send a chat summary
-        const riskEmoji = { critical:'🔴', high:'🟠', medium:'🟡', low:'🟢' }[planResult.risk] || '⚪';
-        const layerList = planResult.layers.map(l => `• **${l.type}** — ${l.reason}`).join('\n');
-        const reply = `${riskEmoji} **${planResult.feature}** — ${planResult.risk_reason}\n\n**Recommended test layers:**\n${layerList}\n\nSee the plan panel in the dashboard to run individual layers or all at once.`;
+        const reply = summarizePlanForChat(planResult);
         send(ws, 'chat_reply', { text: reply, intent: 'PLAN' });
         send(ws, 'agent_state', 'idle');
         return;
@@ -373,42 +459,16 @@ wss.on('connection', ws => {
 
       // ── EXECUTE — agent identified runnable scenarios ──────────────────────
       if (intent === 'EXECUTE' && scenarios?.length) {
-        // Record this interaction in learning memory
-        recordOutcome(st.currentApp.id, text, 'EXECUTE', scenarios);
-
         if (scenarios.length === 1) {
-          // Single scenario — run immediately, tell user
           const s = scenarios[0];
-          const replyText = `Running **${s.name}** in ${s.module}. Watch the execution panel →`;
+          const replyText = `I found **${s.name}** in the ${s.module} module. I won’t run it from chat automatically — use the visible Run button for that scenario when you’re ready.`;
           pushHistory(st, 'agent', replyText);
           send(ws, 'chat_reply', { text: replyText, intent: 'EXECUTE', scenarios });
           send(ws, 'agent_state', 'idle');
-
-          // Trigger execution (non-blocking from chat perspective)
-          setImmediate(async () => {
-            const runApp = st.currentApp;
-            send(ws, 'agent_state', 'running');
-            send(ws, 'execution_start', { module: s.module, scenario: s.id, app: runApp.name });
-            phase(ws, `── ${s.module} / ${s.name} ──`);
-            let browser = null;
-            try {
-              const plan = await getPlan(s, runApp, ws);
-              browser = await chromium.launch({ headless: false });
-              const { result, healCount, healMeta } = await executeScenario(ws, plan, s, runApp.baseUrl, browser, runApp.id);
-              const rpt = {
-                status: result.status, healCount,
-                scenarios: [{ scenario: s, result, healCount, healMeta }],
-                summary: { total: 1, passed: (result.status==='success'&&!healCount)?1:0, failed: result.status==='failed'?1:0, skipped: 0, healed: healCount },
-              };
-              send(ws, 'report', rpt);
-              st.lastRun = rpt;
-            } catch (e) { log(ws, e.message, 'error'); send(ws, 'execution_error', e.message); }
-            finally { if (browser) await browser.close(); send(ws, 'agent_state', 'idle'); }
-          });
         } else {
           // Multiple scenarios — show them, let user pick or run all from dashboard
           const list = scenarios.map((s,i) => `${i+1}. **${s.name}** (${s.module}) — ${s.description||''}`).join('\n');
-          const replyText = `Found ${scenarios.length} scenarios:\n\n${list}\n\nClick any scenario in the dashboard to run it, or say *"run all"*.`;
+          const replyText = `I found ${scenarios.length} matching scenarios. I’ll keep chat light and let the dashboard handle execution:\n\n${list}\n\nUse a scenario Run button, module Run all, or the regression control when you’re ready.`;
           pushHistory(st, 'agent', replyText);
           send(ws, 'chat_reply', { text: replyText, intent: 'EXECUTE', scenarios });
 
@@ -474,18 +534,23 @@ Return ONLY valid JSON:
       send(ws, 'agent_state', 'running');
       send(ws, 'execution_start', { module: plan.feature, scenario: 'layer-plan', app: runApp.name });
       phase(ws, `── Plan: ${plan.feature} ──`);
+      (plan.layers || []).forEach(l => planProgress(ws, { layer: l.type, status: 'pending' }));
 
       const allResults = [];
       let totalHealed = 0;
 
       for (const layer of layers) {
+        planProgress(ws, { layer: layer.type, status: 'running' });
         phase(ws, `── Layer: ${layer.type} (${layer.runner}) ──`);
         log(ws, `${layer.reason}`, 'info');
+        let layerFailed = false;
+        let layerHealed = false;
 
         for (const scenario of layer.scenarios) {
           // Tag scenario with its runner
           const scenarioWithRunner = { ...scenario, runner: layer.runner };
           send(ws, 'scenario_start', scenarioWithRunner);
+          planProgress(ws, { layer: layer.type, scenario: scenarioWithRunner, status: 'running' });
 
           if (layer.runner === 'ui') {
             // Standard Playwright execution
@@ -496,9 +561,14 @@ Return ONLY valid JSON:
               const { result, healCount, healMeta } = await executeScenario(ws, p, scenarioWithRunner, runApp.baseUrl, browser, runApp.id);
               allResults.push({ scenario: scenarioWithRunner, result, healCount, healMeta, layer: layer.type });
               totalHealed += healCount;
+              if (result.status === 'failed') layerFailed = true;
+              if (healCount > 0) layerHealed = true;
+              planProgress(ws, { layer: layer.type, scenario: scenarioWithRunner, status: healCount > 0 ? 'healed' : (result.status === 'success' ? 'passed' : result.status) });
             } catch(e) {
               log(ws, `${scenario.name}: ${e.message}`, 'error');
               allResults.push({ scenario: scenarioWithRunner, result: { status:'failed', results:[], error: e.message }, healCount:0, healMeta:null, layer: layer.type });
+              layerFailed = true;
+              planProgress(ws, { layer: layer.type, scenario: scenarioWithRunner, status: 'failed' });
             } finally {
               if (browser) await browser.close();
             }
@@ -511,13 +581,18 @@ Return ONLY valid JSON:
                 onLog:  (t, l) => log(ws, t, l),
               });
               allResults.push({ scenario: scenarioWithRunner, result, healCount: 0, healMeta: null, layer: layer.type });
+              if (result.status === 'failed' || result.status === 'fail') layerFailed = true;
+              planProgress(ws, { layer: layer.type, scenario: scenarioWithRunner, status: (result.status === 'success' || result.status === 'pass') ? 'passed' : result.status });
             } catch(e) {
               log(ws, `${scenario.name}: ${e.message}`, 'error');
               allResults.push({ scenario: scenarioWithRunner, result: { status:'failed', results:[], error: e.message }, healCount:0, healMeta:null, layer: layer.type });
+              layerFailed = true;
+              planProgress(ws, { layer: layer.type, scenario: scenarioWithRunner, status: 'failed' });
             }
           }
           await new Promise(r => setTimeout(r, 300));
         }
+        planProgress(ws, { layer: layer.type, status: layerFailed ? 'failed' : layerHealed ? 'healed' : 'passed' });
       }
 
       const passed  = allResults.filter(r => r.result?.status === 'success' || r.result?.status === 'pass').length;

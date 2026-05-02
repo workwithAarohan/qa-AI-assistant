@@ -2,6 +2,30 @@
   "testapp": {
     "examples": [
       {
+        "input": "empty fields",
+        "intent": "EXECUTE",
+        "scenarios": [
+          {
+            "id": "empty_fields",
+            "name": "empty fields",
+            "module": "login"
+          }
+        ],
+        "confirmedAt": "2026-05-02T16:40:38.657Z"
+      },
+      {
+        "input": "invalid password",
+        "intent": "EXECUTE",
+        "scenarios": [
+          {
+            "id": "invalid_password",
+            "name": "invalid password",
+            "module": "login"
+          }
+        ],
+        "confirmedAt": "2026-05-02T16:40:17.329Z"
+      },
+      {
         "input": "plan me the end to end testing",
         "intent": "EXECUTE",
         "scenarios": [
@@ -96,6 +120,18 @@
   },
   "dataapp": {
     "examples": [
+      {
+        "input": "invalid email",
+        "intent": "EXECUTE",
+        "scenarios": [
+          {
+            "id": "invalid_email",
+            "name": "invalid email",
+            "module": "dataapp-validation"
+          }
+        ],
+        "confirmedAt": "2026-05-02T16:46:22.208Z"
+      },
       {
         "input": "table loads",
         "intent": "EXECUTE",

@@ -458,7 +458,7 @@ Rules:
     const parsed = extractJSON(text);
 
     // Validate and normalise the response
-    const VALID_INTENTS = ['EXECUTE', 'EXPLORE', 'DISCUSS', 'POST_RUN_Q', 'OUT_OF_SCOPE'];
+    const VALID_INTENTS = ['EXECUTE', 'PLAN', 'EXPLORE', 'DISCUSS', 'POST_RUN_Q', 'OUT_OF_SCOPE'];
     if (!VALID_INTENTS.includes(parsed.intent)) parsed.intent = 'EXPLORE';
     if (!['high', 'low'].includes(parsed.confidence)) parsed.confidence = 'high';
 
