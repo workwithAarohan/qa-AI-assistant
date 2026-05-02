@@ -26,7 +26,7 @@
         "value": "http://localhost:4000/dashboard"
       }
     ],
-    "savedAt": "2026-04-27T15:57:27.793Z"
+    "savedAt": "2026-05-02T03:31:27.738Z"
   },
   "login__invalid_password": {
     "module": "login",
@@ -156,7 +156,7 @@
       },
       {
         "action": "expectUrl",
-        "value": "http://localhost:4000/project"
+        "value": "http://localhost:4000/projects"
       }
     ],
     "savedAt": "2026-04-28T05:24:57.367Z"
@@ -445,91 +445,293 @@
     ],
     "savedAt": "2026-04-21T04:00:48.988Z"
   },
-  "Tables Module__filter_by_text": {
+  "dataapp-tables__table_loads": {
+    "id": "table_loads",
+    "module": "dataapp-tables",
+    "scenario": "table_loads",
+    "steps": [
+      {
+        "action": "navigate",
+        "value": "http://localhost:4001/tables"
+      },
+      {
+        "action": "expect",
+        "selector": "#data-table"
+      },
+      {
+        "action": "expect",
+        "selector": "#row-count"
+      }
+    ],
+    "savedAt": "2026-05-02T11:06:05.787Z"
+  },
+  "dataapp-tables__filter_by_text": {
     "id": "filter_by_text",
-    "module": "Tables Module",
+    "module": "dataapp-tables",
     "scenario": "filter_by_text",
     "steps": [
       {
-        "action": "navigateTo",
-        "url": "/tables"
+        "action": "navigate",
+        "value": "http://localhost:4001/tables"
       },
       {
-        "action": "interactWith",
+        "action": "expect",
+        "selector": "#data-table"
+      },
+      {
+        "action": "type",
         "selector": "#filter-input",
-        "value": "search term"
+        "value": "Engineering"
       },
       {
-        "action": "assertElementCount",
-        "selector": "#data-table tr",
-        "expected": "lessThan",
-        "count": 0
+        "action": "wait",
+        "value": "400"
+      },
+      {
+        "action": "expect",
+        "selector": "#row-count"
       }
     ],
-    "savedAt": "2026-04-30T01:08:46.284Z"
+    "savedAt": "2026-05-01T00:00:00.000Z"
   },
-  "Validation Module__empty_submit": {
-    "id": "empty_submit",
-    "module": "Validation Module",
-    "scenario": "empty_submit",
+  "dataapp-tables__sort_column": {
+    "id": "sort_column",
+    "module": "dataapp-tables",
+    "scenario": "sort_column",
     "steps": [
       {
-        "type": "navigate",
-        "action": "Go to the validation page",
-        "url": "http://localhost:4001/validation"
+        "action": "navigate",
+        "value": "http://localhost:4001/tables"
       },
       {
-        "type": "interaction",
-        "action": "Click the submit button without filling any fields",
-        "selector": "#form-submit"
+        "action": "expect",
+        "selector": "#data-table"
       },
       {
-        "type": "assertion",
-        "action": "Verify that the error summary appears",
-        "selector": "#error-summary",
-        "validation": "toBeVisible"
+        "action": "click",
+        "selector": "th[data-sort='salary']"
+      },
+      {
+        "action": "wait",
+        "value": "300"
+      },
+      {
+        "action": "expect",
+        "selector": "#data-table"
       }
     ],
-    "savedAt": "2026-04-30T05:59:13.455Z"
+    "savedAt": "2026-05-01T00:00:00.000Z"
   },
-  "Validation Module__valid_submit": {
+  "dataapp-tables__pagination": {
+    "id": "pagination",
+    "module": "dataapp-tables",
+    "scenario": "pagination",
+    "steps": [
+      {
+        "action": "navigate",
+        "value": "http://localhost:4001/tables"
+      },
+      {
+        "action": "expect",
+        "selector": "#data-table"
+      },
+      {
+        "action": "click",
+        "selector": "#page-next"
+      },
+      {
+        "action": "wait",
+        "value": "200"
+      },
+      {
+        "action": "expect",
+        "selector": "#page-info"
+      }
+    ],
+    "savedAt": "2026-05-01T00:00:00.000Z"
+  },
+  "dataapp-tables__export_csv": {
+    "id": "export_csv",
+    "module": "dataapp-tables",
+    "scenario": "export_csv",
+    "steps": [
+      {
+        "action": "navigate",
+        "value": "http://localhost:4001/tables"
+      },
+      {
+        "action": "expect",
+        "selector": "#data-table"
+      },
+      {
+        "action": "click",
+        "selector": "#export-btn"
+      },
+      {
+        "action": "wait",
+        "value": "1000"
+      }
+    ],
+    "savedAt": "2026-05-01T00:00:00.000Z"
+  },
+  "dataapp-validation__valid_submit": {
     "id": "valid_submit",
-    "module": "Validation Module",
+    "module": "dataapp-validation",
     "scenario": "valid_submit",
     "steps": [
       {
-        "action": "navigateTo",
-        "url": "http://localhost:4001/validation"
+        "action": "navigate",
+        "value": "http://localhost:4001/validation"
       },
       {
-        "action": "fillField",
+        "action": "type",
         "selector": "#field-name",
-        "value": "John Doe"
+        "value": "Jane Smith"
       },
       {
-        "action": "fillField",
+        "action": "type",
         "selector": "#field-email",
-        "value": "john.doe@example.com"
+        "value": "jane@company.com"
       },
       {
-        "action": "selectOption",
+        "action": "type",
+        "selector": "#field-phone",
+        "value": "555-123-4567"
+      },
+      {
+        "action": "select",
         "selector": "#field-dept",
         "value": "Engineering"
       },
       {
-        "action": "fillField",
+        "action": "type",
         "selector": "#field-start",
-        "value": "2023-10-01"
+        "value": "2026-12-01"
       },
       {
-        "action": "clickButton",
+        "action": "click",
         "selector": "#form-submit"
       },
       {
-        "action": "assertElementVisible",
+        "action": "expect",
         "selector": "#form-success"
       }
     ],
-    "savedAt": "2026-04-30T06:01:03.911Z"
+    "savedAt": "2026-05-01T00:00:00.000Z"
+  },
+  "dataapp-validation__empty_submit": {
+    "id": "empty_submit",
+    "module": "dataapp-validation",
+    "scenario": "empty_submit",
+    "steps": [
+      {
+        "action": "navigate",
+        "value": "http://localhost:4001/validation"
+      },
+      {
+        "action": "click",
+        "selector": "#form-submit"
+      },
+      {
+        "action": "expect",
+        "selector": "#error-summary"
+      }
+    ],
+    "savedAt": "2026-05-01T00:00:00.000Z"
+  },
+  "dataapp-validation__invalid_email": {
+    "id": "invalid_email",
+    "module": "dataapp-validation",
+    "scenario": "invalid_email",
+    "steps": [
+      {
+        "action": "navigate",
+        "value": "http://localhost:4001/validation"
+      },
+      {
+        "action": "type",
+        "selector": "#field-email",
+        "value": "notanemail"
+      },
+      {
+        "action": "click",
+        "selector": "#form-submit"
+      },
+      {
+        "action": "expect",
+        "selector": "#err-email"
+      }
+    ],
+    "savedAt": "2026-05-01T00:00:00.000Z"
+  },
+  "dataapp-validation__invalid_phone_format": {
+    "id": "invalid_phone_format",
+    "module": "dataapp-validation",
+    "scenario": "invalid_phone_format",
+    "steps": [
+      {
+        "action": "navigate",
+        "value": "http://localhost:4001/validation"
+      },
+      {
+        "action": "type",
+        "selector": "#field-name",
+        "value": "Jane Smith"
+      },
+      {
+        "action": "type",
+        "selector": "#field-email",
+        "value": "jane@company.com"
+      },
+      {
+        "action": "type",
+        "selector": "#field-phone",
+        "value": "1234567890"
+      },
+      {
+        "action": "click",
+        "selector": "#form-submit"
+      },
+      {
+        "action": "expect",
+        "selector": "#err-phone"
+      }
+    ],
+    "savedAt": "2026-05-01T00:00:00.000Z"
+  },
+  "dataapp-validation__past_date": {
+    "id": "past_date",
+    "module": "dataapp-validation",
+    "scenario": "past_date",
+    "steps": [
+      {
+        "action": "navigate",
+        "value": "http://localhost:4001/validation"
+      },
+      {
+        "action": "type",
+        "selector": "#field-name",
+        "value": "Jane Smith"
+      },
+      {
+        "action": "type",
+        "selector": "#field-email",
+        "value": "jane@company.com"
+      },
+      {
+        "action": "type",
+        "selector": "#field-start",
+        "value": "2020-01-01"
+      },
+      {
+        "action": "click",
+        "selector": "#form-submit"
+      },
+      {
+        "action": "expect",
+        "selector": "#err-start"
+      }
+    ],
+    "savedAt": "2026-05-01T00:00:00.000Z"
   }
 }

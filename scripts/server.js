@@ -657,7 +657,7 @@ dataApp.use((_, res, next) => {
 dataApp.use('/api/dataapp', mockApiRouter);
 dataApp.get('/',           (_, r) => r.sendFile(path.join(ROOT, 'public', 'dataapp-tables.html')));
 dataApp.get('/tables',     (_, r) => r.sendFile(path.join(ROOT, 'public', 'dataapp-tables.html')));
-dataApp.get('/dataapp/validation', (_, r) => r.sendFile(path.join(ROOT, 'public', 'dataapp-validation.html')));
+dataApp.get('/validation', (_, r) => r.sendFile(path.join(ROOT, 'public', 'dataapp-validation.html')));
 dataApp.use(express.static(path.join(ROOT, 'public')));
 dataApp.use(express.static(path.join(ROOT, 'scripts')));
 

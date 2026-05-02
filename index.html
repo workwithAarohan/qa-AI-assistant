@@ -203,7 +203,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--san
 .lphase{color:var(--accent-h);font-weight:600;letter-spacing:0.04em;padding:5px 0 2px;border-top:1px solid rgba(99,102,241,0.15);margin-top:3px}
 
 /* Heal card */
-#heal-card{flex-shrink:0;margin:0 14px 12px;border-radius:var(--rl);overflow:hidden;display:none}
+#heal-card{flex-shrink:0;margin:0 12px 8px;border-radius:var(--rl);overflow:hidden;display:none}
 .heal-section{padding:12px}
 .heal-header{display:flex;align-items:center;gap:8px;margin-bottom:8px}
 .heal-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
@@ -401,6 +401,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--san
     </div>
     <!-- Post-run quick actions — appear after test completes -->
     <div id="quick-chips" class="quick-chips" style="display:none"></div>
+    <div id="heal-card"></div>
     <div id="chat-bar">
       <textarea id="chat-input" rows="1" placeholder="Ask about modules, failures, or build a test..."></textarea>
       <button id="send-btn" onclick="sendChat()">
@@ -467,7 +468,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--san
       <div id="plan-body"><div id="plan-inner"></div></div>
     </div>
     <!-- Heal card -->
-    <div id="heal-card"></div>
+    <!-- heal card moved to chat -->
     <!-- Live log -->
     <div id="log-area">
       <div id="log-lbl">Live Log</div>
@@ -551,10 +552,11 @@ let activeRunner = 'ui'; // currently selected test runner
 function setActiveRunner(r) {
   activeRunner = r;
   document.querySelectorAll('.runner-tab').forEach(t => t.classList.toggle('active', t.dataset.runner === r));
-  // Update run all button label
   const labels = { ui:'Run All (UI)', data:'Run All (Data)', api:'Run All (API)', perf:'Run All (Perf)' };
   const btn = document.getElementById('run-regression-btn');
   if (btn) btn.textContent = labels[r] || 'Run All';
+  // Re-render dashboard to show only relevant scenarios for this runner
+  if (modules.length) renderModules(modules);
 }
 
 // ── WebSocket ─────────────────────────────────────────────────────────────────
@@ -610,6 +612,30 @@ function handleOverlayClick(e) { if (e.target === document.getElementById('app-o
 const MOD_COLORS = { login:'4F46E5', dashboard:'0891B2', projects:'059669', profile:'D97706', navigation:'7C3AED' };
 const MOD_ICONS  = { login:'🔐', dashboard:'📊', projects:'📁', profile:'👤', navigation:'🧭' };
 
+// Classify which runners apply to each scenario
+// UI = browser interaction; data = backend-driven tables; api = contract tests; perf = perf
+function classifyScenarioRunners(scenarioId, moduleId) {
+  const id  = (scenarioId  || '').toLowerCase();
+  const mod = (moduleId || '').toLowerCase();
+  const runners = ['ui']; // UI always applies
+
+  // Data validation runner — table/data modules
+  if (mod.includes('table') || id.includes('table') || id.includes('filter') ||
+      id.includes('sort') || id.includes('paginat') || id.includes('export')) {
+    runners.push('data');
+  }
+  // API runner — any module that has backend data
+  if (mod.includes('table') || mod.includes('validation') || mod.includes('dataapp')) {
+    runners.push('api');
+  }
+  // Perf runner — search, filter, large datasets
+  if (id.includes('filter') || id.includes('search') || id.includes('load') ||
+      mod.includes('table') || id.includes('paginat')) {
+    runners.push('perf');
+  }
+  return runners;
+}
+
 function renderModules(list) {
   modules = list;
   document.getElementById('dash-app-badge').textContent = currentApp?.name || '—';
@@ -617,6 +643,13 @@ function renderModules(list) {
   grid.innerHTML = '';
   let total = 0, totalCached = 0;
   list.forEach(mod => {
+    // Filter scenarios by active runner
+    const visibleScenarios = mod.scenarios.filter(s => {
+      const applicable = classifyScenarioRunners(s.id, mod.id);
+      return applicable.includes(activeRunner);
+    });
+
+    // Always show module card but dim if no scenarios for this runner
     total += mod.scenarios.length;
     totalCached += mod.cachedCount;
     const color = MOD_COLORS[mod.id] || '6366F1';
@@ -633,14 +666,14 @@ function renderModules(list) {
         <button class="mod-run-all" onclick="runModule('${mod.id}')">Run all</button>
       </div>
       <div class="mod-scenarios">
-        ${mod.scenarios.map(s => `
+        ${visibleScenarios.map(s => `
           <div class="scen-row" onclick="runScenario('${mod.id}','${s.id}','${esc(s.name)}','${esc(s.description)}')">
             <div class="scen-dot ${s.cached ? 'cached' : ''}"></div>
             <span class="scen-name">${esc(s.name)}</span>
             <span class="scen-desc">${esc(s.description)}</span>
             <button class="scen-run-btn" onclick="event.stopPropagation();runScenario('${mod.id}','${s.id}','${esc(s.name)}','${esc(s.description)}')">▶ Run</button>
           </div>`).join('')}
-        ${mod.scenarios.length === 0 ? '<div style="font-size:11px;color:var(--t3);padding:6px 8px">No scenarios documented</div>' : ''}
+        ${visibleScenarios.length === 0 ? `<div style="font-size:11px;color:var(--t3);padding:6px 8px;font-style:italic">No ${activeRunner.toUpperCase()} scenarios for this module</div>` : ''}
       </div>`;
     grid.appendChild(card);
   });

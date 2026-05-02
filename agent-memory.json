@@ -2,6 +2,35 @@
   "testapp": {
     "examples": [
       {
+        "input": "plan me the end to end testing",
+        "intent": "EXECUTE",
+        "scenarios": [
+          {
+            "id": "full_login_flow",
+            "name": "Full login flow",
+            "module": "navigation"
+          },
+          {
+            "id": "logout_flow",
+            "name": "Logout flow",
+            "module": "navigation"
+          }
+        ],
+        "confirmedAt": "2026-05-02T04:42:44.583Z"
+      },
+      {
+        "input": "valid login",
+        "intent": "EXECUTE",
+        "scenarios": [
+          {
+            "id": "valid_login",
+            "name": "valid login",
+            "module": "login"
+          }
+        ],
+        "confirmedAt": "2026-05-02T03:31:27.739Z"
+      },
+      {
         "input": "create a test for login with invalid password",
         "intent": "EXECUTE",
         "scenarios": [
@@ -67,6 +96,18 @@
   },
   "dataapp": {
     "examples": [
+      {
+        "input": "table loads",
+        "intent": "EXECUTE",
+        "scenarios": [
+          {
+            "id": "table_loads",
+            "name": "table loads",
+            "module": "dataapp-tables"
+          }
+        ],
+        "confirmedAt": "2026-05-02T11:06:05.789Z"
+      },
       {
         "input": "valid submit",
         "intent": "EXECUTE",
