@@ -10,6 +10,7 @@ const MODE = {
   PLAN: 'PLAN',
   DESIGN: 'DESIGN',
   EXECUTE: 'EXECUTE',
+  RESULT: 'RESULT',
   FALLBACK: 'FALLBACK',
 };
 
@@ -63,6 +64,8 @@ export function buildCatalog(docs = []) {
 function detectMode(lower, history) {
   if (isAffirmative(lower) && lastAgentWasPlanning(history)) return MODE.PLAN;
 
+  if (/\b(why|what|explain|summari[sz]e|summary|result|report)\b.*\b(fail|failed|last|run|test|heal|healed|pass|passed)\b/.test(lower)) return MODE.RESULT;
+  if (/\b(last test|last run|test result|run result|why did it fail|what failed|failed test)\b/.test(lower)) return MODE.RESULT;
   if (/\b(create|build|design|draft|add)\b.*\b(test|scenario|case|flow)\b/.test(lower)) return MODE.DESIGN;
   if (/\b(test plan|plan|coverage|comprehensive|properly|full coverage|end[- ]?to[- ]?end|e2e|strategy|layers?|risk)\b/.test(lower)) return MODE.PLAN;
   if (/\b(what can|show|list|explain|how does|tell me about|understand)\b/.test(lower)) return MODE.EXPLORE;
@@ -87,6 +90,7 @@ function extractIntent(mode, scope, catalog) {
     task: mode === MODE.PLAN ? 'plan_tests'
       : mode === MODE.DESIGN ? 'design_test'
       : mode === MODE.EXECUTE ? 'run_tests'
+      : mode === MODE.RESULT ? 'inspect_results'
       : mode === MODE.EXPLORE ? 'explore'
       : 'unknown',
     scope,
@@ -129,6 +133,7 @@ function selectNextAction(mode, gaps) {
   if (mode === MODE.PLAN) return { type: 'propose_plan', confirmationRequired: true };
   if (mode === MODE.DESIGN) return { type: 'design', confirmationRequired: false };
   if (mode === MODE.EXECUTE) return { type: 'propose_execution', confirmationRequired: true };
+  if (mode === MODE.RESULT) return { type: 'answer_results', confirmationRequired: false };
   return { type: 'answer', confirmationRequired: false };
 }
 

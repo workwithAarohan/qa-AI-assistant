@@ -91,6 +91,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--san
 .intent-success{background:var(--green-dim);color:var(--green)}
 .intent-failed{background:var(--red-dim);color:var(--red)}
 .intent-memory{background:var(--surface3);color:var(--t3)}
+.intent-result{background:var(--amber-dim);color:var(--amber)}
 
 /* Typing indicator */
 #typing{display:flex;gap:4px;align-items:center;padding:8px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--rl);width:fit-content;border-bottom-left-radius:3px}
@@ -371,7 +372,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--san
 .mod-hdr-row:first-child{margin-top:0;padding-top:0}
 
 /* Persistent planning workspace */
-#planning-workspace{display:block;background:var(--surface);border:1px solid var(--border);border-radius:var(--rxl);overflow:hidden}
+#planning-workspace{background:var(--surface);border:1px solid var(--border);border-radius:var(--rxl);overflow:hidden}
 #planning-workspace.is-hidden{display:none}
 .workspace-tabs{display:flex;gap:4px;margin-left:10px}
 .workspace-tab{padding:4px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);color:var(--t3);font-size:10px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;cursor:pointer}
@@ -524,7 +525,6 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--san
           </div>
           <div class="pw-actions">
             <button class="btn primary" id="pw-run-all" onclick="runPlan(null)" disabled>Run plan</button>
-            <button class="btn ghost" onclick="switchWorkspaceTab('dashboard')">Dashboard</button>
           </div>
         </div>
         <div class="pw-body">

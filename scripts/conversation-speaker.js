@@ -61,6 +61,36 @@ export function speakDesignPrompt(decision) {
     : `I can draft a reusable test scenario. Tell me the module, the user flow, and the expected result.`;
 }
 
+export function speakResultQuestion(userInput, lastRun) {
+  if (!lastRun?.summary) {
+    return `I do not have a completed test run to summarize yet. Run a scenario or plan first, then I can explain the result.`;
+  }
+
+  const lower = String(userInput || '').toLowerCase();
+  const s = lastRun.summary || {};
+  const rows = lastRun.scenarios || [];
+  const failed = rows.filter(r => isFailed(r.result?.status));
+  const healed = rows.filter(r => r.healCount > 0);
+  const passed = rows.filter(r => isPassed(r.result?.status));
+
+  if (/\bwhy|fail|failed|what failed|explain\b/.test(lower)) {
+    if (!failed.length) {
+      return `The last run did not fail. It finished with ${passed.length} passed, ${s.skipped || 0} skipped, and ${healed.length} healed.`;
+    }
+    const lines = failed.slice(0, 4).map(r => {
+      const firstFailedStep = (r.result?.results || []).find(x => isFailed(x.status));
+      const error = firstFailedStep?.error || r.result?.error || 'No detailed error was captured.';
+      const step = firstFailedStep?.step
+        ? `${firstFailedStep.step.action || 'step'} ${firstFailedStep.step.selector || firstFailedStep.step.value || ''}`.trim()
+        : 'the scenario';
+      return `- **${r.scenario?.name || 'Scenario'}** (${r.scenario?.module || 'module'}) failed at ${humanStep(step)}: ${humanError(error)}`;
+    });
+    return `Here’s what failed in the last run:\n${lines.join('\n')}`;
+  }
+
+  return `Last run summary: **${s.total || rows.length} total**, ${s.passed || passed.length} passed, ${s.failed || failed.length} failed, ${s.skipped || 0} skipped, and ${s.healed || healed.length} healed.`;
+}
+
 function humanLayer(type) {
   return ({
     API: 'API checks',
@@ -68,4 +98,28 @@ function humanLayer(type) {
     UI: 'UI testing',
     PERFORMANCE: 'performance testing',
   })[type] || String(type || 'testing').replace(/_/g, ' ').toLowerCase();
+}
+
+function isPassed(status) {
+  return status === 'success' || status === 'pass';
+}
+
+function isFailed(status) {
+  return status === 'failed' || status === 'fail';
+}
+
+function humanStep(text) {
+  return String(text || '')
+    .replace(/#/g, '')
+    .replace(/-/g, ' ')
+    .replace(/_/g, ' ');
+}
+
+function humanError(error) {
+  const e = String(error || '');
+  if (/timeout|locator|selector|not found|strict mode/i.test(e)) {
+    return 'the expected page element was not available. The page may not have loaded, or the UI no longer matches the saved steps.';
+  }
+  if (/expect.*url|url/i.test(e)) return 'the browser ended on a different URL than expected.';
+  return e.slice(0, 180);
 }

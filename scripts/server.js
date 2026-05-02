@@ -30,6 +30,7 @@ import {
   speakExecutionProposal,
   speakExploreFallback,
   speakDesignPrompt,
+  speakResultQuestion,
 } from './conversation-speaker.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -134,11 +135,80 @@ function summarizePlanForChat(plan) {
 }
 
 function buildPlanInput(text, decision) {
-  const moduleName = decision.intent?.scope?.module?.name;
+  const moduleName = decision.intent?.scope?.module?.name || decision.intent?.scope?.module?.id;
   if (moduleName && /^(yes|yeah|yep|sure|ok|okay|please do|do it|go ahead|sounds good|proceed)\b/i.test(text)) {
-    return `Create a comprehensive layered test plan for the ${moduleName} module`;
+    return `Create a comprehensive layered test plan ONLY for the ${moduleName} module. Do not include related modules or post-login destination modules.`;
+  }
+  if (moduleName) {
+    return `${text}. Scope this plan ONLY to the ${moduleName} module. Do not include related modules or post-login destination modules.`;
   }
   return text;
+}
+
+function enforcePlanScope(plan, moduleId, docs = []) {
+  if (!moduleId || !plan?.layers) return plan;
+  const doc = docs.find(d => d.name === moduleId);
+  const sec = doc?.content.match(/##\s*Test Scenarios\s*\n([\s\S]*?)(?=\n##|$)/i);
+  const docScenarios = sec ? sec[1].trim().split('\n').map(line => {
+    const m = line.match(/[-*]\s*([a-z_]+):\s*(.+)/i);
+    return m ? { id: m[1].toLowerCase(), name: titleCase(m[1].replace(/_/g, ' ')), module: moduleId, description: m[2].trim() } : null;
+  }).filter(Boolean) : [];
+  const docIds = new Set(docScenarios.map(s => s.id));
+
+  const scopedLayers = plan.layers
+    .map(layer => ({
+      ...layer,
+      scenarios: (layer.scenarios || []).filter(s =>
+        String(s.module || '').toLowerCase() === moduleId.toLowerCase() &&
+        (!docIds.size || docIds.has(String(s.id || '').toLowerCase()))
+      ),
+    }))
+    .filter(layer => layer.scenarios.length > 0);
+
+  if (scopedLayers.length) {
+    const hasUiLayer = scopedLayers.some(l => l.runner === 'ui' || l.type === 'UI');
+    const normalizedLayers = scopedLayers.map(layer =>
+      (docScenarios.length && (layer.runner === 'ui' || layer.type === 'UI'))
+        ? { ...layer, scenarios: docScenarios }
+        : layer
+    );
+    if (docScenarios.length && !hasUiLayer) {
+      normalizedLayers.push({
+        type: 'UI',
+        reason: `Verify the documented ${moduleId} user flows.`,
+        runner: 'ui',
+        scenarios: docScenarios,
+        depends_on: scopedLayers.at(-1)?.type || null,
+      });
+    }
+    const recommended_order = (plan.recommended_order || []).filter(t => normalizedLayers.some(l => l.type === t));
+    return {
+      ...plan,
+      feature: `${titleCase(moduleId)} Module`,
+      layers: normalizedLayers,
+      recommended_order: recommended_order.length ? recommended_order : normalizedLayers.map(l => l.type),
+      ui_only: normalizedLayers.every(l => l.runner === 'ui'),
+    };
+  }
+
+  return {
+    feature: `${titleCase(moduleId)} Module`,
+    risk: plan.risk || 'medium',
+    risk_reason: doc ? `Focused coverage for the ${moduleId} module only.` : plan.risk_reason || '',
+    ui_only: true,
+    layers: [{
+      type: 'UI',
+      reason: `Verify the documented ${moduleId} user flows.`,
+      runner: 'ui',
+      scenarios: docScenarios,
+      depends_on: null,
+    }],
+    recommended_order: ['UI'],
+  };
+}
+
+function titleCase(text) {
+  return String(text || '').replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
 function waitForHealAnswer(ws, ms = 1_800_000) {
@@ -151,7 +221,16 @@ function waitForHealAnswer(ws, ms = 1_800_000) {
 
 function injectUrl(plan, baseUrl) {
   if (!baseUrl || !plan?.steps) return plan;
-  return { ...plan, steps: plan.steps.map(s => s.action === 'navigate' && s.value && !s.value.startsWith('http') ? { ...s, value: baseUrl + (s.value.startsWith('/') ? s.value : '/' + s.value) } : s) };
+  let origin = baseUrl;
+  try { origin = new URL(baseUrl).origin; } catch {}
+  return {
+    ...plan,
+    steps: plan.steps.map(s => {
+      if (s.action !== 'navigate' || !s.value || s.value.startsWith('http')) return s;
+      const path = s.value.startsWith('/') ? s.value : '/' + s.value;
+      return { ...s, value: origin + path };
+    }),
+  };
 }
 
 // ── Live DOM ──────────────────────────────────────────────────────────────────
@@ -385,6 +464,14 @@ wss.on('connection', ws => {
       const conversationDecision = decideConversation(text, appContext, sessionCtx);
       log(ws, `Decision: ${conversationDecision.mode} -> ${conversationDecision.nextAction.type}`, 'info');
 
+      if (conversationDecision.mode === 'RESULT') {
+        const reply = speakResultQuestion(text, st.lastRun);
+        pushHistory(st, 'agent', reply);
+        send(ws, 'chat_reply', { text: reply, intent: 'RESULT' });
+        send(ws, 'agent_state', 'idle');
+        return;
+      }
+
       if (conversationDecision.nextAction.type === 'ask_question') {
         const reply = speakClarification(conversationDecision, st.currentApp.name);
         pushHistory(st, 'agent', reply);
@@ -396,7 +483,8 @@ wss.on('connection', ws => {
       if (conversationDecision.mode === 'PLAN') {
         const planInput = buildPlanInput(text, conversationDecision);
         log(ws, `Generating visual plan from: "${planInput}"`, 'info');
-        const planResult = await planFeature(planInput, { ...st.currentApp, docs }, { lastRun: st.lastRun, appId: st.currentApp.id });
+        let planResult = await planFeature(planInput, { ...st.currentApp, docs }, { lastRun: st.lastRun, appId: st.currentApp.id });
+        planResult = enforcePlanScope(planResult, conversationDecision.intent?.scope?.module?.id, docs);
         const reply = speakPlanReady(planResult);
         pushHistory(st, 'agent', reply);
         send(ws, 'test_plan_proposal', planResult);
