@@ -25,4 +25,4 @@ Users authenticate with a username and password.
 ## Test Scenarios
 - valid_login: Login with admin/admin — should reach dashboard
 - invalid_password: Login with admin/wrongpassword — should show #error
-- empty_fields: Submit login form without filling any fields — should show #error
+- empty_fields: Submit login form without filling any fields and verify the error message appears.

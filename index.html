@@ -188,6 +188,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--san
 #plan-cnt{margin-left:auto;font-size:10px;padding:1px 7px;border-radius:20px;background:var(--accent-dim);color:var(--accent-h);border:1px solid rgba(99,102,241,0.2)}
 #plan-body{overflow:hidden;max-height:180px;transition:max-height 0.25s ease}
 #plan-inner{padding:4px 14px 10px;display:flex;flex-direction:column;gap:1px;overflow-y:auto;max-height:170px;font-family:var(--mono)}
+.plan-preview-note{font-family:var(--sans);font-size:11px;line-height:1.45;color:var(--t3);padding:6px 0 7px;border-bottom:1px solid var(--border)}
 .prow{display:flex;align-items:center;gap:8px;padding:3px 0;border-bottom:1px solid var(--border)}
 .prow:last-child{border-bottom:none}
 .pdot{width:5px;height:5px;border-radius:50%;background:var(--t3);flex-shrink:0;transition:background 0.2s}
@@ -200,7 +201,8 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--san
 
 /* Live log */
 #log-area{flex:1;overflow:hidden;display:flex;flex-direction:column;padding:12px 14px;min-height:0}
-#log-lbl{font-size:10px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:0.07em;margin-bottom:8px;flex-shrink:0}
+#log-lbl{font-size:10px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:0.07em;margin-bottom:8px;flex-shrink:0;display:flex;align-items:center;gap:8px}
+#log-hint{margin-left:auto;text-transform:none;letter-spacing:0;color:var(--t3);font-weight:500}
 #log-stream{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:1px;font-family:var(--mono);font-size:10.5px;min-height:0}
 #log-stream::-webkit-scrollbar{width:3px}
 #log-stream::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
@@ -474,8 +476,17 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--san
 .pw-layer-btn:hover{border-color:var(--accent);color:var(--accent-h);background:var(--accent-dim)}
 .pw-layer-btn:disabled{opacity:0.45;cursor:not-allowed}
 .pw-scenarios{padding:0 12px 10px 47px;display:flex;flex-direction:column;gap:4px}
-.pw-scen{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;font-size:10.5px;color:var(--t2);padding:5px 7px;border-radius:var(--r);background:rgba(255,255,255,0.015)}
+.pw-scen{display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center;font-size:10.5px;color:var(--t2);padding:5px 7px;border-radius:var(--r);background:rgba(255,255,255,0.015)}
 .pw-scen.active{background:var(--sky-dim);color:var(--sky)}
+.pw-scen-main{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pw-scen-temp{font-size:8.5px;font-weight:800;text-transform:uppercase;letter-spacing:0.05em;color:var(--amber);border:1px solid rgba(245,158,11,0.25);background:var(--amber-dim);border-radius:999px;padding:1px 5px;margin-left:6px}
+.pw-scen-actions{display:flex;align-items:center;gap:5px}
+.pw-scen-btn{border:1px solid var(--border);background:var(--surface3);color:var(--t2);border-radius:var(--r);font-size:9px;font-weight:800;padding:3px 7px;cursor:pointer}
+.pw-scen-btn:hover{border-color:var(--accent);color:var(--accent-h);background:var(--accent-dim)}
+.pw-scen-btn.danger:hover{border-color:rgba(239,68,68,0.35);color:var(--red);background:var(--red-dim)}
+.temp-save-actions{display:flex;gap:7px;margin:8px 0 2px;flex-wrap:wrap}
+.temp-save-actions button{border:1px solid var(--border);background:var(--surface3);color:var(--t2);border-radius:var(--r);font-size:10px;font-weight:800;padding:6px 9px;cursor:pointer}
+.temp-save-actions button:hover{border-color:var(--accent);color:var(--accent-h);background:var(--accent-dim)}
 .pw-empty{padding:18px;color:var(--t3);font-size:12px;text-align:center}
 
 /* Narrative live log */
@@ -607,7 +618,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--san
     <div id="plan-section">
       <button id="plan-toggle" onclick="togglePlan()">
         <span id="plan-chev">›</span>
-        Test Plan
+        <span id="plan-title">What will run</span>
         <span id="plan-spin" class="spin" style="width:9px;height:9px;border:1.5px solid rgba(99,102,241,0.2);border-top-color:var(--accent);border-radius:50%;display:none;flex-shrink:0"></span>
         <span id="plan-cnt">0 steps</span>
       </button>
@@ -617,7 +628,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--san
     <!-- heal card moved to chat -->
     <!-- Live log -->
     <div id="log-area">
-      <div id="log-lbl">Live Log</div>
+      <div id="log-lbl">Run Notes <span id="log-hint">technical detail is expandable</span></div>
       <div id="log-stream"></div>
     </div>
     <!-- Stats bar -->
@@ -731,6 +742,7 @@ let activeRunner = 'ui'; // currently selected test runner
 let highlightedScenarios = [];
 let planCompleted = false;
 let apiConsole = { open:false, meta:null, steps:[], selected:0, summary:null, final:false };
+let previewedScenarioKey = null;
 
 ws.onopen = () => {
   ws.send(JSON.stringify({ type: 'session_init', data: { sessionId: SESSION_ID } }));
@@ -765,6 +777,7 @@ ws.onmessage = ({ data }) => {
   else if (type === 'report')       showReport(d);
   else if (type === 'execution_error') { addLog('Error: ' + d, 'error'); setAgentState('idle'); }
   else if (type === 'new_custom_scenario') addCustomScenario(d);
+  else if (type === 'temp_scenario_save_prompt') showTemporaryScenarioSavePrompt(d);
   else if (type === 'conversation_history') restoreConversation(d);
 };
 
@@ -870,7 +883,7 @@ function renderModules(list) {
       </div>
       <div class="mod-scenarios">
         ${visibleScenarios.map(s => `
-          <div class="scen-row ${highlightedScenarios.includes(`${mod.id}:${s.id}`) ? 'highlight' : ''}" onclick="runScenario('${mod.id}','${s.id}','${esc(s.name)}','${esc(s.description)}')">
+          <div class="scen-row ${highlightedScenarios.includes(`${mod.id}:${s.id}`) || previewedScenarioKey === `${mod.id}:${s.id}` ? 'highlight' : ''}" onclick="previewScenario('${mod.id}','${s.id}','${esc(s.name)}','${esc(s.description)}')">
             <div class="scen-dot ${s.cached ? 'cached' : ''}"></div>
             <span class="scen-name">${esc(s.name)}</span>
             <span class="scen-desc">${esc(s.description)}</span>
@@ -902,6 +915,24 @@ function addCustomScenario(s) {
 }
 
 // ── Run triggers ──────────────────────────────────────────────────────────────
+function previewScenario(module, scenarioId, scenarioName, scenarioDesc, runner = activeRunner) {
+  previewedScenarioKey = `${module}:${scenarioId}`;
+  if (modules.length) renderModules(modules);
+  const scenario = { id: scenarioId, name: scenarioName || scenarioId.replace(/_/g,' '), module, description: scenarioDesc || '' };
+  showExecutionPreview(scenario, runner);
+  addLog(`Previewing ${scenario.name} before execution.`, 'phase');
+}
+
+function previewScenarioFromPlan(layerType, runner, module, scenarioId, scenarioName, scenarioDesc) {
+  const scenario = findScenarioInCurrentPlan(layerType, module, scenarioId) || { id: scenarioId, name: scenarioName || scenarioId.replace(/_/g,' '), module, description: scenarioDesc || '' };
+  showExecutionPreview(scenario, runner || runnerForLayer(layerType));
+  addLog(`Previewing planned ${humanLayer(layerType)} scenario: ${scenario.name}.`, 'phase');
+}
+
+function runnerForLayer(layerType) {
+  return ({ API:'api', DATA_VALIDATION:'data', UI:'ui', PERFORMANCE:'perf' })[layerType] || activeRunner;
+}
+
 function runScenario(module, scenarioId, scenarioName, scenarioDesc, forceRunner) {
   resetExec();
   addLog(`User started ${scenarioName || scenarioId} in ${module}.`, 'phase');
@@ -972,6 +1003,9 @@ function restoreConversation(history = []) {
 function renderChatReply({ text, intent, scenarios }) {
   removeTyping();
   addChatMsg(text, 'agent', intent);
+  if (intent === 'TEMP_SAVE' && pendingTemporarySavePrompt?.scenarios?.length) {
+    addTemporarySaveActions();
+  }
   const badge = document.getElementById('chat-intent-badge');
   badge.textContent = intent || 'ready';
   if (intent === 'PLAN' || intent === 'DESIGN') switchWorkspaceTab('plan');
@@ -981,6 +1015,30 @@ function renderChatReply({ text, intent, scenarios }) {
   }
   addLog(`Assistant mode: ${intent || 'reply'}.`, 'info');
   updateChatPlaceholder(intent === 'PLAN' ? 'planning' : 'idle');
+}
+
+function showTemporaryScenarioSavePrompt(data) {
+  pendingTemporarySavePrompt = data || null;
+}
+
+function addTemporarySaveActions() {
+  const msgs = document.getElementById('chat-msgs');
+  const w = document.createElement('div');
+  w.className = 'msg-wrap agent';
+  const box = document.createElement('div');
+  box.className = 'bubble agent';
+  box.innerHTML = `<div class="temp-save-actions">
+    <button onclick="answerTemporaryScenarioSave('save')">Save scenario</button>
+    <button onclick="answerTemporaryScenarioSave('discard')">Keep runtime only</button>
+  </div>`;
+  w.appendChild(box);
+  msgs.appendChild(w);
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+function answerTemporaryScenarioSave(decision) {
+  ws.send(JSON.stringify({ type: 'save_temp_scenario', data: { decision } }));
+  pendingTemporarySavePrompt = null;
 }
 
 function showTyping() {
@@ -1005,6 +1063,7 @@ function renderMarkdown(text) {
 // ── Execution panel ───────────────────────────────────────────────────────────
 function onExecStart({ module, scenario, app, runner }) {
   document.getElementById('exec-scenario-name').textContent = `${module} / ${scenario}`;
+  document.getElementById('plan-title').textContent = runner === 'api' ? 'API checks' : runner === 'data' ? 'Data checks' : runner === 'perf' ? 'Performance checks' : 'Browser steps';
   document.getElementById('exec-state-badge').className = 'running'; document.getElementById('exec-state-badge').textContent = 'running';
   const rb = document.getElementById('exec-runner-badge');
   if (runner && runner !== 'ui') {
@@ -1026,6 +1085,7 @@ let planOpen2 = true;
 function renderPlan(steps) {
   if (!steps?.length) return;
   document.getElementById('plan-spin').style.display = 'none';
+  document.getElementById('plan-title').textContent = 'Browser steps';
   const inner = document.getElementById('plan-inner'); inner.innerHTML = '';
   steps.forEach((s, i) => {
     const row = document.createElement('div'); row.className = 'prow'; row.id = `pr-${i}`;
@@ -1035,6 +1095,71 @@ function renderPlan(steps) {
   });
   document.getElementById('plan-cnt').textContent = `${steps.length} steps`;
   document.getElementById('plan-chev').classList.add('open');
+}
+
+function showExecutionPreview(scenario, runner = activeRunner) {
+  document.getElementById('exec-scenario-name').textContent = `${scenario.module} / ${scenario.name}`;
+  document.getElementById('exec-state-badge').className = ''; document.getElementById('exec-state-badge').textContent = 'preview';
+  const rb = document.getElementById('exec-runner-badge');
+  if (runner && runner !== 'ui') {
+    rb.textContent = runner.toUpperCase(); rb.style.display = 'inline-block';
+    const clr = { data:'#059669', api:'#0284C7', perf:'#D97706' };
+    rb.style.background = (clr[runner]||'#4F46E5') + '18';
+    rb.style.color = clr[runner]||'#4F46E5';
+    rb.style.borderColor = (clr[runner]||'#4F46E5') + '40';
+  } else { rb.style.display = 'none'; }
+  const steps = previewStepsForScenario(scenario, runner);
+  document.getElementById('plan-section').style.display = 'block';
+  document.getElementById('plan-spin').style.display = 'none';
+  document.getElementById('plan-title').textContent = runner === 'api' ? 'API checks preview' : runner === 'data' ? 'Data checks preview' : runner === 'perf' ? 'Performance checks preview' : 'Browser steps preview';
+  const inner = document.getElementById('plan-inner');
+  inner.innerHTML = `<div class="plan-preview-note">${esc(scenario.description || 'Review the checklist, then use the Run button when you are ready.')}</div>`;
+  steps.forEach((s, i) => {
+    const row = document.createElement('div'); row.className = 'prow'; row.id = `preview-pr-${i}`;
+    const h = humanStep(s);
+    row.innerHTML = `<div class="pdot"></div><span class="pact">${esc(h.action)}</span><span class="ptgt">${esc(h.target)}</span><span class="pst">planned</span>`;
+    inner.appendChild(row);
+  });
+  document.getElementById('plan-cnt').textContent = `${steps.length} planned`;
+  document.getElementById('plan-chev').classList.add('open');
+}
+
+function previewStepsForScenario(scenario, runner) {
+  if (Array.isArray(scenario?.steps) && scenario.steps.length) {
+    return scenario.steps.map(step => ({
+      action: step.action || 'check',
+      selector: step.selector || '',
+      value: step.value || step.selector || '',
+    }));
+  }
+  if (runner === 'api') return [
+    { action:'api_test', target:'GET /api/dataapp/employees -> 200 + dataset' },
+    { action:'api_test', target:'Validate employee schema for all records' },
+    { action:'api_test', target:'GET /api/dataapp/employees/1 -> matching record' },
+    { action:'api_test', target:'GET /api/dataapp/employees/999 -> 404 handling' },
+    { action:'api_test', target:'GET /api/dataapp/employees/summary -> aggregates' },
+    { action:'api_test', target:'POST /api/dataapp/validate -> accepts valid payload' },
+    { action:'api_test', target:'POST /api/dataapp/validate -> rejects invalid payload' },
+    { action:'api_test', target:'Check cross-endpoint data consistency' },
+  ];
+  if (runner === 'data') return [
+    { action:'open', value:'Data table page' },
+    { action:'check', value:'Fetch source data directly from API' },
+    { action:'check', value:'Compare rendered table rows with API records' },
+    { action:'check', value:'Verify filter, sort, pagination, and field values' },
+  ];
+  if (runner === 'perf') return [
+    { action:'open', value:'Target page' },
+    { action:'check', value:'Measure page load and render timing' },
+    { action:'check', value:'Measure interaction response where applicable' },
+    { action:'check', value:'Compare timings with performance budgets' },
+  ];
+  return [
+    { action:'navigate', value:`${scenario.module} page` },
+    { action:'check', value:'Required page elements are visible' },
+    { action:'click', value:scenario.name },
+    { action:'check', value:scenario.description || 'Expected user-facing result' },
+  ];
 }
 
 function humanStep(step = {}) {
@@ -1343,6 +1468,14 @@ function naturalizeLog(text, level='info') {
     return raw.replace(/^\s+|\s+$/g, '') || 'Moving to the next test section.';
   }
   if (/cache hit/i.test(raw)) return 'I found a saved test plan, so I can start this scenario faster.';
+  if (/^previewing/i.test(raw)) return raw;
+  if (/^api validation:/i.test(raw)) return `I’m running API contract checks for ${raw.replace(/^api validation:\s*/i, '')}.`;
+  if (/^get \/employees:/i.test(raw)) return raw.replace(/^GET/i, 'The employee list API');
+  if (/^schema:/i.test(raw)) return raw.replace(/^Schema:/i, 'The response schema check is');
+  if (/^404 handling:/i.test(raw)) return raw.replace(/^404 handling:/i, 'The missing-record error handling check is');
+  if (/^summary:/i.test(raw)) return raw.replace(/^Summary:/i, 'The summary endpoint check is');
+  if (/^post \/validate/i.test(raw)) return raw.replace(/^POST \/validate/i, 'The validation endpoint');
+  if (/^consistency:/i.test(raw)) return raw.replace(/^Consistency:/i, 'The cross-endpoint consistency check is');
   if (/understanding request/i.test(raw)) return raw.replace(/^Understanding request:/i, 'I’m reading');
   if (/checking conversation mode/i.test(raw)) return 'I’m deciding whether to answer, plan, design, or prepare execution.';
   if (/decision:\s*plan/i.test(raw)) return 'I understood this as a planning request.';
@@ -1545,6 +1678,7 @@ let currentPlan = null;
 let planLayerStates = {};
 let planScenarioStates = {};
 let skippedPlanLayers = new Set();
+let pendingTemporarySavePrompt = null;
 
 const LAYER_META = {
   API:             { icon:'⚡', color:'0284C7', label:'API Contract' },
@@ -1630,6 +1764,7 @@ function renderPlanningWorkspace(plan) {
           </div>
           <span class="pw-status ${layerState}" data-layer-status="${layer.type}">${layerState}</span>
           <div class="pw-layer-actions">
+            <button class="pw-layer-btn" onclick="addScenarioToPlan(${jsArg(layer.type)},${jsArg(layer.runner || 'ui')},${jsArg(mod)})">Add scenario</button>
             <button class="pw-layer-btn" onclick="runPlan(${layerIndex})">${runLabel}</button>
             ${planCompleted ? '' : `<button class="pw-layer-btn" onclick="markLayerSkipped('${layer.type}')">Skip</button>`}
           </div>
@@ -1639,7 +1774,11 @@ function renderPlanningWorkspace(plan) {
             const key = scenarioKey(layer.type, s);
             const state = planScenarioStates[key] || 'pending';
             return `<div class="pw-scen ${state === 'running' ? 'active' : ''}" data-scenario-key="${esc(key)}">
-              <span>${esc(s.name || s.id)}${s.description ? ` · ${esc(s.description)}` : ''}</span>
+              <span class="pw-scen-main">${esc(s.name || s.id)}${s.temporary ? '<span class="pw-scen-temp">temporary</span>' : ''}${s.description ? ` · ${esc(s.description)}` : ''}</span>
+              <span class="pw-scen-actions">
+                <button class="pw-scen-btn" onclick='previewScenarioFromPlan(${jsArg(layer.type)},${jsArg(layer.runner || 'ui')},${jsArg(s.module || 'general')},${jsArg(s.id || s.name || 'scenario')},${jsArg(s.name || s.id || 'Scenario')},${jsArg(s.description || layer.reason || '')})'>Preview</button>
+                <button class="pw-scen-btn danger" onclick='removeScenarioFromPlan(${jsArg(layer.type)},${jsArg(s.module || 'general')},${jsArg(s.id || s.name || 'scenario')})'>Remove</button>
+              </span>
               <span class="pw-status ${state}">${state}</span>
             </div>`;
           }).join('')}
@@ -1682,6 +1821,38 @@ function resultToPlanState(status, healCount=0) {
 
 function scenarioKey(layer, scenario) {
   return `${layer || 'UI'}:${scenario?.module || 'general'}:${scenario?.id || scenario?.name || 'scenario'}`;
+}
+
+function findScenarioInCurrentPlan(layerType, module, scenarioId) {
+  for (const layer of currentPlan?.layers || []) {
+    if (layer.type !== layerType) continue;
+    const found = (layer.scenarios || []).find(s =>
+      String(s.module || 'general') === String(module || 'general') &&
+      String(s.id || s.name || 'scenario') === String(scenarioId || '')
+    );
+    if (found) return found;
+  }
+  return null;
+}
+
+function removeScenarioFromPlan(layerType, module, scenarioId) {
+  if (!currentPlan) return;
+  ws.send(JSON.stringify({
+    type: 'edit_plan',
+    data: { action: 'remove_scenario', layerType, module, scenarioId },
+  }));
+  addLog(`Removing ${scenarioId} from the current plan.`, 'phase');
+}
+
+function addScenarioToPlan(layerType, runner, module) {
+  if (!currentPlan) return;
+  const label = window.prompt('Scenario to add');
+  if (!label?.trim()) return;
+  ws.send(JSON.stringify({
+    type: 'edit_plan',
+    data: { action: 'add_scenario', layerType, runner, module, label: label.trim() },
+  }));
+  addLog(`Adding ${label.trim()} to the current plan.`, 'phase');
 }
 
 function markLayerSkipped(layerType) {
@@ -1741,7 +1912,9 @@ function setAgentState(state) {
 function resetExec() {
   addLog('Starting a new execution activity.', 'phase');
   resetApiConsole();
+  previewedScenarioKey = null;
   document.getElementById('plan-section').style.display='none';
+  document.getElementById('plan-title').textContent='What will run';
   document.getElementById('quick-chips').style.display='none';
   document.getElementById('plan-inner').innerHTML='';
   document.getElementById('plan-cnt').textContent='0 steps';
@@ -1767,6 +1940,7 @@ function updateChatPlaceholder(mode='idle') {
 }
 function now(){const d=new Date();return`${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`;}
 function esc(s){return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function jsArg(s){return JSON.stringify(String(s??''));}
 function toast(msg){const t=document.createElement('div');t.className='toast';t.textContent=msg;document.body.appendChild(t);setTimeout(()=>t.remove(),2200);}
 </script>
 </body>

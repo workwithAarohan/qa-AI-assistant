@@ -84,6 +84,26 @@ export function saveToMemory(plan) {
   fs.writeFileSync(memoryPath, JSON.stringify(memory, null, 2));
 }
 
+export function deleteFromMemory(module, scenarioId) {
+  const memoryPath = path.join(process.cwd(), 'memory.json');
+  if (!fs.existsSync(memoryPath)) return false;
+
+  let memory = {};
+  try {
+    memory = JSON.parse(fs.readFileSync(memoryPath, 'utf8'));
+  } catch (e) {
+    return false;
+  }
+
+  const key = `${module}__${scenarioId}`;
+  const existed = !!memory[key];
+  if (existed) {
+    delete memory[key];
+    fs.writeFileSync(memoryPath, JSON.stringify(memory, null, 2));
+  }
+  return existed;
+}
+
 export function listMemory() {
   const memoryPath = path.join(process.cwd(), 'memory.json');
   if (!fs.existsSync(memoryPath)) return [];

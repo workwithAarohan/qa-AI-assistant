@@ -66,8 +66,8 @@ function detectMode(lower, history) {
 
   if (/\b(why|what|explain|summari[sz]e|summary|result|report)\b.*\b(fail|failed|last|run|test|heal|healed|pass|passed)\b/.test(lower)) return MODE.RESULT;
   if (/\b(last test|last run|test result|run result|why did it fail|what failed|failed test)\b/.test(lower)) return MODE.RESULT;
-  if (/\b(create|build|design|draft|add)\b.*\b(test|scenario|case|flow)\b/.test(lower)) return MODE.DESIGN;
   if (/\b(test plan|plan|coverage|comprehensive|properly|full coverage|end[- ]?to[- ]?end|e2e|strategy|layers?|risk)\b/.test(lower)) return MODE.PLAN;
+  if (/\b(create|build|design|draft|add)\b.*\b(test|scenario|case|flow)\b/.test(lower)) return MODE.DESIGN;
   if (/\b(what can|show|list|explain|how does|tell me about|understand)\b/.test(lower)) return MODE.EXPLORE;
   if (/\b(run|execute|start)\b|\b(test|verify|check|validate)\b/.test(lower)) return MODE.EXECUTE;
 

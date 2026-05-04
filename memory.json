@@ -26,7 +26,7 @@
         "value": "http://localhost:4000/dashboard"
       }
     ],
-    "savedAt": "2026-05-02T17:12:13.520Z"
+    "savedAt": "2026-05-03T13:08:07.448Z"
   },
   "login__invalid_password": {
     "module": "login",
@@ -55,26 +55,7 @@
         "selector": "#error"
       }
     ],
-    "savedAt": "2026-05-02T17:12:15.556Z"
-  },
-  "login__empty_fields": {
-    "module": "login",
-    "scenario": "empty_fields",
-    "steps": [
-      {
-        "action": "navigate",
-        "value": "http://localhost:4000/testapp"
-      },
-      {
-        "action": "click",
-        "selector": "#login-btn"
-      },
-      {
-        "action": "expect",
-        "selector": "#error"
-      }
-    ],
-    "savedAt": "2026-05-02T17:12:17.429Z"
+    "savedAt": "2026-05-03T13:08:10.284Z"
   },
   "dashboard__dashboard_loads": {
     "id": "dashboard_loads",
@@ -733,5 +714,26 @@
       }
     ],
     "savedAt": "2026-05-01T00:00:00.000Z"
+  },
+  "login__empty_fields": {
+    "module": "login",
+    "scenario": "empty_fields",
+    "name": "Empty Fields",
+    "description": "Submit login form without filling any fields and verify the error message appears.",
+    "steps": [
+      {
+        "action": "navigate",
+        "value": "http://localhost:4000/testapp"
+      },
+      {
+        "action": "click",
+        "selector": "#login-btn"
+      },
+      {
+        "action": "expect",
+        "selector": "#error"
+      }
+    ],
+    "savedAt": "2026-05-03T13:09:17.872Z"
   }
 }

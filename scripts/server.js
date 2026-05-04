@@ -67,7 +67,7 @@ function loadModulesForApp(app) {
 const connState = new WeakMap();
 const sessionState = new Map();
 function getState(ws) {
-  if (!connState.has(ws)) connState.set(ws, { currentApp: loadApps()[0], lastRun: null, history: [] });
+  if (!connState.has(ws)) connState.set(ws, { currentApp: loadApps()[0], lastRun: null, currentPlan: null, history: [], temporaryScenarioPlans: {}, pendingScenarioSaves: [] });
   return connState.get(ws);
 }
 
@@ -183,11 +183,7 @@ function enforcePlanScope(plan, moduleId, docs = []) {
 
   if (scopedLayers.length) {
     const hasUiLayer = scopedLayers.some(l => l.runner === 'ui' || l.type === 'UI');
-    const normalizedLayers = scopedLayers.map(layer =>
-      (docScenarios.length && (layer.runner === 'ui' || layer.type === 'UI'))
-        ? { ...layer, scenarios: docScenarios }
-        : layer
-    );
+    const normalizedLayers = scopedLayers;
     if (docScenarios.length && !hasUiLayer) {
       normalizedLayers.push({
         type: 'UI',
@@ -227,6 +223,262 @@ function titleCase(text) {
   return String(text || '').replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
+function slugify(text) {
+  return String(text || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'custom_scenario';
+}
+
+function scenarioKeyId(layerType, scenario = {}) {
+  return `${layerType || 'UI'}:${scenario.module || 'general'}:${scenario.id || scenario.name || 'scenario'}`;
+}
+
+function isPlanRemoveRequest(text) {
+  return /\b(remove|exclude|drop|skip|without|don'?t include|do not include)\b/i.test(text) &&
+    /\b(scenario|case|check|layer|api|ui|performance|data|invalid|empty|valid|password|login)\b/i.test(text);
+}
+
+function isPlanOnlyRequest(text) {
+  return /\b(only|just|keep only|only keep)\b/i.test(text) &&
+    /\b(scenario|case|check|valid|invalid|empty|blank|login|password)\b/i.test(text);
+}
+
+function isPlanAddRequest(text) {
+  return /\b(add|include|also|create|new)\b/i.test(text) &&
+    /\b(scenario|case|check|valid|invalid|empty|blank|locked|login|user)\b/i.test(text);
+}
+
+function isPlanRefinementRequest(text) {
+  return isPlanRemoveRequest(text) || isPlanOnlyRequest(text) || isPlanAddRequest(text);
+}
+
+function requestedScenarioDescriptors(text) {
+  const lower = String(text || '').toLowerCase();
+  const descriptors = [];
+  const add = (d) => {
+    if (!descriptors.some(x => x.id === d.id)) descriptors.push(d);
+  };
+
+  [...lower.matchAll(/\b([a-z]+(?:_[a-z0-9]+)+)\b/g)].forEach(m => {
+    const id = m[1];
+    add({ id, name: titleCase(id), aliases: [id, id.replace(/_/g, ' ')], description: titleCase(id) });
+  });
+  if (/\bempty\b|\bblank\b|\bempty fields\b/.test(lower)) {
+    add({
+      id: 'empty_fields',
+      name: 'Empty Fields',
+      aliases: ['empty_fields', 'empty fields', 'empty', 'blank'],
+      description: 'Submit login form without filling any fields and verify the error message appears.',
+      steps: [
+        { action: 'navigate', value: '/testapp' },
+        { action: 'click', selector: '#login-btn' },
+        { action: 'expect', selector: '#error' },
+      ],
+    });
+  }
+  if (/\binvalid\b|\bwrong password\b|\binvalid password\b/.test(lower)) {
+    add({
+      id: 'invalid_password',
+      name: 'Invalid Password',
+      aliases: ['invalid_password', 'invalid password', 'wrong password', 'invalid'],
+      description: 'Login with an invalid password and verify the error message appears.',
+    });
+  }
+  if (/\bvalid\b/.test(lower) && !/\binvalid\b/.test(lower)) {
+    add({
+      id: 'valid_login',
+      name: 'Valid Login',
+      aliases: ['valid_login', 'valid login', 'valid'],
+      description: 'Login with valid credentials and verify the dashboard opens.',
+    });
+  }
+  if (/\blocked\b|\block(ed)? out\b/.test(lower)) {
+    add({
+      id: 'locked_out_user',
+      name: 'Locked Out User',
+      aliases: ['locked_out_user', 'locked out user', 'locked user', 'locked'],
+      description: 'Try to sign in as a locked out user and verify access is blocked with a clear error.',
+    });
+  }
+  return descriptors;
+}
+
+function scenarioMatchesDescriptor(scenario, descriptor) {
+  const id = String(scenario?.id || '').toLowerCase();
+  const name = String(scenario?.name || '').toLowerCase();
+  const desc = String(scenario?.description || '').toLowerCase();
+  const text = `${id} ${name} ${desc}`;
+  if (!descriptor) return false;
+  if (id === descriptor.id) return true;
+  if (descriptor.id === 'valid_login') {
+    return (/\bvalid\b/.test(text) || id === 'valid_login') && !/\binvalid\b/.test(text);
+  }
+  return (descriptor.aliases || []).some(alias => {
+    const a = String(alias || '').toLowerCase();
+    return a.includes('_') ? id === a : text.includes(a);
+  });
+}
+
+function getPlanScenarios(plan) {
+  return (plan?.layers || []).flatMap(layer => (layer.scenarios || []).map(s => ({ ...s, layerType: layer.type, runner: layer.runner })));
+}
+
+function findDocumentedScenario(docs, descriptor, preferredModule = null) {
+  const candidates = [];
+  for (const doc of docs) {
+    for (const scenario of parseScenariosFromDoc(doc)) {
+      if (preferredModule && scenario.module !== preferredModule) continue;
+      if (scenarioMatchesDescriptor(scenario, descriptor)) candidates.push(scenario);
+    }
+  }
+  return candidates.length === 1 ? candidates[0] : null;
+}
+
+function inferPlanModule(plan, fallback = 'login') {
+  const first = getPlanScenarios(plan)[0];
+  return first?.module || fallback;
+}
+
+function createTemporaryScenario(descriptor, moduleId = 'login') {
+  return {
+    id: descriptor.id || slugify(descriptor.name),
+    name: descriptor.name || titleCase(descriptor.id),
+    module: moduleId,
+    description: descriptor.description || `Temporary scenario for ${descriptor.name || descriptor.id}.`,
+    temporary: true,
+    source: 'temporary',
+    steps: descriptor.steps || null,
+  };
+}
+
+function normalizePlan(plan) {
+  const layers = (plan.layers || []).filter(l => (l.scenarios || []).length);
+  return {
+    ...plan,
+    layers,
+    recommended_order: (plan.recommended_order || []).filter(t => layers.some(l => l.type === t)).length
+      ? (plan.recommended_order || []).filter(t => layers.some(l => l.type === t))
+      : layers.map(l => l.type),
+    ui_only: layers.length ? layers.every(l => l.runner === 'ui') : !!plan.ui_only,
+  };
+}
+
+function addScenarioToPlan(plan, scenario, layerType = 'UI', runner = 'ui') {
+  const key = scenarioKeyId(layerType, scenario);
+  const exists = getPlanScenarios(plan).some(s => scenarioKeyId(s.layerType, s) === key);
+  if (exists) return { plan, changed: false };
+
+  const layers = [...(plan.layers || [])];
+  let index = layers.findIndex(l => l.type === layerType && (l.runner || runner) === runner);
+  if (index === -1) {
+    layers.push({ type: layerType, reason: 'User-added scenario.', runner, scenarios: [], depends_on: null });
+    index = layers.length - 1;
+  }
+  layers[index] = { ...layers[index], scenarios: [...(layers[index].scenarios || []), scenario] };
+  const recommended = plan.recommended_order?.includes(layerType) ? plan.recommended_order : [...(plan.recommended_order || []), layerType];
+  return { plan: normalizePlan({ ...plan, layers, recommended_order: recommended }), changed: true };
+}
+
+function removeScenarioFromPlan(plan, matcher) {
+  const removed = [];
+  const layers = (plan.layers || []).map(layer => {
+    const kept = [];
+    for (const scenario of layer.scenarios || []) {
+      if (matcher(scenario, layer)) removed.push({ ...scenario, layer: layer.type });
+      else kept.push(scenario);
+    }
+    return { ...layer, scenarios: kept };
+  });
+  return { plan: normalizePlan({ ...plan, layers }), removed, changed: removed.length > 0 };
+}
+
+function applyOnlyScenarioScope(plan, text, docs = []) {
+  const descriptors = requestedScenarioDescriptors(text);
+  if (!descriptors.length || !plan?.layers?.length) return { plan, added: [], removed: [], changed: false };
+
+  const moduleId = inferPlanModule(plan);
+  const removed = [];
+  const keptKeys = new Set();
+  const layers = (plan.layers || []).map(layer => {
+    const kept = [];
+    for (const scenario of layer.scenarios || []) {
+      const keep = descriptors.some(d => scenarioMatchesDescriptor(scenario, d));
+      if (keep) {
+        kept.push(scenario);
+        keptKeys.add(scenario.id);
+      } else {
+        removed.push({ ...scenario, layer: layer.type });
+      }
+    }
+    return { ...layer, scenarios: kept };
+  });
+
+  let scoped = normalizePlan({ ...plan, layers });
+  const added = [];
+  descriptors.forEach(d => {
+    if (getPlanScenarios(scoped).some(s => scenarioMatchesDescriptor(s, d))) return;
+    const documented = findDocumentedScenario(docs, d, moduleId);
+    const scenario = documented || createTemporaryScenario(d, moduleId);
+    const res = addScenarioToPlan(scoped, scenario, 'UI', 'ui');
+    scoped = res.plan;
+    if (res.changed) added.push(scenario);
+  });
+
+  return { plan: scoped, added, removed, changed: added.length > 0 || removed.length > 0 };
+}
+
+function refineCurrentPlan(plan, text) {
+  if (!plan?.layers?.length) return { plan, removed: [], added: [], changed: false };
+
+  const lower = String(text || '').toLowerCase();
+  const removeLayerTypes = [];
+  if (/\b(api|contract)\b/.test(lower) && /\b(layer|check|test|scenario|api)\b/.test(lower)) removeLayerTypes.push('API');
+  if (/\b(data validation|data layer|data check)\b/.test(lower)) removeLayerTypes.push('DATA_VALIDATION');
+  if (/\b(performance|perf)\b/.test(lower)) removeLayerTypes.push('PERFORMANCE');
+  if (/\b(ui|browser)\b/.test(lower) && /\b(layer|check|test)\b/.test(lower)) removeLayerTypes.push('UI');
+
+  const descriptors = requestedScenarioDescriptors(text);
+
+  const removed = [];
+  const refinedLayers = [];
+
+  for (const layer of plan.layers) {
+    if (removeLayerTypes.includes(layer.type)) {
+      removed.push(...(layer.scenarios || []).map(s => ({ ...s, layer: layer.type })));
+      continue;
+    }
+
+    const keptScenarios = (layer.scenarios || []).filter(s => {
+      if (!descriptors.length) return true;
+      const shouldRemove = descriptors.some(d => scenarioMatchesDescriptor(s, d));
+      if (shouldRemove) removed.push({ ...s, layer: layer.type });
+      return !shouldRemove;
+    });
+
+    if (keptScenarios.length) refinedLayers.push({ ...layer, scenarios: keptScenarios });
+  }
+
+  if (!removed.length) return { plan, removed, changed: false };
+
+  const refinedPlan = {
+    ...plan,
+    layers: refinedLayers,
+    recommended_order: (plan.recommended_order || []).filter(t => refinedLayers.some(l => l.type === t)),
+  };
+  if (!refinedPlan.recommended_order.length) refinedPlan.recommended_order = refinedLayers.map(l => l.type);
+  refinedPlan.ui_only = refinedLayers.length ? refinedLayers.every(l => l.runner === 'ui') : plan.ui_only;
+
+  return { plan: refinedPlan, removed, added: [], changed: true };
+}
+
+function speakPlanRefined(refinement) {
+  const removedNames = (refinement.removed || []).map(s => s.name || s.id).filter(Boolean);
+  const addedNames = (refinement.added || []).map(s => s.name || s.id).filter(Boolean);
+  const parts = [];
+  if (removedNames.length) parts.push(`removed **${removedNames.length === 1 ? removedNames[0] : `${removedNames.length} scenarios`}**`);
+  if (addedNames.length) parts.push(`added **${addedNames.length === 1 ? addedNames[0] : `${addedNames.length} scenarios`}**`);
+  const temp = (refinement.added || []).some(s => s.temporary) ? ' New scenarios are temporary until they pass and you choose to save them.' : '';
+  return `Updated the plan and ${parts.join(' and ') || 'kept the requested scenarios'}. Review the planning workspace, then run the remaining checks when ready.${temp}`;
+}
+
 function parseScenariosFromDoc(doc) {
   const sec = doc?.content.match(/##\s*Test Scenarios\s*\n([\s\S]*?)(?=\n##|$)/i);
   return sec ? sec[1].trim().split('\n').map(line => {
@@ -238,6 +490,64 @@ function parseScenariosFromDoc(doc) {
       module: doc.name,
     } : null;
   }).filter(Boolean) : [];
+}
+
+function appendScenarioToDocs(docsDir, scenario) {
+  const file = path.join(process.cwd(), docsDir || './docs', `${scenario.module}.md`);
+  if (!fs.existsSync(file)) throw new Error(`No docs file found for module "${scenario.module}".`);
+  let content = fs.readFileSync(file, 'utf8');
+  const line = `- ${scenario.id}: ${scenario.description || scenario.name || scenario.id}`;
+  const section = content.match(/##\s*Test Scenarios\s*\n([\s\S]*?)(?=\n##|$)/i);
+  if (section) {
+    if (new RegExp(`[-*]\\s*${scenario.id}\\s*:`, 'i').test(section[1])) return false;
+    const insertAt = section.index + section[0].length;
+    const needsNewline = content[insertAt - 1] === '\n' ? '' : '\n';
+    content = content.slice(0, insertAt) + needsNewline + line + '\n' + content.slice(insertAt);
+  } else {
+    content = content.replace(/\s*$/, '') + `\n\n## Test Scenarios\n${line}\n`;
+  }
+  fs.writeFileSync(file, content);
+  return true;
+}
+
+function buildPlanFromTemporaryScenario(scenario, app) {
+  const steps = Array.isArray(scenario.steps) && scenario.steps.length
+    ? scenario.steps
+    : [
+        { action: 'navigate', value: '/testapp' },
+        { action: 'click', selector: '#login-btn' },
+        { action: 'expect', selector: '#error' },
+      ];
+  return {
+    module: scenario.module,
+    scenario: scenario.id,
+    name: scenario.name,
+    description: scenario.description,
+    steps: injectUrl({ steps }, app.baseUrl).steps,
+  };
+}
+
+function maybePromptTemporaryScenarioSave(ws, st, rpt) {
+  const passed = (rpt.scenarios || []).filter(r =>
+    r.scenario?.temporary &&
+    (r.result?.status === 'success' || r.result?.status === 'pass')
+  );
+  if (!passed.length) return;
+
+  st.pendingScenarioSaves = passed.map(r => {
+    const key = scenarioKeyId(r.layer || 'UI', r.scenario);
+    return {
+      scenario: r.scenario,
+      plan: st.temporaryScenarioPlans?.[key] || buildPlanFromTemporaryScenario(r.scenario, st.currentApp),
+    };
+  });
+
+  const names = st.pendingScenarioSaves.map(p => p.scenario.name || p.scenario.id).join(', ');
+  send(ws, 'temp_scenario_save_prompt', { scenarios: st.pendingScenarioSaves.map(p => p.scenario) });
+  send(ws, 'chat_reply', {
+    text: `The temporary scenario **${names}** passed. Save it to the module docs and reusable memory, or keep it only for this session?`,
+    intent: 'TEMP_SAVE',
+  });
 }
 
 function runnerAppliesToScenario(runnerId, scenario = {}) {
@@ -384,14 +694,22 @@ function computeDiff(orig, healed) {
 
 // ── Get or generate plan ──────────────────────────────────────────────────────
 // ws is optional — when provided, logs generation progress to the execution panel
-async function getPlan(scenario, app, ws = null) {
+async function getPlan(scenario, app, ws = null, options = {}) {
+  const allowMemorySave = options.allowMemorySave !== false && !scenario?.temporary;
   const logGen = (text, level = 'info') => {
     console.log(`[getPlan] ${text}`);
     if (ws) send(ws, 'log', { text, level });
   };
 
+  if (scenario?.temporary && Array.isArray(scenario.steps) && scenario.steps.length) {
+    const plan = buildPlanFromTemporaryScenario(scenario, app);
+    validatePlan(plan);
+    logGen(`Prepared temporary plan: ${plan.module}/${plan.scenario} (${plan.steps.length} steps)`, 'info');
+    return plan;
+  }
+
   // 1. Memory cache — fast path
-  const cached = findSimilarPlan(scenario.module, scenario.id);
+  const cached = allowMemorySave ? findSimilarPlan(scenario.module, scenario.id) : null;
   if (cached) {
     logGen(`Cache hit: ${scenario.module}/${scenario.id} (${cached.steps?.length} steps)`, 'success');
     return cached;
@@ -417,13 +735,18 @@ async function getPlan(scenario, app, ws = null) {
   }
 
   validatePlan(plan);
-  saveToMemory(plan);
-  logGen(`Generated & cached: ${plan.module}/${plan.scenario} (${plan.steps.length} steps)`, 'success');
+  if (allowMemorySave) {
+    saveToMemory(plan);
+    logGen(`Generated & cached: ${plan.module}/${plan.scenario} (${plan.steps.length} steps)`, 'success');
+  } else {
+    logGen(`Generated temporary plan: ${plan.module}/${plan.scenario} (${plan.steps.length} steps)`, 'info');
+  }
   return plan;
 }
 
 // ── Execute one scenario ──────────────────────────────────────────────────────
-async function executeScenario(ws, plan, scenario, baseUrl, browser, appId = 'default') {
+async function executeScenario(ws, plan, scenario, baseUrl, browser, appId = 'default', options = {}) {
+  const allowMemorySave = options.allowMemorySave !== false && !scenario?.temporary;
   const finalPlan = injectUrl(plan, baseUrl);
   send(ws, 'execution_plan', { ...finalPlan, scenarioId: scenario.id });
   let liveDom = null, liveUrl = null;
@@ -484,7 +807,7 @@ async function executeScenario(ws, plan, scenario, baseUrl, browser, appId = 'de
       healCount++;
       if (result.status === 'success') {
         log(ws, 'Heal succeeded ✓', 'success');
-        saveToMemory(fixedPlan);
+        if (allowMemorySave) saveToMemory(fixedPlan);
         healMeta = { failedStep: failedSR?.step??null, failedIndex: fi, fixedStep: fixedPlan.steps[fi]??null, diff, classification: clf };
         // Record heal outcome in learning memory
         if (failedSR?.step?.selector && fixedPlan.steps[fi]?.selector) {
@@ -499,8 +822,12 @@ async function executeScenario(ws, plan, scenario, baseUrl, browser, appId = 'de
     }
     result._classification = clf;
   } else {
-    saveToMemory(finalPlan);
-    log(ws, `Cached: "${finalPlan.module}__${finalPlan.scenario}"`, 'success');
+    if (allowMemorySave) {
+      saveToMemory(finalPlan);
+      log(ws, `Cached: "${finalPlan.module}__${finalPlan.scenario}"`, 'success');
+    } else {
+      log(ws, `Temporary scenario kept in this session: "${finalPlan.module}__${finalPlan.scenario}"`, 'info');
+    }
   }
 
   return { result, healCount, healMeta };
@@ -539,7 +866,74 @@ wss.on('connection', ws => {
     // Switch app
     if (type === 'set_app') {
       const newApp = getApp(data);
-      if (newApp) { st.currentApp = newApp; st.lastRun = null; st.history = []; send(ws,'modules',loadModulesForApp(newApp)); send(ws,'chat_reply',{text:`Switched to **${newApp.name}**. Session reset — ready to test.`,intent:'system'}); }
+      if (newApp) { st.currentApp = newApp; st.lastRun = null; st.currentPlan = null; st.history = []; st.temporaryScenarioPlans = {}; st.pendingScenarioSaves = []; send(ws,'modules',loadModulesForApp(newApp)); send(ws,'chat_reply',{text:`Switched to **${newApp.name}**. Session reset — ready to test.`,intent:'system'}); }
+      return;
+    }
+
+    if (type === 'edit_plan') {
+      if (!st.currentPlan) {
+        send(ws, 'chat_reply', { text: 'There is no active plan to edit yet. Ask me to create a test plan first.', intent: 'CLARIFY' });
+        return;
+      }
+      const docs = loadAllDocs(st.currentApp.docsDir);
+      const action = data?.action;
+      let refinement = { plan: st.currentPlan, removed: [], added: [], changed: false };
+
+      if (action === 'remove_scenario') {
+        refinement = removeScenarioFromPlan(st.currentPlan, (scenario, layer) =>
+          (!data.layerType || layer.type === data.layerType) &&
+          String(scenario.module || '') === String(data.module || scenario.module || '') &&
+          String(scenario.id || scenario.name || '') === String(data.scenarioId || '')
+        );
+      } else if (action === 'add_scenario') {
+        const label = String(data.label || '').trim();
+        const descriptor = requestedScenarioDescriptors(label)[0] || {
+          id: slugify(label),
+          name: titleCase(label),
+          aliases: [label.toLowerCase()],
+          description: data.description || `Temporary scenario for ${label}.`,
+        };
+        const documented = findDocumentedScenario(docs, descriptor, data.module || inferPlanModule(st.currentPlan));
+        const scenario = documented || createTemporaryScenario(descriptor, data.module || inferPlanModule(st.currentPlan));
+        const addResult = addScenarioToPlan(st.currentPlan, scenario, data.layerType || 'UI', data.runner || 'ui');
+        refinement = { plan: addResult.plan, removed: [], added: addResult.changed ? [scenario] : [], changed: addResult.changed };
+      }
+
+      if (refinement.changed) {
+        st.currentPlan = refinement.plan;
+        const reply = speakPlanRefined(refinement);
+        pushHistory(st, 'agent', reply);
+        send(ws, 'test_plan_proposal', refinement.plan);
+        send(ws, 'chat_reply', { text: reply, intent: 'PLAN' });
+      }
+      return;
+    }
+
+    if (type === 'save_temp_scenario') {
+      const decision = String(data?.decision || '').toLowerCase();
+      if (!st.pendingScenarioSaves?.length) {
+        send(ws, 'chat_reply', { text: 'There is no passed temporary scenario waiting to be saved.', intent: 'TEMP_SAVE' });
+        return;
+      }
+      if (decision === 'save') {
+        const saved = [];
+        for (const pending of st.pendingScenarioSaves) {
+          appendScenarioToDocs(st.currentApp.docsDir, pending.scenario);
+          saveToMemory({
+            ...pending.plan,
+            module: pending.scenario.module,
+            scenario: pending.scenario.id,
+          });
+          saved.push(pending.scenario.name || pending.scenario.id);
+        }
+        st.pendingScenarioSaves = [];
+        send(ws, 'modules', loadModulesForApp(st.currentApp));
+        send(ws, 'chat_reply', { text: `Saved **${saved.join(', ')}** to the docs and reusable memory.`, intent: 'TEMP_SAVE' });
+      } else {
+        const kept = st.pendingScenarioSaves.map(p => p.scenario.name || p.scenario.id).join(', ');
+        st.pendingScenarioSaves = [];
+        send(ws, 'chat_reply', { text: `Kept **${kept}** as session-only. Docs and memory were not changed.`, intent: 'TEMP_SAVE' });
+      }
       return;
     }
 
@@ -556,6 +950,39 @@ wss.on('connection', ws => {
       const docs       = loadAllDocs(st.currentApp.docsDir);
       const appContext = { ...st.currentApp, docs };
       const sessionCtx = { lastRun: st.lastRun, history: st.history.slice(-10), appId: st.currentApp.id };
+
+      if (st.currentPlan && isPlanRefinementRequest(text)) {
+        let refinement;
+        if (isPlanOnlyRequest(text)) {
+          refinement = applyOnlyScenarioScope(st.currentPlan, text, docs);
+        } else if (isPlanAddRequest(text) && !isPlanRemoveRequest(text)) {
+          const descriptor = requestedScenarioDescriptors(text)[0];
+          if (!descriptor) {
+            const reply = 'Which scenario should I add to the current plan?';
+            pushHistory(st, 'agent', reply);
+            send(ws, 'chat_reply', { text: reply, intent: 'CLARIFY' });
+            send(ws, 'agent_state', 'idle');
+            return;
+          }
+          const moduleId = inferPlanModule(st.currentPlan);
+          const documented = findDocumentedScenario(docs, descriptor, moduleId);
+          const scenario = documented || createTemporaryScenario(descriptor, moduleId);
+          const added = addScenarioToPlan(st.currentPlan, scenario, 'UI', 'ui');
+          refinement = { plan: added.plan, removed: [], added: added.changed ? [scenario] : [], changed: added.changed };
+        } else {
+          refinement = refineCurrentPlan(st.currentPlan, text);
+        }
+        if (refinement.changed) {
+          st.currentPlan = refinement.plan;
+          const reply = speakPlanRefined(refinement);
+          pushHistory(st, 'agent', reply);
+          send(ws, 'test_plan_proposal', refinement.plan);
+          send(ws, 'chat_reply', { text: reply, intent: 'PLAN' });
+          send(ws, 'agent_state', 'idle');
+          return;
+        }
+      }
+
       log(ws, 'Checking conversation mode and readiness.', 'info');
       const conversationDecision = decideConversation(text, appContext, sessionCtx);
       log(ws, `Decision: ${conversationDecision.mode} -> ${conversationDecision.nextAction.type}`, 'info');
@@ -581,7 +1008,9 @@ wss.on('connection', ws => {
         log(ws, `Generating visual plan from: "${planInput}"`, 'info');
         let planResult = await planFeature(planInput, { ...st.currentApp, docs }, { lastRun: st.lastRun, appId: st.currentApp.id });
         planResult = enforcePlanScope(planResult, conversationDecision.intent?.scope?.module?.id, docs);
+        if (isPlanOnlyRequest(text)) planResult = applyOnlyScenarioScope(planResult, text, docs).plan;
         const reply = speakPlanReady(planResult);
+        st.currentPlan = planResult;
         pushHistory(st, 'agent', reply);
         send(ws, 'test_plan_proposal', planResult);
         send(ws, 'chat_reply', { text: reply, intent: 'PLAN' });
@@ -638,7 +1067,9 @@ wss.on('connection', ws => {
       // ── PLAN — QA analyst layer analysis before execution ────────────────────
       if (intent === 'PLAN') {
         send(ws, 'agent_state', 'thinking');
-        const planResult = await planFeature(text, { ...st.currentApp, docs }, { lastRun: st.lastRun, appId: st.currentApp.id });
+        let planResult = await planFeature(text, { ...st.currentApp, docs }, { lastRun: st.lastRun, appId: st.currentApp.id });
+        if (isPlanOnlyRequest(text)) planResult = applyOnlyScenarioScope(planResult, text, docs).plan;
+        st.currentPlan = planResult;
         pushHistory(st, 'agent', `Plan: ${planResult.feature}`);
         // Send structured plan to UI for confirmation
         send(ws, 'test_plan_proposal', planResult);
@@ -693,11 +1124,23 @@ Return ONLY valid JSON:
             const plan = JSON.parse(match[0]);
             plan.module   = plan.module   || 'custom';
             plan.scenario = plan.id       || plan.name.toLowerCase().replace(/\s+/g,'_');
-            validatePlan(plan); saveToMemory(plan);
-            const msg = `Created **${plan.name}** — ${plan.steps.length} steps. Added to dashboard under "${plan.module}". Click Run to execute it.`;
+            validatePlan(plan);
+            const scenario = {
+              id: plan.scenario,
+              name: plan.name,
+              module: plan.module,
+              description: plan.description || 'Custom temporary test',
+              temporary: true,
+              source: 'temporary',
+              steps: plan.steps,
+            };
+            const active = st.currentPlan || { feature: `${titleCase(plan.module)} Temporary Scenario`, risk: 'medium', risk_reason: 'User-created scenario pending validation.', ui_only: true, layers: [], recommended_order: [] };
+            const added = addScenarioToPlan(active, scenario, 'UI', 'ui');
+            st.currentPlan = added.plan;
+            const msg = `Created temporary scenario **${plan.name}** with ${plan.steps.length} steps. Review it in Current Plan, run it, then save it only if it passes and you want it for future use.`;
             pushHistory(st, 'agent', msg);
             send(ws, 'chat_reply', { text: msg, intent: 'DISCUSS' });
-            send(ws, 'new_custom_scenario', { id: plan.scenario||plan.id, name: plan.name, description: plan.description||'Custom test', module: plan.module });
+            send(ws, 'test_plan_proposal', st.currentPlan);
             send(ws, 'agent_state', 'idle');
             return;
           }
@@ -741,6 +1184,7 @@ Return ONLY valid JSON:
         for (const scenario of layer.scenarios) {
           // Tag scenario with its runner
           const scenarioWithRunner = { ...scenario, runner: layer.runner };
+          const allowMemorySave = !scenarioWithRunner.temporary;
           send(ws, 'scenario_start', scenarioWithRunner);
           planProgress(ws, { layer: layer.type, scenario: scenarioWithRunner, status: 'running' });
 
@@ -748,9 +1192,12 @@ Return ONLY valid JSON:
             // Standard Playwright execution
             let browser = null;
             try {
-              const p = await getPlan(scenarioWithRunner, runApp, ws);
+              const p = await getPlan(scenarioWithRunner, runApp, ws, { allowMemorySave });
+              if (scenarioWithRunner.temporary) {
+                st.temporaryScenarioPlans[scenarioKeyId(layer.type, scenarioWithRunner)] = p;
+              }
               browser = await chromium.launch({ headless: false });
-              const { result, healCount, healMeta } = await executeScenario(ws, p, scenarioWithRunner, runApp.baseUrl, browser, runApp.id);
+              const { result, healCount, healMeta } = await executeScenario(ws, p, scenarioWithRunner, runApp.baseUrl, browser, runApp.id, { allowMemorySave });
               allResults.push({ scenario: scenarioWithRunner, result, healCount, healMeta, layer: layer.type });
               totalHealed += healCount;
               if (result.status === 'failed') layerFailed = true;
@@ -798,6 +1245,7 @@ Return ONLY valid JSON:
       };
       send(ws, 'report', rpt);
       st.lastRun = rpt;
+      maybePromptTemporaryScenarioSave(ws, st, rpt);
       send(ws, 'agent_state', 'idle');
       return;
     }
