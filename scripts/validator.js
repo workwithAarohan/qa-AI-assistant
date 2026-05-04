@@ -2,8 +2,8 @@
 // Must stay in sync with ACTION_MAP in executor.js
 const VALID_ACTIONS = new Set([
   // Canonical executor actions
-  'navigate', 'goto', 'type', 'fill', 'click', 'expect', 'expecturl', 'verifyurl',
-  'asserttext', 'waitfornavigation', 'wait', 'press', 'verify', 'assert', 'select',
+  'navigate', 'goto', 'pagegoto', 'type', 'fill', 'pagefill', 'click', 'pageclick', 'expect', 'expecturl', 'verifyurl',
+  'asserttext', 'expecttext', 'verifytext', 'checktext', 'waitfornavigation', 'wait', 'press', 'verify', 'assert', 'select',
   // LLM variants (normalized by stripping _ - spaces)
   'navigateto', 'fillfield', 'inputtext', 'entertext', 'setvalue',
   'clickbutton', 'clickelement', 'tapbutton', 'selectoption', 'chooseoption',
@@ -22,7 +22,7 @@ export function validatePlan(plan) {
     const step = plan.steps[i];
     if (!step.action) throw new Error(`Step ${i + 1} missing action`);
 
-    const normalized = step.action.toLowerCase().replace(/[_\s\-]/g, '');
+    const normalized = step.action.toLowerCase().replace(/^page\./, '').replace(/^locator\./, '').replace(/[^a-z0-9]/g, '');
 
     if (!VALID_ACTIONS.has(normalized)) {
       throw new Error(
@@ -33,13 +33,13 @@ export function validatePlan(plan) {
     }
 
     // selector required for interaction/assertion steps
-    const needsSelector = new Set(['type','fill','click','expect','select','asserttext','verify','assert','press']);
+    const needsSelector = new Set(['type','fill','pagefill','click','pageclick','expect','select','asserttext','expecttext','verifytext','checktext','verify','assert','press']);
     if (needsSelector.has(normalized) && !step.selector) {
       throw new Error(`Step ${i + 1} action "${step.action}" missing selector`);
     }
 
     // value required for navigation/url steps
-    const needsValue = new Set(['navigate','goto','navigateto','expecturl','verifyurl','verifyurl','checkurl','asserturl']);
+    const needsValue = new Set(['navigate','goto','pagegoto','navigateto','expecturl','verifyurl','verifyurl','checkurl','asserturl']);
     if (needsValue.has(normalized) && !step.value) {
       throw new Error(`Step ${i + 1} action "${step.action}" missing value (URL)`);
     }

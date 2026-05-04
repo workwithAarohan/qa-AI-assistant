@@ -32,6 +32,8 @@ export async function run(scenario, config = {}) {
   const start  = Date.now();
   const checks = [];
   let stepIdx  = 0;
+  let employeesCall = null;
+  let summaryCall = null;
 
   const step = (meta) => {
     onStep?.(stepIdx, toStepEvent(meta), 'running');
@@ -42,164 +44,13 @@ export async function run(scenario, config = {}) {
     onStep?.(i, toStepEvent(test.meta || { title: test.name }, test), status);
   };
 
-  addLog(`API validation: ${scenario.name}`);
+  const scenarioPlan = selectScenarioChecks(scenario);
+  addLog(`API scenario matched: ${scenarioPlan.label}`);
 
   try {
-    // ── Test 1: GET /employees — 200, array, correct length ────────────────
-    const meta1 = { title: 'GET employees collection', method: 'GET', endpoint: '/api/dataapp/employees', expectedStatus: 200 };
-    const t1 = step(meta1);
-    const call1 = await apiCall('GET', `${baseUrl}/api/dataapp/employees`);
-    const { data: allEmployees, status: s1, duration: d1 } = call1;
-    const test1 = {
-      name: 'GET /employees returns 200 with full dataset',
-      meta: { ...meta1, actualStatus: s1, duration: d1, response: previewJson(allEmployees) },
-      checks: [
-        { label: 'Status 200',              pass: s1 === 200,                      actual: s1 },
-        { label: 'Response is array',        pass: Array.isArray(allEmployees),     actual: typeof allEmployees },
-        { label: '50 records returned',     pass: allEmployees?.length === 50,      actual: allEmployees?.length },
-        { label: 'Response < 500ms',        pass: d1 < 500,                        actual: `${d1}ms` },
-      ],
-    };
-    checks.push(summarise(test1));
-    addLog(`GET /employees: ${checks.at(-1).status} (${d1}ms, ${allEmployees?.length} records)`, checks.at(-1).status === 'pass' ? 'success' : 'error');
-    finish(t1, checks.at(-1));
-
-    // ── Test 2: Schema validation — check all 50 records ──────────────────
-    const meta2 = { title: 'Validate employee schema', method: 'SCHEMA', endpoint: '/api/dataapp/employees[*]', expectedStatus: 'valid' };
-    const t2 = step(meta2);
-    const schemaErrors = [];
-    if (Array.isArray(allEmployees)) {
-      allEmployees.forEach((emp, i) => {
-        const errs = validateSchema(emp, EMPLOYEE_SCHEMA);
-        if (errs.length) schemaErrors.push(`Record ${i+1} (id:${emp.id}): ${errs.join(', ')}`);
-      });
+    for (const check of scenarioPlan.checks) {
+      await runCheck(check);
     }
-    const test2 = {
-      name: 'Schema validation — all records',
-      meta: { ...meta2, actualStatus: schemaErrors.length === 0 ? 'valid' : 'invalid', response: { checkedRecords: allEmployees?.length || 0, errors: schemaErrors.slice(0, 10) } },
-      checks: [
-        { label: `${allEmployees?.length || 0} records all match schema`, pass: schemaErrors.length === 0, actual: schemaErrors.length === 0 ? 'valid' : `${schemaErrors.length} error(s)` },
-      ],
-      detail: schemaErrors.slice(0, 10),
-    };
-    checks.push(summarise(test2));
-    addLog(`Schema: ${schemaErrors.length === 0 ? 'all valid' : schemaErrors.length + ' error(s)'}`, schemaErrors.length === 0 ? 'success' : 'error');
-    finish(t2, checks.at(-1));
-
-    // ── Test 3: GET /employees/:id — valid ID ──────────────────────────────
-    const meta3 = { title: 'GET employee by id', method: 'GET', endpoint: '/api/dataapp/employees/1', expectedStatus: 200 };
-    const t3 = step(meta3);
-    const { data: emp1, status: s3, duration: d3 } = await apiCall('GET', `${baseUrl}/api/dataapp/employees/1`);
-    const matchesArray = allEmployees?.find(e => e.id === 1);
-    const test3 = {
-      name: 'GET /employees/:id returns correct record',
-      meta: { ...meta3, actualStatus: s3, duration: d3, response: emp1 },
-      checks: [
-        { label: 'Status 200',              pass: s3 === 200,                          actual: s3 },
-        { label: 'Returns object not array', pass: !Array.isArray(emp1) && typeof emp1 === 'object', actual: typeof emp1 },
-        { label: 'ID matches requested',    pass: emp1?.id === 1,                       actual: emp1?.id },
-        { label: 'Matches /employees array', pass: JSON.stringify(emp1) === JSON.stringify(matchesArray), actual: emp1?.name },
-        { label: 'Response < 300ms',        pass: d3 < 300,                            actual: `${d3}ms` },
-      ],
-    };
-    checks.push(summarise(test3));
-    addLog(`GET /employees/1: ${checks.at(-1).status}`, checks.at(-1).status === 'pass' ? 'success' : 'error');
-    finish(t3, checks.at(-1));
-
-    // ── Test 4: GET /employees/999 — 404 ──────────────────────────────────
-    const meta4 = { title: 'GET missing employee', method: 'GET', endpoint: '/api/dataapp/employees/999', expectedStatus: 404 };
-    const t4 = step(meta4);
-    const { status: s4, data: d4err, duration: d4 } = await apiCall('GET', `${baseUrl}/api/dataapp/employees/999`);
-    const test4 = {
-      name: 'GET /employees/invalid-id returns 404',
-      meta: { ...meta4, actualStatus: s4, duration: d4, response: d4err },
-      checks: [
-        { label: 'Status 404',              pass: s4 === 404,               actual: s4 },
-        { label: 'Error message in body',   pass: !!d4err?.error,           actual: d4err?.error || 'missing' },
-      ],
-    };
-    checks.push(summarise(test4));
-    addLog(`404 handling: ${checks.at(-1).status}`, checks.at(-1).status === 'pass' ? 'success' : 'error');
-    finish(t4, checks.at(-1));
-
-    // ── Test 5: GET /employees/summary ─────────────────────────────────────
-    const meta5 = { title: 'GET employee summary', method: 'GET', endpoint: '/api/dataapp/employees/summary', expectedStatus: 200 };
-    const t5 = step(meta5);
-    const { data: summary, status: s5, duration: d5 } = await apiCall('GET', `${baseUrl}/api/dataapp/employees/summary`);
-    const expectedTotal = allEmployees?.length || 50;
-    const expectedActive = allEmployees?.filter(e => e.status === 'Active').length;
-    const test5 = {
-      name: 'GET /employees/summary returns correct aggregates',
-      meta: { ...meta5, actualStatus: s5, duration: d5, response: summary },
-      checks: [
-        { label: 'Status 200',              pass: s5 === 200,                         actual: s5 },
-        { label: 'total matches /employees', pass: summary?.total === expectedTotal,    actual: summary?.total },
-        { label: 'active count correct',    pass: summary?.active === expectedActive,   actual: summary?.active },
-        { label: 'totalSalary is number',   pass: typeof summary?.totalSalary === 'number', actual: typeof summary?.totalSalary },
-        { label: 'avgSalary is reasonable', pass: summary?.avgSalary > 50000 && summary?.avgSalary < 300000, actual: summary?.avgSalary },
-        { label: 'byDepartment present',    pass: !!summary?.byDepartment,             actual: typeof summary?.byDepartment },
-      ],
-    };
-    checks.push(summarise(test5));
-    addLog(`Summary: ${checks.at(-1).status}`, checks.at(-1).status === 'pass' ? 'success' : 'error');
-    finish(t5, checks.at(-1));
-
-    // ── Test 6: POST /validate — valid payload ─────────────────────────────
-    const meta6 = { title: 'POST valid validation payload', method: 'POST', endpoint: '/api/dataapp/validate', expectedStatus: 200 };
-    const t6 = step(meta6);
-    const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
-    const validPayload = { name: 'Jane Smith', email: 'jane@company.com', phone: '555-123-4567', department: 'Engineering', start_date: tomorrow.toISOString().slice(0, 10) };
-    const { data: v1, status: sv1, duration: dv1 } = await apiCall('POST', `${baseUrl}/api/dataapp/validate`, validPayload);
-    const test6 = {
-      name: 'POST /validate accepts valid payload',
-      meta: { ...meta6, actualStatus: sv1, duration: dv1, request: validPayload, response: v1 },
-      checks: [
-        { label: 'Status 200',           pass: sv1 === 200,   actual: sv1 },
-        { label: 'valid: true',          pass: v1?.valid === true,  actual: v1?.valid },
-        { label: 'errors array empty',   pass: Array.isArray(v1?.errors) && v1.errors.length === 0, actual: v1?.errors?.length },
-      ],
-    };
-    checks.push(summarise(test6));
-    addLog(`POST /validate (valid): ${checks.at(-1).status}`, checks.at(-1).status === 'pass' ? 'success' : 'error');
-    finish(t6, checks.at(-1));
-
-    // ── Test 7: POST /validate — invalid payload ───────────────────────────
-    const meta7 = { title: 'POST invalid validation payload', method: 'POST', endpoint: '/api/dataapp/validate', expectedStatus: 422 };
-    const t7 = step(meta7);
-    const badPayload = { name: 'Jo', email: 'not-an-email', phone: '1234567', department: 'Marketing', start_date: '2020-01-01' };
-    const { data: v2, status: sv2, duration: dv2 } = await apiCall('POST', `${baseUrl}/api/dataapp/validate`, badPayload);
-    const test7 = {
-      name: 'POST /validate rejects invalid payload with 422',
-      meta: { ...meta7, actualStatus: sv2, duration: dv2, request: badPayload, response: v2 },
-      checks: [
-        { label: 'Status 422',           pass: sv2 === 422,                    actual: sv2 },
-        { label: 'valid: false',         pass: v2?.valid === false,            actual: v2?.valid },
-        { label: 'errors array present', pass: Array.isArray(v2?.errors) && v2.errors.length > 0, actual: v2?.errors?.length },
-        { label: 'name error reported',  pass: v2?.errors?.some(e => e.field === 'name'),  actual: v2?.errors?.map(e=>e.field).join(',') },
-        { label: 'email error reported', pass: v2?.errors?.some(e => e.field === 'email'), actual: '' },
-        { label: 'dept error reported',  pass: v2?.errors?.some(e => e.field === 'department'), actual: '' },
-      ],
-    };
-    checks.push(summarise(test7));
-    addLog(`POST /validate (invalid): ${checks.at(-1).status}`, checks.at(-1).status === 'pass' ? 'success' : 'error');
-    finish(t7, checks.at(-1));
-
-    // ── Test 8: Data consistency — /employees vs /summary ─────────────────
-    const meta8 = { title: 'Cross-endpoint consistency', method: 'CHECK', endpoint: '/api/dataapp/employees + /summary', expectedStatus: 'consistent' };
-    const t8 = step(meta8);
-    const computedSalary = allEmployees?.reduce((sum, e) => sum + e.salary, 0) ?? 0;
-    const test8 = {
-      name: 'Cross-endpoint data consistency',
-      meta: { ...meta8, actualStatus: 'computed', response: { computedSalary, summaryTotals: summary } },
-      checks: [
-        { label: 'totalSalary matches computed', pass: summary?.totalSalary === computedSalary, actual: `summary=${summary?.totalSalary}, computed=${computedSalary}` },
-        { label: 'active + inactive = total',    pass: (summary?.active + summary?.inactive) === summary?.total, actual: `${summary?.active}+${summary?.inactive}=${summary?.total}` },
-        { label: 'dept counts sum = total',      pass: summary?.byDepartment && Object.values(summary.byDepartment).reduce((s,v)=>s+v,0) === summary?.total, actual: summary?.byDepartment ? Object.values(summary.byDepartment).reduce((s,v)=>s+v,0) : 'N/A' },
-      ],
-    };
-    checks.push(summarise(test8));
-    addLog(`Consistency: ${checks.at(-1).status}`, checks.at(-1).status === 'pass' ? 'success' : 'error');
-    finish(t8, checks.at(-1));
 
   } catch (e) {
     addLog(`Runner error: ${e.message}`, 'error');
@@ -235,9 +86,291 @@ export async function run(scenario, config = {}) {
     artifacts: { checks, logs: [] },
     healMeta:  null,
   };
+
+  async function runCheck(kind) {
+    const meta = metaForCheck(kind);
+    const idx = step(meta);
+    let test;
+    try {
+      test = await buildCheck(kind, meta);
+    } catch (e) {
+      test = {
+        name: meta.title,
+        meta: { ...meta, actualStatus: 'error', response: { error: e.message } },
+        checks: [{ label: 'Check completed', pass: false, actual: e.message }],
+      };
+    }
+    const summary = summarise(test);
+    checks.push(summary);
+    addLog(`${summary.name}: ${summary.status}`, summary.status === 'pass' ? 'success' : 'error');
+    finish(idx, summary);
+    return summary;
+  }
+
+  async function getEmployees() {
+    if (!employeesCall) employeesCall = await apiCall('GET', `${baseUrl}/api/dataapp/employees`);
+    return employeesCall;
+  }
+
+  async function getSummary() {
+    if (!summaryCall) summaryCall = await apiCall('GET', `${baseUrl}/api/dataapp/employees/summary`);
+    return summaryCall;
+  }
+
+  async function buildCheck(kind, meta) {
+    if (kind === 'collection') return buildCollectionCheck(meta);
+    if (kind === 'schema') return buildSchemaCheck(meta);
+    if (kind === 'detail') return buildDetailCheck(meta);
+    if (kind === 'missing') return buildMissingCheck(meta);
+    if (kind === 'summary') return buildSummaryCheck(meta);
+    if (kind === 'consistency') return buildConsistencyCheck(meta);
+    if (kind === 'filter_contract') return buildFilterContract(meta);
+    if (kind === 'sort_contract') return buildSortContract(meta);
+    if (kind === 'pagination_contract') return buildPaginationContract(meta);
+    if (kind === 'export_contract') return buildExportContract(meta);
+    if (kind === 'valid_submit') return buildValidationCheck(meta, validPayload(), 200, true, []);
+    if (kind === 'empty_submit') return buildValidationCheck(meta, {}, 422, false, ['name', 'email', 'department', 'start_date']);
+    if (kind === 'invalid_email') return buildValidationCheck(meta, { ...validPayload(), email: 'not-an-email' }, 422, false, ['email']);
+    if (kind === 'invalid_phone_format') return buildValidationCheck(meta, { ...validPayload(), phone: '1234567' }, 422, false, ['phone']);
+    if (kind === 'past_date') return buildValidationCheck(meta, { ...validPayload(), start_date: '2020-01-01' }, 422, false, ['start_date']);
+    return buildCollectionCheck(meta);
+  }
+
+  async function buildCollectionCheck(meta) {
+    const { data, status, duration } = await getEmployees();
+    return {
+      name: 'Employee collection contract',
+      meta: { ...meta, actualStatus: status, duration, response: previewJson(data) },
+      checks: [
+        { label: 'Status 200', pass: status === 200, actual: status },
+        { label: 'Response is an array', pass: Array.isArray(data), actual: Array.isArray(data) ? 'array' : typeof data },
+        { label: 'Table has rows to render', pass: Array.isArray(data) && data.length > 0, actual: data?.length },
+        { label: 'Response under 500ms', pass: duration < 500, actual: `${duration}ms` },
+      ],
+    };
+  }
+
+  async function buildSchemaCheck(meta) {
+    const { data } = await getEmployees();
+    const schemaErrors = [];
+    if (Array.isArray(data)) {
+      data.forEach((emp, i) => {
+        const errs = validateSchema(emp, EMPLOYEE_SCHEMA);
+        if (errs.length) schemaErrors.push(`Record ${i + 1} (id:${emp.id}): ${errs.join(', ')}`);
+      });
+    }
+    return {
+      name: 'Employee row schema contract',
+      meta: { ...meta, actualStatus: schemaErrors.length === 0 ? 'valid' : 'invalid', response: { checkedRecords: data?.length || 0, errors: schemaErrors.slice(0, 10) } },
+      checks: [
+        { label: `${data?.length || 0} rows match required fields`, pass: schemaErrors.length === 0, actual: schemaErrors.length === 0 ? 'valid' : `${schemaErrors.length} error(s)` },
+      ],
+      detail: schemaErrors.slice(0, 10),
+    };
+  }
+
+  async function buildDetailCheck(meta) {
+    const { data: allEmployees } = await getEmployees();
+    const { data, status, duration } = await apiCall('GET', `${baseUrl}/api/dataapp/employees/1`);
+    const matchesArray = allEmployees?.find(e => e.id === 1);
+    return {
+      name: 'Employee detail contract',
+      meta: { ...meta, actualStatus: status, duration, response: data },
+      checks: [
+        { label: 'Status 200', pass: status === 200, actual: status },
+        { label: 'Returns one object', pass: !Array.isArray(data) && typeof data === 'object', actual: typeof data },
+        { label: 'ID matches request', pass: data?.id === 1, actual: data?.id },
+        { label: 'Matches collection row', pass: JSON.stringify(data) === JSON.stringify(matchesArray), actual: data?.name },
+      ],
+    };
+  }
+
+  async function buildMissingCheck(meta) {
+    const { status, data, duration } = await apiCall('GET', `${baseUrl}/api/dataapp/employees/999`);
+    return {
+      name: 'Missing employee error contract',
+      meta: { ...meta, actualStatus: status, duration, response: data },
+      checks: [
+        { label: 'Status 404', pass: status === 404, actual: status },
+        { label: 'Error message returned', pass: !!data?.error, actual: data?.error || 'missing' },
+      ],
+    };
+  }
+
+  async function buildSummaryCheck(meta) {
+    const { data: allEmployees } = await getEmployees();
+    const { data, status, duration } = await getSummary();
+    const expectedActive = Array.isArray(allEmployees) ? allEmployees.filter(e => e.status === 'Active').length : undefined;
+    return {
+      name: 'Employee summary contract',
+      meta: { ...meta, actualStatus: status, duration, response: data },
+      checks: [
+        { label: 'Status 200', pass: status === 200, actual: status },
+        { label: 'Total matches collection', pass: data?.total === allEmployees?.length, actual: data?.total },
+        { label: 'Active count is correct', pass: data?.active === expectedActive, actual: data?.active },
+        { label: 'Department breakdown exists', pass: !!data?.byDepartment, actual: typeof data?.byDepartment },
+      ],
+    };
+  }
+
+  async function buildConsistencyCheck(meta) {
+    const { data: allEmployees } = await getEmployees();
+    const { data: summary } = await getSummary();
+    const computedSalary = allEmployees?.reduce((sum, e) => sum + e.salary, 0) ?? 0;
+    return {
+      name: 'Cross-endpoint consistency',
+      meta: { ...meta, actualStatus: 'computed', response: { computedSalary, summaryTotals: summary } },
+      checks: [
+        { label: 'totalSalary matches computed collection', pass: summary?.totalSalary === computedSalary, actual: `summary=${summary?.totalSalary}, computed=${computedSalary}` },
+        { label: 'active + inactive equals total', pass: (summary?.active + summary?.inactive) === summary?.total, actual: `${summary?.active}+${summary?.inactive}=${summary?.total}` },
+        { label: 'Department counts equal total', pass: summary?.byDepartment && Object.values(summary.byDepartment).reduce((s, v) => s + v, 0) === summary?.total, actual: summary?.byDepartment ? Object.values(summary.byDepartment).reduce((s, v) => s + v, 0) : 'N/A' },
+      ],
+    };
+  }
+
+  async function buildFilterContract(meta) {
+    const { data, status, duration } = await getEmployees();
+    const rows = Array.isArray(data) ? data : [];
+    const searchableFields = ['name', 'email', 'department', 'role'];
+    const engineeringRows = rows.filter(e => String(e.department).toLowerCase().includes('engineering'));
+    return {
+      name: 'Filterable employee data contract',
+      meta: { ...meta, actualStatus: status, duration, response: previewJson(engineeringRows) },
+      checks: [
+        { label: 'Collection is available for client filtering', pass: status === 200 && rows.length > 0, actual: `${status}, ${rows.length} rows` },
+        { label: 'Searchable fields are present', pass: rows.every(r => searchableFields.every(f => typeof r[f] === 'string')), actual: searchableFields.join(', ') },
+        { label: 'Filter term has matching rows', pass: engineeringRows.length > 0, actual: `${engineeringRows.length} Engineering rows` },
+      ],
+    };
+  }
+
+  async function buildSortContract(meta) {
+    const { data, status, duration } = await getEmployees();
+    const rows = Array.isArray(data) ? data : [];
+    const salaryValues = rows.map(r => r.salary).filter(v => typeof v === 'number');
+    const dateValues = rows.map(r => r.start_date).filter(v => /^\d{4}-\d{2}-\d{2}$/.test(String(v)));
+    const sortedBySalary = [...rows].sort((a, b) => a.salary - b.salary);
+    return {
+      name: 'Sortable employee data contract',
+      meta: { ...meta, actualStatus: status, duration, response: { firstBySalary: sortedBySalary.slice(0, 3), sortableFields: ['name', 'salary', 'start_date'] } },
+      checks: [
+        { label: 'Collection is available for sorting', pass: status === 200 && rows.length > 1, actual: `${status}, ${rows.length} rows` },
+        { label: 'Salary values are numeric', pass: salaryValues.length === rows.length, actual: `${salaryValues.length}/${rows.length}` },
+        { label: 'Start dates are ISO-like strings', pass: dateValues.length === rows.length, actual: `${dateValues.length}/${rows.length}` },
+        { label: 'Stable IDs remain attached after sort', pass: sortedBySalary.every(r => typeof r.id === 'number'), actual: sortedBySalary[0]?.id },
+      ],
+    };
+  }
+
+  async function buildPaginationContract(meta) {
+    const { data, status, duration } = await getEmployees();
+    const rows = Array.isArray(data) ? data : [];
+    const pageSize = 10;
+    const pageOne = rows.slice(0, pageSize);
+    const pageTwo = rows.slice(pageSize, pageSize * 2);
+    return {
+      name: 'Paginated table data contract',
+      meta: { ...meta, actualStatus: status, duration, response: { pageSize, pageOne: previewJson(pageOne), pageTwo: previewJson(pageTwo) } },
+      checks: [
+        { label: 'Collection is available', pass: status === 200, actual: status },
+        { label: 'Dataset has more than one page', pass: rows.length > pageSize, actual: `${rows.length} rows` },
+        { label: 'First page has expected size', pass: pageOne.length === pageSize, actual: pageOne.length },
+        { label: 'Second page starts after first page', pass: pageOne.at(-1)?.id !== pageTwo[0]?.id, actual: `p1=${pageOne.at(-1)?.id}, p2=${pageTwo[0]?.id}` },
+      ],
+    };
+  }
+
+  async function buildExportContract(meta) {
+    const { data, status, duration } = await getEmployees();
+    const rows = Array.isArray(data) ? data : [];
+    const exportColumns = ['id', 'name', 'email', 'department', 'role', 'salary', 'start_date', 'status'];
+    const missing = rows.slice(0, 10).flatMap((row, idx) => exportColumns.filter(col => row[col] === undefined || row[col] === null || row[col] === '').map(col => `row ${idx + 1}: ${col}`));
+    return {
+      name: 'CSV export data contract',
+      meta: { ...meta, actualStatus: status, duration, response: { exportColumns, sample: rows.slice(0, 3), missing: missing.slice(0, 10) } },
+      checks: [
+        { label: 'Collection is available for export', pass: status === 200 && rows.length > 0, actual: `${status}, ${rows.length} rows` },
+        { label: 'Export columns are present', pass: missing.length === 0, actual: missing.length ? missing.slice(0, 3).join('; ') : exportColumns.join(', ') },
+        { label: 'Dataset can produce CSV rows', pass: rows.every(r => exportColumns.every(col => Object.prototype.hasOwnProperty.call(r, col))), actual: `${rows.length} rows` },
+      ],
+      detail: missing.slice(0, 10),
+    };
+  }
+
+  async function buildValidationCheck(meta, payload, expectedStatus, expectedValid, expectedFields) {
+    const { data, status, duration } = await apiCall('POST', `${baseUrl}/api/dataapp/validate`, payload);
+    const fields = Array.isArray(data?.errors) ? data.errors.map(e => e.field) : [];
+    return {
+      name: meta.title,
+      meta: { ...meta, actualStatus: status, duration, request: payload, response: data },
+      checks: [
+        { label: `Status ${expectedStatus}`, pass: status === expectedStatus, actual: status },
+        { label: `valid is ${expectedValid}`, pass: data?.valid === expectedValid, actual: data?.valid },
+        { label: expectedFields.length ? 'Expected validation fields returned' : 'No validation errors returned', pass: expectedFields.length ? expectedFields.every(f => fields.includes(f)) : Array.isArray(data?.errors) && data.errors.length === 0, actual: fields.join(', ') || 'none' },
+      ],
+    };
+  }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+function selectScenarioChecks(scenario = {}) {
+  const id = String(scenario.id || scenario.name || '').toLowerCase();
+  const mod = String(scenario.module || '').toLowerCase();
+
+  if (mod.includes('validation')) {
+    if (id.includes('empty')) return { label: 'empty submit API validation', checks: ['empty_submit'] };
+    if (id.includes('email')) return { label: 'invalid email API validation', checks: ['invalid_email'] };
+    if (id.includes('phone')) return { label: 'invalid phone API validation', checks: ['invalid_phone_format'] };
+    if (id.includes('past') || id.includes('date')) return { label: 'past date API validation', checks: ['past_date'] };
+    if (id.includes('valid')) return { label: 'valid form submit API validation', checks: ['valid_submit'] };
+    return { label: 'form validation API smoke', checks: ['valid_submit', 'empty_submit'] };
+  }
+
+  if (id.includes('filter')) return { label: 'table filter data contract', checks: ['filter_contract'] };
+  if (id.includes('sort')) return { label: 'table sort data contract', checks: ['sort_contract'] };
+  if (id.includes('paginat')) return { label: 'table pagination data contract', checks: ['pagination_contract'] };
+  if (id.includes('export') || id.includes('csv')) return { label: 'table export data contract', checks: ['export_contract'] };
+  if (id.includes('table') || id.includes('load')) return { label: 'table load API contract', checks: ['collection', 'schema'] };
+
+  return {
+    label: 'general DataApp API smoke',
+    checks: ['collection', 'schema', 'detail', 'missing', 'summary', 'consistency'],
+  };
+}
+
+function metaForCheck(kind) {
+  const meta = {
+    collection: { title: 'GET employees collection', method: 'GET', endpoint: '/api/dataapp/employees', expectedStatus: 200 },
+    schema: { title: 'Validate employee row schema', method: 'SCHEMA', endpoint: '/api/dataapp/employees[*]', expectedStatus: 'valid' },
+    detail: { title: 'GET employee by id', method: 'GET', endpoint: '/api/dataapp/employees/1', expectedStatus: 200 },
+    missing: { title: 'GET missing employee', method: 'GET', endpoint: '/api/dataapp/employees/999', expectedStatus: 404 },
+    summary: { title: 'GET employee summary', method: 'GET', endpoint: '/api/dataapp/employees/summary', expectedStatus: 200 },
+    consistency: { title: 'Cross-endpoint consistency', method: 'CHECK', endpoint: '/api/dataapp/employees + /summary', expectedStatus: 'consistent' },
+    filter_contract: { title: 'Verify filterable table data', method: 'GET', endpoint: '/api/dataapp/employees', expectedStatus: 200 },
+    sort_contract: { title: 'Verify sortable table data', method: 'GET', endpoint: '/api/dataapp/employees', expectedStatus: 200 },
+    pagination_contract: { title: 'Verify paginated table data', method: 'GET', endpoint: '/api/dataapp/employees', expectedStatus: 200 },
+    export_contract: { title: 'Verify CSV export data', method: 'GET', endpoint: '/api/dataapp/employees', expectedStatus: 200 },
+    valid_submit: { title: 'POST valid validation payload', method: 'POST', endpoint: '/api/dataapp/validate', expectedStatus: 200 },
+    empty_submit: { title: 'POST empty validation payload', method: 'POST', endpoint: '/api/dataapp/validate', expectedStatus: 422 },
+    invalid_email: { title: 'POST invalid email payload', method: 'POST', endpoint: '/api/dataapp/validate', expectedStatus: 422 },
+    invalid_phone_format: { title: 'POST invalid phone payload', method: 'POST', endpoint: '/api/dataapp/validate', expectedStatus: 422 },
+    past_date: { title: 'POST past start date payload', method: 'POST', endpoint: '/api/dataapp/validate', expectedStatus: 422 },
+  };
+  return meta[kind] || meta.collection;
+}
+
+function validPayload() {
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  return {
+    name: 'Jane Smith',
+    email: 'jane@company.com',
+    phone: '555-123-4567',
+    department: 'Engineering',
+    start_date: tomorrow.toISOString().slice(0, 10),
+  };
+}
+
 async function apiCall(method, url, body = null) {
   const start = Date.now();
   const opts  = {

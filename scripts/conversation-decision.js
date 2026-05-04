@@ -1,7 +1,7 @@
 /**
  * conversation-decision.js
  *
- * Deterministic conversation gate for QA Sentinel.
+ * Deterministic conversation gate for QA Assistant.
  * It separates "what should the system do?" from "how should we say it?".
  */
 

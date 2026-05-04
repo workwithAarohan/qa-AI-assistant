@@ -1,0 +1,68 @@
+{
+  "dataapp-tables__table_loads": {
+    "id": "table_loads",
+    "module": "dataapp-tables",
+    "scenario": "table_loads",
+    "steps": [
+      {
+        "action": "navigate",
+        "url": "http://localhost:4001/tables",
+        "value": "http://localhost:4001/tables"
+      },
+      {
+        "action": "assert",
+        "selector": "#data-table",
+        "validation": "toBeVisible"
+      },
+      {
+        "action": "assert",
+        "selector": "#row-count",
+        "validation": "toHaveText",
+        "value": "50 employees"
+      }
+    ],
+    "savedAt": "2026-05-04T09:15:38.476Z"
+  },
+  "dataapp-tables__filter_by_text": {
+    "id": "filter_by_text",
+    "module": "dataapp-tables",
+    "scenario": "filter_by_text",
+    "steps": [
+      {
+        "action": "navigate",
+        "value": "http://localhost:4001/tables"
+      },
+      {
+        "action": "type",
+        "selector": "#filter-input",
+        "value": "Alice"
+      },
+      {
+        "action": "assertText",
+        "selector": "#row-count",
+        "value": "1 employee"
+      }
+    ],
+    "savedAt": "2026-05-04T08:49:48.989Z"
+  },
+  "dataapp-tables__sort_column": {
+    "id": "sort_column",
+    "module": "dataapp-tables",
+    "scenario": "sort_column",
+    "steps": [
+      {
+        "action": "navigate",
+        "value": "http://localhost:4001/tables"
+      },
+      {
+        "action": "click",
+        "selector": "[data-sort]"
+      },
+      {
+        "action": "expect",
+        "selector": "#row-count"
+      }
+    ],
+    "savedAt": "2026-05-04T09:15:59.777Z"
+  }
+}

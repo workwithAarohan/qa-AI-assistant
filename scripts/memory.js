@@ -1,6 +1,30 @@
 import fs from 'fs';
 import path from 'path';
 
+function safeAppId(appId = 'testapp') {
+  return String(appId || 'testapp').toLowerCase().replace(/[^a-z0-9_-]/g, '_') || 'testapp';
+}
+
+function memoryPathForApp(appId = 'testapp') {
+  const dir = path.join(process.cwd(), 'memory');
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return path.join(dir, `${safeAppId(appId)}.json`);
+}
+
+function loadMemory(appId = 'testapp') {
+  const memoryPath = memoryPathForApp(appId);
+  if (!fs.existsSync(memoryPath)) return {};
+  try {
+    return JSON.parse(fs.readFileSync(memoryPath, 'utf8'));
+  } catch (e) {
+    return {};
+  }
+}
+
+function writeMemory(appId = 'testapp', memory = {}) {
+  fs.writeFileSync(memoryPathForApp(appId), JSON.stringify(memory, null, 2));
+}
+
 // ── Helper: Tokenize ──
 function tokenize(text) {
   if (!text) return [];
@@ -17,16 +41,8 @@ function calculateSimilarity(tokensA, tokensB) {
 }
 
 // ── Export 1: Find Plan (Object Standard) ──
-export function findSimilarPlan(module, scenarioId, userPrompt = "") {
-  const memoryPath = path.join(process.cwd(), 'memory.json');
-  if (!fs.existsSync(memoryPath)) return null;
-
-  let memory = {};
-  try {
-    memory = JSON.parse(fs.readFileSync(memoryPath, 'utf8'));
-  } catch (e) {
-    return null;
-  }
+export function findSimilarPlan(appId, module, scenarioId, userPrompt = "") {
+  const memory = loadMemory(appId);
 
   // 1. PRIMARY: Exact ID Match (Most Reliable)
   // We check if the unique key exists in our object
@@ -67,63 +83,51 @@ export function findSimilarPlan(module, scenarioId, userPrompt = "") {
 }
 
 // ── Export 2: Save Plan (Object Standard) ──
-export function saveToMemory(plan) {
-  const memoryPath = path.join(process.cwd(), 'memory.json');
-  let memory = {};
-
-  if (fs.existsSync(memoryPath)) {
-    try {
-      memory = JSON.parse(fs.readFileSync(memoryPath, 'utf8'));
-    } catch (e) { memory = {}; }
-  }
+export function saveToMemory(appId, plan) {
+  const memory = loadMemory(appId);
 
   // EVOLVING MEMORY: Save or overwrite using the specific key
   const key = `${plan.module}__${plan.scenario}`;
   memory[key] = { ...plan, savedAt: new Date().toISOString() };
 
-  fs.writeFileSync(memoryPath, JSON.stringify(memory, null, 2));
+  writeMemory(appId, memory);
 }
 
-export function deleteFromMemory(module, scenarioId) {
-  const memoryPath = path.join(process.cwd(), 'memory.json');
-  if (!fs.existsSync(memoryPath)) return false;
-
-  let memory = {};
-  try {
-    memory = JSON.parse(fs.readFileSync(memoryPath, 'utf8'));
-  } catch (e) {
-    return false;
-  }
+export function deleteFromMemory(appId, module, scenarioId) {
+  const memory = loadMemory(appId);
 
   const key = `${module}__${scenarioId}`;
   const existed = !!memory[key];
   if (existed) {
     delete memory[key];
-    fs.writeFileSync(memoryPath, JSON.stringify(memory, null, 2));
+    writeMemory(appId, memory);
   }
   return existed;
 }
 
-export function listMemory() {
-  const memoryPath = path.join(process.cwd(), 'memory.json');
-  if (!fs.existsSync(memoryPath)) return [];
-  try {
-    const memory = JSON.parse(fs.readFileSync(memoryPath, 'utf8'));
-    return Object.values(memory);
-  } catch (e) {
-    return [];
+export function listMemory(appId = null) {
+  if (appId) return Object.values(loadMemory(appId));
+  const dir = path.join(process.cwd(), 'memory');
+  if (!fs.existsSync(dir)) return [];
+  const plans = [];
+  for (const file of fs.readdirSync(dir)) {
+    if (!file.endsWith('.json')) continue;
+    plans.push(...Object.values(loadMemory(file.replace(/\.json$/, ''))));
   }
+  return plans;
 }
 
-export function repairMemory() {
-  const memoryPath = path.join(process.cwd(), 'memory.json');
-  if (!fs.existsSync(memoryPath)) return;
-
-  let memory = {};
-  try {
-    memory = JSON.parse(fs.readFileSync(memoryPath, 'utf8'));
-  } catch (e) { return; }
-
-  // We can implement any repair logic here. For now, we just rewrite it to ensure consistent formatting.
-  fs.writeFileSync(memoryPath, JSON.stringify(memory, null, 2));
+export function repairMemory(appId = null) {
+  const appIds = appId
+    ? [safeAppId(appId)]
+    : fs.existsSync(path.join(process.cwd(), 'memory'))
+      ? fs.readdirSync(path.join(process.cwd(), 'memory')).filter(f => f.endsWith('.json')).map(f => f.replace(/\.json$/, ''))
+      : [];
+  let total = 0;
+  for (const id of appIds) {
+    const memory = loadMemory(id);
+    total += Object.keys(memory).length;
+    writeMemory(id, memory);
+  }
+  return { total, changed: 0 };
 }

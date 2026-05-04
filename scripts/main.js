@@ -2,19 +2,13 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 import { generateSteps, validatePlan, runSteps, fixSteps } from './index.js';
-import { getFromMemory, saveToMemory } from "./memory.js";
-
-function generateKey(input) {
-  return input.toLowerCase().replace(/\s+/g, "_");
-}
+import { findSimilarPlan, saveToMemory } from "./memory.js";
 
 (async () => {
   try {
     const userInput = "Test login with invalid password";
-    const key = generateKey(userInput);
-
     console.log("Checking memory...");
-    let plan = getFromMemory(key);
+    let plan = findSimilarPlan('testapp', 'login', 'invalid_password', userInput);
 
     if (plan) {
       console.log("Memory HIT!");
@@ -25,7 +19,7 @@ function generateKey(input) {
       validatePlan(plan);
 
       console.log("Saving to memory...");
-      saveToMemory(key, plan);
+      saveToMemory('testapp', plan);
     }
 
     console.log("Executing...");
@@ -45,14 +39,14 @@ function generateKey(input) {
 
       if (result.status === "success") {
         console.log("Heal successful → updating memory");
-        saveToMemory(key, fixedPlan);
+        saveToMemory('testapp', fixedPlan);
       } else {
         console.log("Heal failed");
       }
 
     } else {
       console.log("Execution success");
-      saveToMemory(key, plan);
+      saveToMemory('testapp', plan);
     }
 
     console.log("FINAL RESULT:");

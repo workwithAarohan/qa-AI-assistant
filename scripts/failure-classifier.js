@@ -113,5 +113,5 @@ export const DECISION_META = {
   [HEAL_DECISION.HEAL]:       { label: 'Automation issue — selector may have changed', colour: 'amber', canHeal: true },
   [HEAL_DECISION.BUG_REPORT]: { label: 'Application bug — healing will not fix this',  colour: 'red',   canHeal: false },
   [HEAL_DECISION.RETRY]:      { label: 'Network issue — retry recommended',             colour: 'sky',   canHeal: false },
-  [HEAL_DECISION.ASK]:        { label: 'Unknown cause — review required',               colour: 'gray',  canHeal: true },
+  [HEAL_DECISION.ASK]:        { label: 'Unknown cause — manual review required',         colour: 'gray',  canHeal: false },
 };

@@ -2,21 +2,21 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
-<title>QA Sentinel</title>
+<title>QA Assistant</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg:#0D0F14;
-  --surface:#13161D;
-  --surface2:#181C24;
-  --surface3:#1E222D;
-  --border:rgba(255,255,255,0.06);
-  --border2:rgba(255,255,255,0.10);
-  --t1:#F0F2F7;
-  --t2:#8B93A8;
-  --t3:#4E5668;
+  --bg:#0B0D12;
+  --surface:#11141A;
+  --surface2:#151922;
+  --surface3:#1B202B;
+  --border:rgba(226,232,240,0.055);
+  --border2:rgba(226,232,240,0.11);
+  --t1:#E7EAF0;
+  --t2:#9AA3B5;
+  --t3:#5E6676;
   --accent:#6366F1;
   --accent-dim:rgba(99,102,241,0.15);
   --accent-h:#818CF8;
@@ -213,6 +213,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--san
 
 /* Heal card */
 #heal-card{flex-shrink:0;margin:0 12px 8px;border-radius:var(--rl);overflow:hidden;display:none}
+.heal-chat-bubble{padding:0!important;overflow:hidden}
 .heal-section{padding:12px}
 .heal-header{display:flex;align-items:center;gap:8px;margin-bottom:8px}
 .heal-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
@@ -306,6 +307,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--san
 #api-console-status.running{background:var(--sky-dim);border-color:rgba(56,189,248,0.25);color:var(--sky)}
 #api-console-status.passed{background:var(--green-dim);border-color:rgba(34,197,94,0.25);color:var(--green)}
 #api-console-status.failed{background:var(--red-dim);border-color:rgba(239,68,68,0.25);color:var(--red)}
+#api-console-status.waiting{background:rgba(245,158,11,0.1);border-color:rgba(245,158,11,0.28);color:var(--amber)}
 #api-console-close{width:30px;height:30px;border-radius:var(--r);border:1px solid var(--border);background:transparent;color:var(--t3);cursor:pointer;font-size:17px;display:grid;place-items:center}
 #api-console-close:hover{color:var(--t1);border-color:var(--border2)}
 #api-console-summary{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;padding:14px 20px;border-bottom:1px solid var(--border);background:rgba(255,255,255,0.015)}
@@ -344,6 +346,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--san
 .api-json pre{font-family:var(--mono);font-size:10px;line-height:1.5;color:var(--t2);background:var(--bg);border:1px solid var(--border);border-radius:var(--r);padding:9px;max-height:220px;overflow:auto;white-space:pre-wrap;word-break:break-word}
 #api-console-footer{display:flex;align-items:center;gap:10px;padding:12px 20px;border-top:1px solid var(--border);background:var(--surface2)}
 #api-console-note{font-size:11px;color:var(--t3);flex:1}
+.btn:disabled{opacity:0.45;cursor:not-allowed}
 @media (max-width: 760px){
   #api-console{padding:10px}
   #api-console-panel{height:100%;border-radius:var(--rl)}
@@ -490,13 +493,15 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--san
 .pw-empty{padding:18px;color:var(--t3);font-size:12px;text-align:center}
 
 /* Narrative live log */
-.nlog{border:1px solid var(--border);background:var(--surface2);border-radius:var(--r);padding:7px 8px;margin-bottom:5px}
+.nlog{border-bottom:1px solid var(--border);padding:5px 2px}
 .nlog-h{display:flex;gap:7px;align-items:flex-start}
-.nlog-dot{width:7px;height:7px;border-radius:50%;background:var(--t3);margin-top:6px;flex-shrink:0}
+.nlog-dot{width:6px;height:6px;border-radius:50%;background:var(--t3);margin-top:6px;flex-shrink:0}
 .nlog.success .nlog-dot{background:var(--green)}.nlog.error .nlog-dot{background:var(--red)}.nlog.warn .nlog-dot{background:var(--amber)}.nlog.phase .nlog-dot{background:var(--accent-h)}
-.nlog-text{font-size:11.5px;line-height:1.45;color:var(--t2)}
+.nlog-main{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:start;min-width:0}
+.nlog-text{font-size:11px;line-height:1.4;color:var(--t2);white-space:normal;overflow-wrap:anywhere;word-break:break-word}
+.nlog-time{font-family:var(--mono);font-size:9px;color:var(--t3);margin-left:auto;flex-shrink:0}
 .nlog.success .nlog-text{color:var(--green)}.nlog.error .nlog-text{color:var(--red)}.nlog.warn .nlog-text{color:var(--amber)}.nlog.phase .nlog-text{color:var(--accent-h);font-weight:700}
-.nlog details{margin-top:5px;padding-left:14px}
+.nlog details{margin-top:3px;padding-left:14px}
 .nlog summary{font-size:9.5px;color:var(--t3);cursor:pointer;user-select:none}
 .nlog-raw{font-family:var(--mono);font-size:9.5px;color:var(--t3);margin-top:4px;word-break:break-word}
 </style>
@@ -508,7 +513,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--san
   <div id="topbar">
     <div class="logo">
       <div class="logo-mark">QA</div>
-      <span class="logo-name">Sentinel</span>
+      <span class="logo-name">Assistant</span>
       <span class="logo-ver">v2</span>
     </div>
     <div id="app-switcher" onclick="toggleAppOverlay()">
@@ -531,7 +536,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--san
     </div>
     <div id="chat-msgs">
       <div class="msg-wrap agent">
-        <div class="bubble agent">Hi! I'm your QA partner.<br><br>Ask me anything about testing:<br>• <em>"What can I test in the login module?"</em><br>• <em>"Why did the last test fail?"</em><br>• <em>"Create a test that verifies the project count"</em><br><br>Run tests from the dashboard →</div>
+        <div class="bubble agent">Hi! I'm your QA partner.<br><br>Ask me anything about testing:<br>• <em>"What can I test in the module?"</em><br>• <em>"Why did the last test fail?"</em><br>• <em>"Create a test that verifies the ..."</em><br><br>Run tests from the dashboard →</div>
         <span class="msg-ts">now</span>
       </div>
     </div>
@@ -596,7 +601,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--san
             <div class="pw-sub" id="pw-sub">The assistant will map modules, test layers, and execution order here.</div>
           </div>
           <div class="pw-actions">
-            <button class="btn primary" id="pw-run-all" onclick="runPlan(null)" disabled>Run plan</button>
+            <button class="btn primary" id="pw-run-all" onclick="runPlan(null)" disabled style="display:none">Run plan</button>
           </div>
         </div>
         <div class="pw-body">
@@ -670,7 +675,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);font-family:var(--san
     </div>
     <div id="api-console-footer">
       <div id="api-console-note">Request and response payloads stay collapsed until you select an API check.</div>
-      <button class="btn ghost" onclick="openDrawer('all')">Open report</button>
+      <button class="btn ghost" id="api-report-btn" onclick="openReportFromApiConsole()" disabled>Open report</button>
       <button class="btn primary" onclick="closeApiConsole()">Close console</button>
     </div>
   </div>
@@ -739,10 +744,18 @@ const ws = new WebSocket('ws://localhost:4000');
 let allScenarioData = [], currentTab = 'all', lastReportData = null, currentApp = null;
 let apps = [], modules = [], customScenarios = [], planOpen = true;
 let activeRunner = 'ui'; // currently selected test runner
+let activeExecutionRunner = null;
 let highlightedScenarios = [];
 let planCompleted = false;
-let apiConsole = { open:false, meta:null, steps:[], selected:0, summary:null, final:false };
+let apiConsole = { open:false, meta:null, steps:[], selected:0, summary:null, final:false, awaitingContinue:false };
 let previewedScenarioKey = null;
+let uiWorkspaces = {};
+let suppressNextWorkspaceChatReply = false;
+
+const DEFAULT_CHAT = `<div class="msg-wrap agent">
+  <div class="bubble agent">Hi! I'm your QA partner.<br><br>Ask me anything about testing:<br>• <em>"What can I test in the module?"</em><br>• <em>"Why did the last test fail?"</em><br>• <em>"Create a test that verifies the ..."</em><br><br>Run tests from the dashboard →</div>
+  <span class="msg-ts">now</span>
+</div>`;
 
 ws.onopen = () => {
   ws.send(JSON.stringify({ type: 'session_init', data: { sessionId: SESSION_ID } }));
@@ -766,6 +779,7 @@ ws.onmessage = ({ data }) => {
   else if (type === 'agent_state')  setAgentState(d);
   else if (type === 'chat_reply')   renderChatReply(d);
   else if (type === 'execution_start') onExecStart(d);
+  else if (type === 'scenario_start')  onScenarioStart(d);
   else if (type === 'execution_plan')  renderPlan(d.steps);
   else if (type === 'step')         updateStep(d.index, d.status, d.step);
   else if (type === 'log')          addLog(d.text, d.level);
@@ -775,10 +789,12 @@ ws.onmessage = ({ data }) => {
   else if (type === 'heal_diff')    pendingDiff = d;
   else if (type === 'heal_failed')  hideHealCard();
   else if (type === 'report')       showReport(d);
+  else if (type === 'api_console_continue_required') promptApiConsoleContinue(d);
   else if (type === 'execution_error') { addLog('Error: ' + d, 'error'); setAgentState('idle'); }
   else if (type === 'new_custom_scenario') addCustomScenario(d);
   else if (type === 'temp_scenario_save_prompt') showTemporaryScenarioSavePrompt(d);
   else if (type === 'conversation_history') restoreConversation(d);
+  else if (type === 'workspace_state') restoreWorkspaceState(d);
 };
 
 function switchWorkspaceTab(tab) {
@@ -795,26 +811,29 @@ function setDashboardHighlights(scenarios = []) {
 // ── App management ────────────────────────────────────────────────────────────
 function renderApps(list) {
   apps = list;
-  currentApp = list[0];
+  if (!currentApp) currentApp = list[0];
   document.getElementById('app-list').innerHTML = list.map(a => `
-    <div class="app-item active" onclick="selectApp('${a.id}')">
+    <div class="app-item ${currentApp?.id === a.id ? 'active' : ''}" onclick="selectApp('${a.id}')">
       <div class="app-item-icon" style="background:#${a.color}">${a.icon}</div>
       <div><div class="app-item-name">${esc(a.name)}</div><div class="app-item-desc">${esc(a.description)}</div></div>
     </div>`).join('');
-  document.getElementById('app-switcher-icon').textContent = list[0]?.icon || 'A';
-  document.getElementById('app-switcher-icon').style.background = '#' + (list[0]?.color || '4F46E5');
-  document.getElementById('app-switcher-name').textContent = list[0]?.name || 'App';
+  document.getElementById('app-switcher-icon').textContent = currentApp?.icon || 'A';
+  document.getElementById('app-switcher-icon').style.background = '#' + (currentApp?.color || '4F46E5');
+  document.getElementById('app-switcher-name').textContent = currentApp?.name || 'App';
   updateChatPlaceholder('idle');
 }
 
 function selectApp(id) {
   const a = apps.find(x => x.id === id);
-  if (!a) return;
+  if (!a || a.id === currentApp?.id) { toggleAppOverlay(); return; }
+  saveCurrentUiWorkspace();
   currentApp = a;
   document.getElementById('app-switcher-icon').textContent = a.icon;
   document.getElementById('app-switcher-icon').style.background = '#' + a.color;
   document.getElementById('app-switcher-name').textContent = a.name;
   document.querySelectorAll('.app-item').forEach(el => el.classList.toggle('active', el.querySelector('.app-item-name').textContent === a.name));
+  resetWorkspaceUi();
+  suppressNextWorkspaceChatReply = true;
   ws.send(JSON.stringify({ type: 'set_app', data: id }));
   toggleAppOverlay();
   updateChatPlaceholder('app');
@@ -822,6 +841,109 @@ function selectApp(id) {
 
 function toggleAppOverlay() { document.getElementById('app-overlay').classList.toggle('open'); }
 function handleOverlayClick(e) { if (e.target === document.getElementById('app-overlay')) toggleAppOverlay(); }
+
+function saveCurrentUiWorkspace() {
+  if (!currentApp?.id) return;
+  uiWorkspaces[currentApp.id] = {
+    activeRunner,
+    highlightedScenarios: [...highlightedScenarios],
+    previewedScenarioKey,
+    currentPlan,
+    planLayerStates: { ...planLayerStates },
+    planScenarioStates: { ...planScenarioStates },
+    skippedPlanLayers: [...skippedPlanLayers],
+    planCompleted,
+    pendingTemporarySavePrompt,
+    allScenarioData,
+    lastReportData,
+    currentTab,
+    chatHtml: document.getElementById('chat-msgs')?.innerHTML || '',
+    healHtml: document.getElementById('heal-card')?.innerHTML || '',
+    healVisible: document.getElementById('heal-card')?.style.display === 'block',
+    logHtml: document.getElementById('log-stream')?.innerHTML || '',
+  };
+}
+
+function resetWorkspaceUi() {
+  highlightedScenarios = [];
+  previewedScenarioKey = null;
+  currentPlan = null;
+  planLayerStates = {};
+  planScenarioStates = {};
+  skippedPlanLayers = new Set();
+  planCompleted = false;
+  pendingTemporarySavePrompt = null;
+  allScenarioData = [];
+  lastReportData = null;
+  currentTab = 'all';
+  resetApiConsole();
+  hideHealCard();
+  document.getElementById('quick-chips').style.display = 'none';
+  document.getElementById('log-stream').innerHTML = '';
+  document.getElementById('chat-msgs').innerHTML = DEFAULT_CHAT;
+  clearPlanningWorkspace();
+  document.getElementById('pw-run-all').style.display = 'none';
+  document.getElementById('stats-bar').style.display = 'none';
+  document.getElementById('exec-scenario-name').textContent = 'No test running';
+  document.getElementById('exec-state-badge').className = '';
+  document.getElementById('exec-state-badge').textContent = 'idle';
+  document.getElementById('exec-runner-badge').style.display = 'none';
+  document.getElementById('plan-section').style.display = 'none';
+  document.getElementById('drawer').classList.remove('open');
+}
+
+function restoreWorkspaceState(state = {}) {
+  if (!state.appId) return;
+  const a = apps.find(x => x.id === state.appId);
+  if (a) {
+    currentApp = a;
+    document.getElementById('app-switcher-icon').textContent = a.icon;
+    document.getElementById('app-switcher-icon').style.background = '#' + a.color;
+    document.getElementById('app-switcher-name').textContent = a.name;
+    document.querySelectorAll('.app-item').forEach(el => el.classList.toggle('active', el.querySelector('.app-item-name').textContent === a.name));
+  }
+
+  const local = uiWorkspaces[state.appId] || {};
+  activeRunner = local.activeRunner || 'ui';
+  setActiveRunner(activeRunner);
+  highlightedScenarios = local.highlightedScenarios || [];
+  previewedScenarioKey = local.previewedScenarioKey || null;
+  planLayerStates = local.planLayerStates || {};
+  planScenarioStates = local.planScenarioStates || {};
+  skippedPlanLayers = new Set(local.skippedPlanLayers || []);
+  planCompleted = !!local.planCompleted;
+  pendingTemporarySavePrompt = state.pendingScenarioSaves?.length
+    ? { scenarios: state.pendingScenarioSaves.map(p => p.scenario || p) }
+    : (local.pendingTemporarySavePrompt || null);
+  document.getElementById('log-stream').innerHTML = local.logHtml || '';
+  if (local.chatHtml) document.getElementById('chat-msgs').innerHTML = local.chatHtml;
+  if (local.healHtml) {
+    const healCard = document.getElementById('heal-card');
+    healCard.innerHTML = local.healHtml;
+    healCard.style.display = local.healVisible ? 'block' : 'none';
+  }
+
+  if (state.currentPlan) {
+    currentPlan = state.currentPlan;
+    renderPlanningWorkspace(currentPlan);
+    switchWorkspaceTab('plan');
+  } else {
+    currentPlan = null;
+    clearPlanningWorkspace();
+    switchWorkspaceTab('dashboard');
+  }
+
+  if (state.lastRun) {
+    renderReportState(state.lastRun, { silent: true });
+  } else {
+    allScenarioData = [];
+    lastReportData = null;
+    document.getElementById('stats-bar').style.display = 'none';
+  }
+
+  if (modules.length) renderModules(modules);
+  updateChatPlaceholder(currentPlan ? 'planning' : 'idle');
+}
 
 // ── Module rendering ──────────────────────────────────────────────────────────
 const MOD_COLORS = { login:'4F46E5', dashboard:'0891B2', projects:'059669', profile:'D97706', navigation:'7C3AED' };
@@ -856,7 +978,7 @@ function renderModules(list) {
   document.getElementById('dash-app-badge').textContent = currentApp?.name || '—';
   const grid = document.getElementById('modules-grid');
   grid.innerHTML = '';
-  let total = 0, totalCached = 0;
+  let total = 0, totalCached = 0, totalVisible = 0;
   list.forEach(mod => {
     // Filter scenarios by active runner
     const visibleScenarios = mod.scenarios.filter(s => {
@@ -866,6 +988,7 @@ function renderModules(list) {
 
     // Always show module card but dim if no scenarios for this runner
     total += mod.scenarios.length;
+    totalVisible += visibleScenarios.length;
     totalCached += mod.cachedCount;
     const color = MOD_COLORS[mod.id] || '6366F1';
     const icon  = MOD_ICONS[mod.id]  || '🧪';
@@ -879,22 +1002,23 @@ function renderModules(list) {
           <div class="mod-name">${esc(mod.name)}</div>
           <div class="mod-desc">${esc(mod.description || mod.url || '')}</div>
         </div>
-        <button class="mod-run-all" onclick="runModule('${mod.id}')">Run all</button>
+        ${visibleScenarios.length ? `<button class="mod-run-all" onclick="runModule('${mod.id}')">Run all</button>` : ''}
       </div>
       <div class="mod-scenarios">
         ${visibleScenarios.map(s => `
-          <div class="scen-row ${highlightedScenarios.includes(`${mod.id}:${s.id}`) || previewedScenarioKey === `${mod.id}:${s.id}` ? 'highlight' : ''}" onclick="previewScenario('${mod.id}','${s.id}','${esc(s.name)}','${esc(s.description)}')">
+          <div class="scen-row ${highlightedScenarios.includes(`${mod.id}:${s.id}`) || previewedScenarioKey === `${mod.id}:${s.id}` ? 'highlight' : ''}" onclick="previewScenario(${jsArg(mod.id)},${jsArg(s.id)},${jsArg(s.name)},${jsArg(s.description)})">
             <div class="scen-dot ${s.cached ? 'cached' : ''}"></div>
             <span class="scen-name">${esc(s.name)}</span>
             <span class="scen-desc">${esc(s.description)}</span>
             <button class="scen-run-btn" onclick="event.stopPropagation();runScenario('${mod.id}','${s.id}','${esc(s.name)}','${esc(s.description)}')">▶ Run</button>
           </div>`).join('')}
-        ${visibleScenarios.length === 0 ? `<div style="font-size:11px;color:var(--t3);padding:6px 8px;font-style:italic">No ${activeRunner.toUpperCase()} scenarios for this module</div>` : ''}
+        ${visibleScenarios.length === 0 ? `<div style="font-size:11px;color:var(--t3);padding:6px 8px">No ${activeRunner.toUpperCase()} scenarios in this module.</div>` : ''}
       </div>`;
     grid.appendChild(card);
   });
   document.getElementById('reg-total').textContent = total;
   document.getElementById('reg-cached').textContent = totalCached;
+  document.getElementById('run-regression-btn').style.display = totalVisible ? '' : 'none';
 }
 
 function hexToRgb(hex) {
@@ -916,17 +1040,48 @@ function addCustomScenario(s) {
 
 // ── Run triggers ──────────────────────────────────────────────────────────────
 function previewScenario(module, scenarioId, scenarioName, scenarioDesc, runner = activeRunner) {
+  const savedSteps = getSavedPreviewSteps({ module, id: scenarioId });
+  if (!savedSteps.length) {
+    previewedScenarioKey = null;
+    if (modules.length) renderModules(modules);
+    document.getElementById('plan-section').style.display = 'none';
+    document.getElementById('exec-scenario-name').textContent = 'No saved preview';
+    document.getElementById('exec-state-badge').className = '';
+    document.getElementById('exec-state-badge').textContent = 'idle';
+    toast('No saved preview steps for this scenario yet. Run it once to create memory.');
+    return;
+  }
   previewedScenarioKey = `${module}:${scenarioId}`;
   if (modules.length) renderModules(modules);
-  const scenario = { id: scenarioId, name: scenarioName || scenarioId.replace(/_/g,' '), module, description: scenarioDesc || '' };
-  showExecutionPreview(scenario, runner);
-  addLog(`Previewing ${scenario.name} before execution.`, 'phase');
+  const scenario = findModuleScenario(module, scenarioId) || { id: scenarioId, name: scenarioName || scenarioId.replace(/_/g,' '), module, description: scenarioDesc || '' };
+  showExecutionPreview(scenario, runner, savedSteps);
 }
 
 function previewScenarioFromPlan(layerType, runner, module, scenarioId, scenarioName, scenarioDesc) {
   const scenario = findScenarioInCurrentPlan(layerType, module, scenarioId) || { id: scenarioId, name: scenarioName || scenarioId.replace(/_/g,' '), module, description: scenarioDesc || '' };
-  showExecutionPreview(scenario, runner || runnerForLayer(layerType));
-  addLog(`Previewing planned ${humanLayer(layerType)} scenario: ${scenario.name}.`, 'phase');
+  const savedSteps = getSavedPreviewSteps(scenario);
+  if (!savedSteps.length) {
+    document.getElementById('plan-section').style.display = 'none';
+    document.getElementById('exec-scenario-name').textContent = 'No saved preview';
+    document.getElementById('exec-state-badge').className = '';
+    document.getElementById('exec-state-badge').textContent = 'idle';
+    toast('No saved preview steps for this scenario yet. Run it once to create memory.');
+    return;
+  }
+  showExecutionPreview(scenario, runner || runnerForLayer(layerType), savedSteps);
+}
+
+function findModuleScenario(module, scenarioId) {
+  return modules
+    .find(m => String(m.id) === String(module))
+    ?.scenarios
+    ?.find(s => String(s.id) === String(scenarioId)) || null;
+}
+
+function getSavedPreviewSteps(scenario = {}) {
+  if (scenario.cached && Array.isArray(scenario.memorySteps)) return scenario.memorySteps;
+  const stored = findModuleScenario(scenario.module, scenario.id || scenario.name);
+  return stored?.cached && Array.isArray(stored.memorySteps) ? stored.memorySteps : [];
 }
 
 function runnerForLayer(layerType) {
@@ -935,7 +1090,7 @@ function runnerForLayer(layerType) {
 
 function runScenario(module, scenarioId, scenarioName, scenarioDesc, forceRunner) {
   resetExec();
-  addLog(`User started ${scenarioName || scenarioId} in ${module}.`, 'phase');
+  addLog(`Executing ${scenarioName || scenarioId} in ${module}.`, 'phase');
   const runner = forceRunner || activeRunner;
   if (runner === 'ui') {
     // Standard Playwright scenario execution
@@ -951,12 +1106,12 @@ function runScenario(module, scenarioId, scenarioName, scenarioDesc, forceRunner
 }
 function runModule(modId) {
   resetExec();
-  addLog(`User started all ${activeRunner.toUpperCase()} checks in ${modId}.`, 'phase');
+  addLog(`Executing all ${activeRunner.toUpperCase()} checks in ${modId}.`, 'phase');
   ws.send(JSON.stringify({ type: 'run_module', data: { module: modId, runnerId: activeRunner, appId: currentApp?.id } }));
 }
 function runRegression() {
   resetExec();
-  addLog(`User started the full ${activeRunner.toUpperCase()} suite.`, 'phase');
+  addLog(`Executing the full ${activeRunner.toUpperCase()} suite.`, 'phase');
   ws.send(JSON.stringify({ type: 'run_regression', data: { runnerId: activeRunner, appId: currentApp?.id } }));
 }
 
@@ -971,7 +1126,6 @@ function sendChat() {
   addChatMsg(val, 'user');
   showTyping();
   updateChatPlaceholder('thinking');
-  addLog(`User asked: ${val}`, 'info');
   ws.send(JSON.stringify({ type: 'chat', data: val }));
 }
 
@@ -993,16 +1147,24 @@ function addChatMsg(text, who, intent) {
 }
 
 function restoreConversation(history = []) {
-  if (!history.length) return;
   const msgs = document.getElementById('chat-msgs');
   msgs.innerHTML = '';
+  if (!history.length) {
+    msgs.innerHTML = DEFAULT_CHAT;
+    return;
+  }
   history.slice(-12).forEach(turn => addChatMsg(turn.text, turn.role === 'user' ? 'user' : 'agent', turn.role === 'agent' ? 'memory' : null));
-  addLog(`Restored ${history.length} remembered conversation turn${history.length === 1 ? '' : 's'}.`, 'info');
 }
 
 function renderChatReply({ text, intent, scenarios }) {
   removeTyping();
-  addChatMsg(text, 'agent', intent);
+  const suppress = suppressNextWorkspaceChatReply && intent === 'system' && /^Switched to/i.test(text || '');
+  suppressNextWorkspaceChatReply = false;
+  if (suppress) {
+    // The workspace chrome already confirms the switch; avoid duplicating it in chat.
+  } else {
+    addChatMsg(text, 'agent', intent);
+  }
   if (intent === 'TEMP_SAVE' && pendingTemporarySavePrompt?.scenarios?.length) {
     addTemporarySaveActions();
   }
@@ -1013,7 +1175,6 @@ function renderChatReply({ text, intent, scenarios }) {
     setDashboardHighlights(scenarios);
     switchWorkspaceTab('dashboard');
   }
-  addLog(`Assistant mode: ${intent || 'reply'}.`, 'info');
   updateChatPlaceholder(intent === 'PLAN' ? 'planning' : 'idle');
 }
 
@@ -1062,6 +1223,7 @@ function renderMarkdown(text) {
 
 // ── Execution panel ───────────────────────────────────────────────────────────
 function onExecStart({ module, scenario, app, runner }) {
+  activeExecutionRunner = runner || null;
   document.getElementById('exec-scenario-name').textContent = `${module} / ${scenario}`;
   document.getElementById('plan-title').textContent = runner === 'api' ? 'API checks' : runner === 'data' ? 'Data checks' : runner === 'perf' ? 'Performance checks' : 'Browser steps';
   document.getElementById('exec-state-badge').className = 'running'; document.getElementById('exec-state-badge').textContent = 'running';
@@ -1081,6 +1243,16 @@ function onExecStart({ module, scenario, app, runner }) {
   if (runner === 'api') openApiConsole({ module, scenario, app });
 }
 
+function onScenarioStart(scenario = {}) {
+  const isApiScenario = scenario.runner === 'api' || activeExecutionRunner === 'api';
+  if (!isApiScenario) return;
+  openApiConsole({
+    module: scenario.module || 'API',
+    scenario: scenario.id || scenario.name || 'scenario',
+    app: currentApp?.name || 'Application',
+  });
+}
+
 let planOpen2 = true;
 function renderPlan(steps) {
   if (!steps?.length) return;
@@ -1097,7 +1269,7 @@ function renderPlan(steps) {
   document.getElementById('plan-chev').classList.add('open');
 }
 
-function showExecutionPreview(scenario, runner = activeRunner) {
+function showExecutionPreview(scenario, runner = activeRunner, savedSteps = []) {
   document.getElementById('exec-scenario-name').textContent = `${scenario.module} / ${scenario.name}`;
   document.getElementById('exec-state-badge').className = ''; document.getElementById('exec-state-badge').textContent = 'preview';
   const rb = document.getElementById('exec-runner-badge');
@@ -1108,10 +1280,11 @@ function showExecutionPreview(scenario, runner = activeRunner) {
     rb.style.color = clr[runner]||'#4F46E5';
     rb.style.borderColor = (clr[runner]||'#4F46E5') + '40';
   } else { rb.style.display = 'none'; }
-  const steps = previewStepsForScenario(scenario, runner);
+  const steps = previewStepsForScenario(savedSteps);
+  if (!steps.length) return;
   document.getElementById('plan-section').style.display = 'block';
   document.getElementById('plan-spin').style.display = 'none';
-  document.getElementById('plan-title').textContent = runner === 'api' ? 'API checks preview' : runner === 'data' ? 'Data checks preview' : runner === 'perf' ? 'Performance checks preview' : 'Browser steps preview';
+  document.getElementById('plan-title').textContent = 'Saved memory steps';
   const inner = document.getElementById('plan-inner');
   inner.innerHTML = `<div class="plan-preview-note">${esc(scenario.description || 'Review the checklist, then use the Run button when you are ready.')}</div>`;
   steps.forEach((s, i) => {
@@ -1124,42 +1297,15 @@ function showExecutionPreview(scenario, runner = activeRunner) {
   document.getElementById('plan-chev').classList.add('open');
 }
 
-function previewStepsForScenario(scenario, runner) {
-  if (Array.isArray(scenario?.steps) && scenario.steps.length) {
-    return scenario.steps.map(step => ({
+function previewStepsForScenario(savedSteps = []) {
+  if (Array.isArray(savedSteps) && savedSteps.length) {
+    return savedSteps.map(step => ({
       action: step.action || 'check',
       selector: step.selector || '',
-      value: step.value || step.selector || '',
+      value: step.value || step.target || step.selector || '',
     }));
   }
-  if (runner === 'api') return [
-    { action:'api_test', target:'GET /api/dataapp/employees -> 200 + dataset' },
-    { action:'api_test', target:'Validate employee schema for all records' },
-    { action:'api_test', target:'GET /api/dataapp/employees/1 -> matching record' },
-    { action:'api_test', target:'GET /api/dataapp/employees/999 -> 404 handling' },
-    { action:'api_test', target:'GET /api/dataapp/employees/summary -> aggregates' },
-    { action:'api_test', target:'POST /api/dataapp/validate -> accepts valid payload' },
-    { action:'api_test', target:'POST /api/dataapp/validate -> rejects invalid payload' },
-    { action:'api_test', target:'Check cross-endpoint data consistency' },
-  ];
-  if (runner === 'data') return [
-    { action:'open', value:'Data table page' },
-    { action:'check', value:'Fetch source data directly from API' },
-    { action:'check', value:'Compare rendered table rows with API records' },
-    { action:'check', value:'Verify filter, sort, pagination, and field values' },
-  ];
-  if (runner === 'perf') return [
-    { action:'open', value:'Target page' },
-    { action:'check', value:'Measure page load and render timing' },
-    { action:'check', value:'Measure interaction response where applicable' },
-    { action:'check', value:'Compare timings with performance budgets' },
-  ];
-  return [
-    { action:'navigate', value:`${scenario.module} page` },
-    { action:'check', value:'Required page elements are visible' },
-    { action:'click', value:scenario.name },
-    { action:'check', value:scenario.description || 'Expected user-facing result' },
-  ];
+  return [];
 }
 
 function humanStep(step = {}) {
@@ -1220,7 +1366,7 @@ function togglePlan() { planOpen2=!planOpen2; document.getElementById('plan-body
 
 // ── API run console ───────────────────────────────────────────────────────────
 function openApiConsole(meta = {}) {
-  apiConsole = { open:true, meta, steps:[], selected:0, summary:null, final:false };
+  apiConsole = { open:true, meta, steps:[], selected:0, summary:null, final:false, awaitingContinue:false };
   document.getElementById('api-console').classList.add('open');
   document.getElementById('api-console-title').textContent = `${meta.module || 'API'} / ${meta.scenario || 'run'}`;
   document.getElementById('api-console-sub').textContent = `${meta.app || currentApp?.name || 'Application'} · Live API execution`;
@@ -1229,12 +1375,17 @@ function openApiConsole(meta = {}) {
 }
 
 function closeApiConsole() {
+  const shouldContinue = apiConsole.awaitingContinue;
   apiConsole.open = false;
+  apiConsole.awaitingContinue = false;
   document.getElementById('api-console').classList.remove('open');
+  if (shouldContinue && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'api_console_closed', data: { appId: currentApp?.id || null } }));
+  }
 }
 
 function resetApiConsole() {
-  apiConsole = { open:false, meta:null, steps:[], selected:0, summary:null, final:false };
+  apiConsole = { open:false, meta:null, steps:[], selected:0, summary:null, final:false, awaitingContinue:false };
   document.getElementById('api-console').classList.remove('open');
   renderApiConsole();
 }
@@ -1248,7 +1399,7 @@ function setApiConsoleStatus(status) {
 }
 
 function updateApiConsoleStep(index, status, step = {}) {
-  if (!apiConsole.open && !apiConsole.meta) openApiConsole({ module:'API', scenario:'run', app:currentApp?.name });
+  if (!apiConsole.open) openApiConsole(apiConsole.meta || { module:'API', scenario:'run', app:currentApp?.name });
   const existing = apiConsole.steps[index] || {};
   apiConsole.steps[index] = normalizeApiConsoleStep(index, { ...existing, ...step, status });
   apiConsole.selected = index;
@@ -1272,8 +1423,27 @@ function finishApiConsoleFromReport(data) {
     duration: scenarioRows.reduce((n, r) => n + (Number(r.result?.summary?.duration) || 0), 0),
   };
   apiConsole.final = true;
+  apiConsole.awaitingContinue = false;
   setApiConsoleStatus(data.status);
   renderApiConsole();
+}
+
+function promptApiConsoleContinue(data = {}) {
+  if (!apiConsole.open) {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'api_console_closed', data: { appId: currentApp?.id || null, alreadyClosed: true } }));
+    }
+    return;
+  }
+  apiConsole.awaitingContinue = true;
+  apiConsole.final = true;
+  setApiConsoleStatus('waiting');
+  renderApiConsole();
+}
+
+function openReportFromApiConsole() {
+  closeApiConsole();
+  openDrawer('all');
 }
 
 function normalizeApiConsoleStep(index, raw = {}) {
@@ -1320,9 +1490,13 @@ function renderApiConsole() {
   document.getElementById('api-failed').textContent = failed;
   document.getElementById('api-assertions').textContent = assertions;
   document.getElementById('api-duration').textContent = duration ? `${duration}ms` : '—';
-  document.getElementById('api-console-note').textContent = apiConsole.final
-    ? (failed ? 'API run finished with failures. Select a failed check for assertion details.' : 'API run passed. The console remains open for inspection.')
-    : 'API requests are running live. Select any check to inspect its details.';
+  const reportBtn = document.getElementById('api-report-btn');
+  if (reportBtn) reportBtn.disabled = !apiConsole.final || apiConsole.awaitingContinue || !allScenarioData.length;
+  document.getElementById('api-console-note').textContent = apiConsole.awaitingContinue
+    ? 'Close this console to continue the remaining API scenarios.'
+    : apiConsole.final
+      ? (failed ? 'API run finished with failures. Select a failed check for assertion details.' : 'API run passed. The console remains open for inspection.')
+      : 'API requests are running live. Select any check to inspect its details.';
 
   timeline.innerHTML = steps.length ? steps.map(s => `
     <button class="api-step ${s.status} ${s.index === apiConsole.selected ? 'active' : ''}" onclick="selectApiStep(${s.index})">
@@ -1395,7 +1569,8 @@ function formatJson(value) {
 let pendingDiff = null;
 function showHealCard(d) {
   const card = document.getElementById('heal-card');
-  card.style.display = 'block';
+  card.style.display = 'none';
+  card.innerHTML = '';
   const clf = d.classification || {};
   const canHeal = d.canHeal !== false;
   const colorMap = {
@@ -1408,10 +1583,14 @@ function showHealCard(d) {
   };
   const C = colorMap[clf.type] || colorMap.UNKNOWN;
   const preview = d.healPreview;
-  card.innerHTML = `
-    <div class="heal-section" style="background:${C.bg};border:1px solid ${C.border};border-radius:var(--rl)">
-      <div class="heal-header">
-        <div class="heal-dot" style="background:${C.text}"></div>
+  document.getElementById('heal-chat-card')?.closest('.msg-wrap')?.remove();
+  const wrap = document.createElement('div');
+  wrap.className = 'msg-wrap agent';
+  wrap.innerHTML = `
+    <div class="bubble agent heal-chat-bubble" id="heal-chat-card">
+	    <div class="heal-section" style="background:${C.bg};border:1px solid ${C.border};border-radius:var(--rl)">
+	      <div class="heal-header">
+	        <div class="heal-dot" style="background:${C.text}"></div>
         <span class="heal-title" style="color:${C.text}">${C.label}</span>
       </div>
       <div class="heal-error" style="background:rgba(0,0,0,0.2);color:var(--t2);border:1px solid rgba(255,255,255,0.05)">${esc(d.error)}</div>
@@ -1422,38 +1601,74 @@ function showHealCard(d) {
         <div class="heal-preview-list">${preview.candidates.map(c=>`<div>${esc(c)}</div>`).join('')}
           <div class="heal-preview-note">From: ${esc(preview.liveUrl||'')} · ${preview.domElementCount||0} elements</div>
         </div>` : ''}
-      ${!canHeal ? `<div class="heal-bug-note">Auto-heal cannot fix application behaviour issues. This needs developer investigation.</div>` : ''}
-      <div class="heal-buttons">
-        ${canHeal ? `<button class="hbtn heal" onclick="sendHealAnswer('heal')">⊕ Auto-heal selector</button>` : ''}
-        <button class="hbtn ${canHeal?'stop':'bug'}" onclick="sendHealAnswer('stop')">${canHeal ? 'Stop' : 'Stop & Report Bug'}</button>
-      </div>
-    </div>`;
+      ${!canHeal ? `<div class="heal-bug-note">${clf.type === 'UNKNOWN' ? 'The system could not confidently classify this failure. Please review it manually before changing the test plan.' : 'Auto-heal cannot fix application behaviour issues. This needs developer investigation.'}</div>` : ''}
+	      <div class="heal-buttons">
+	        ${canHeal ? `<button class="hbtn heal" onclick="sendHealAnswer('heal')">⊕ Auto-heal selector</button>` : ''}
+	        <button class="hbtn ${canHeal?'stop':'bug'}" onclick="sendHealAnswer('stop')">${canHeal ? 'Stop' : clf.type === 'UNKNOWN' ? 'Mark for manual review' : 'Stop & Report Bug'}</button>
+	      </div>
+	    </div>
+    </div>
+    <span class="msg-ts">${now()}</span>`;
+  const msgs = document.getElementById('chat-msgs');
+  msgs.appendChild(wrap);
+  msgs.scrollTop = msgs.scrollHeight;
 }
-function hideHealCard() { document.getElementById('heal-card').style.display='none'; document.getElementById('heal-card').innerHTML=''; }
+function hideHealCard() {
+  document.getElementById('heal-card').style.display='none';
+  document.getElementById('heal-card').innerHTML='';
+  document.getElementById('heal-chat-card')?.closest('.msg-wrap')?.remove();
+}
 function sendHealAnswer(val) {
-  hideHealCard();
+  const card = document.getElementById('heal-chat-card') || document.getElementById('heal-card');
+  card.querySelectorAll('button').forEach(btn => { btn.disabled = true; btn.style.opacity = '0.55'; btn.style.cursor = 'default'; });
+  const section = card.querySelector('.heal-section');
+  if (section && !card.querySelector('.heal-choice-note')) {
+    const note = document.createElement('div');
+    note.className = 'heal-choice-note';
+    note.style.cssText = 'padding:8px 10px;color:var(--t2);font-size:11px;border-top:1px solid var(--border)';
+    note.textContent = val === 'heal' ? 'Auto-heal selected. The system is retrying with live page context.' : 'Manual review selected. The run will stop without changing the plan.';
+    section.appendChild(note);
+  }
   ws.send(JSON.stringify({ type: 'heal_answer', data: val }));
 }
 
 // ── Log ───────────────────────────────────────────────────────────────────────
 function addLog(text, level='info') {
   if (!text?.trim()) return;
+  if (!shouldShowRunNote(text, level)) return;
   const s = document.getElementById('log-stream');
   const el = document.createElement('div');
   const narrative = naturalizeLog(text, level);
+  const showDetail = shouldShowTechnicalDetail(text, level);
   el.className = `nlog ${level}`;
   el.innerHTML = `
     <div class="nlog-h">
       <span class="nlog-dot"></span>
       <div style="flex:1">
-        <div class="nlog-text">${esc(narrative)}</div>
-        <details>
+        <div class="nlog-main"><div class="nlog-text">${esc(narrative)}</div><span class="nlog-time">${now()}</span></div>
+        ${showDetail ? `<details>
           <summary>Technical detail</summary>
           <div class="nlog-raw">${esc(text)}</div>
-        </details>
+        </details>` : ''}
       </div>
     </div>`;
-  s.appendChild(el); s.scrollTop = s.scrollHeight;
+  s.appendChild(el);
+  while (s.children.length > 80) s.removeChild(s.firstElementChild);
+  s.scrollTop = s.scrollHeight;
+}
+
+function shouldShowRunNote(text, level='info') {
+  const raw = String(text || '').toLowerCase();
+  if (/^previewing|^user asked|assistant mode|session restored|checking conversation mode|understanding request/.test(raw)) return false;
+  if (/decision:\s*(plan|execute|design|explore)/.test(raw)) return false;
+  if (/planning workspace opened|adding .* to the current plan|removing .* from the current plan/.test(raw)) return false;
+  return level === 'error' || level === 'warn' || level === 'success' || level === 'phase' ||
+    /cache hit|no cached plan|generated|cached:|loading documentation|capturing live browser dom|asking llm|api validation|schema:|404 handling|summary:|post \/validate|consistency:|failure:|heal|execut|resolved \d+ runnable|saved|temporary scenario/.test(raw);
+}
+
+function shouldShowTechnicalDetail(text, level='info') {
+  const raw = String(text || '').toLowerCase();
+  return level === 'error' || /failure:|dom captured|sending live dom|api|payload|response|heal|selector|timeout|locator/.test(raw);
 }
 
 function naturalizeLog(text, level='info') {
@@ -1546,8 +1761,13 @@ function fireChip(question) {
 }
 
 function showReport(data) {
+  renderReportState(data);
+}
+
+function renderReportState(data, { silent = false } = {}) {
   lastReportData = data; const s = data.summary || {};
-  finishApiConsoleFromReport(data);
+  allScenarioData = data.scenarios || [];
+  if (!silent) finishApiConsoleFromReport(data);
   document.getElementById('m-total').textContent  = s.total  ?? 0;
   document.getElementById('m-pass').textContent   = s.passed ?? 0;
   document.getElementById('m-fail').textContent   = s.failed ?? 0;
@@ -1558,23 +1778,24 @@ function showReport(data) {
   const passedRun = data.status === 'success' || data.status === 'pass';
   badge.textContent = passedRun ? 'passed' : 'failed';
   badge.className = passedRun ? (s.healed ? 'healed' : 'passed') : 'failed';
-  allScenarioData = data.scenarios || [];
   buildDrawer(data);
-  showQuickChips(data);
+  if (!silent) showQuickChips(data);
   updatePlanningFromReport(data);
-  addChatMsg(reportSummaryText(data), 'agent', data.status === 'success' || data.status === 'pass' ? 'SUCCESS' : 'FAILED');
-  addLog(reportSummaryText(data), data.status === 'success' || data.status === 'pass' ? 'success' : 'error');
+  if (!silent) {
+    addChatMsg(reportSummaryText(data), 'agent', data.status === 'success' || data.status === 'pass' ? 'SUCCESS' : 'FAILED');
+    addLog(reportSummaryText(data), data.status === 'success' || data.status === 'pass' ? 'success' : 'error');
+  }
   updateChatPlaceholder(s.failed > 0 ? 'failed' : 'postrun');
 }
 
 function reportSummaryText(data) {
   const s = data.summary || {};
-  const passed = s.passed ?? 0;
   const failed = s.failed ?? 0;
-  const skipped = s.skipped ?? 0;
   const healed = s.healed ?? 0;
-  if (failed > 0) return `The run finished with **${failed} failed**, ${passed} passed, ${skipped} skipped, and ${healed} healed. Ask me why it failed or open the report.`;
-  return `The run passed: **${passed + healed}/${s.total ?? 0} checks successful**${healed ? `, including ${healed} healed` : ''}. You can ask for a summary or run another focused check.`;
+  const names = (data.scenarios || []).map(r => `**${r.scenario?.name || 'Scenario'}**`).join(', ') || 'the selected scenario';
+  if (failed > 0) return `The run exercised ${names}, but it stopped on behavior that still needs review. Ask me why it failed or open the report for the failing step.`;
+  if (healed > 0) return `The run exercised ${names}. It found an automation mismatch, repaired the step using the live page, retried, and then passed. Ask what auto-heal changed for the exact repair.`;
+  return `The run exercised ${names}. It prepared the steps, completed the browser flow, and confirmed the expected result without needing repair.`;
 }
 
 function isResultPassed(status) { return status === 'success' || status === 'pass'; }
@@ -1668,7 +1889,7 @@ function exportReport() {
 function copyReport() {
   if(!lastReportData)return;
   const s=lastReportData.summary||{};
-  const lines=[`QA Sentinel — ${new Date().toLocaleString()}`,`${s.passed}/${s.total} passed (${s.healed} healed, ${s.failed} failed)`,'',...(lastReportData.scenarios||[]).map(r=>`${isResultPassed(r.result?.status)?'✓':isResultSkipped(r.result?.status)?'○':'✗'} ${r.scenario?.name} [${r.scenario?.module}]${r.healCount?` (healed×${r.healCount})`:''}`).join('\n')];
+  const lines=[`QA Assistant — ${new Date().toLocaleString()}`,`${s.passed}/${s.total} passed (${s.healed} healed, ${s.failed} failed)`,'',...(lastReportData.scenarios||[]).map(r=>`${isResultPassed(r.result?.status)?'✓':isResultSkipped(r.result?.status)?'○':'✗'} ${r.scenario?.name} [${r.scenario?.module}]${r.healCount?` (healed×${r.healCount})`:''}`).join('\n')];
   navigator.clipboard.writeText(lines.join('\n'));toast('Copied');
 }
 
@@ -1693,11 +1914,11 @@ function showPlanProposal(plan) {
   planLayerStates = {};
   planScenarioStates = {};
   skippedPlanLayers = new Set();
-  document.getElementById('pw-run-all').disabled = false;
+  document.getElementById('pw-run-all').disabled = !planHasRunnableScenarios(plan);
+  document.getElementById('pw-run-all').style.display = planHasRunnableScenarios(plan) ? '' : 'none';
   document.getElementById('pw-run-all').textContent = 'Run plan';
   renderPlanningWorkspace(plan);
   switchWorkspaceTab('plan');
-  addLog(`Planning workspace opened for ${plan.feature || 'the requested test plan'}.`, 'phase');
   updateChatPlaceholder('planning');
 }
 
@@ -1713,6 +1934,10 @@ function renderPlanningWorkspace(plan) {
 
   title.textContent = plan.feature || 'Test plan';
   sub.textContent = `${moduleCount} module${moduleCount === 1 ? '' : 's'} · ${layers.length} test layer${layers.length === 1 ? '' : 's'} · ${scenarioCount} scenario${scenarioCount === 1 ? '' : 's'}. ${plan.risk_reason || 'Review the order, then run the plan when ready.'}`;
+  const runAll = document.getElementById('pw-run-all');
+  runAll.style.display = scenarioCount ? '' : 'none';
+  runAll.disabled = !scenarioCount;
+  runAll.textContent = planCompleted ? 'Run again' : 'Run plan';
 
   const order = plan.recommended_order?.length ? plan.recommended_order : layers.map(l => l.type);
   flow.innerHTML = order.map((type, i) => {
@@ -1750,8 +1975,7 @@ function renderPlanningWorkspace(plan) {
     Object.values(byLayer).forEach(({ layer, layerIndex, scenarios }) => {
       const meta = LAYER_META[layer.type] || LAYER_META.UI;
       const layerState = planLayerStates[layer.type] || 'pending';
-      const completed = ['passed', 'failed', 'healed', 'skipped'].includes(layerState);
-      const runLabel = completed ? 'Run again' : 'Run layer';
+      const hideLayerActions = planCompleted || !scenarios.length;
       const layerEl = document.createElement('div');
       layerEl.className = 'pw-layer';
       layerEl.dataset.layer = layer.type;
@@ -1763,22 +1987,23 @@ function renderPlanningWorkspace(plan) {
             <div class="pw-layer-reason">${esc(layer.reason || 'Planned coverage for this module.')}${layer.depends_on ? ` · Depends on ${esc(layer.depends_on)}` : ''}</div>
           </div>
           <span class="pw-status ${layerState}" data-layer-status="${layer.type}">${layerState}</span>
-          <div class="pw-layer-actions">
+          <div class="pw-layer-actions" style="${hideLayerActions ? 'display:none' : ''}">
             <button class="pw-layer-btn" onclick="addScenarioToPlan(${jsArg(layer.type)},${jsArg(layer.runner || 'ui')},${jsArg(mod)})">Add scenario</button>
-            <button class="pw-layer-btn" onclick="runPlan(${layerIndex})">${runLabel}</button>
+            <button class="pw-layer-btn" onclick="runPlan(${layerIndex})">Run layer</button>
             ${planCompleted ? '' : `<button class="pw-layer-btn" onclick="markLayerSkipped('${layer.type}')">Skip</button>`}
           </div>
         </div>
         <div class="pw-scenarios">
-          ${scenarios.map(s => {
-            const key = scenarioKey(layer.type, s);
-            const state = planScenarioStates[key] || 'pending';
-            return `<div class="pw-scen ${state === 'running' ? 'active' : ''}" data-scenario-key="${esc(key)}">
-              <span class="pw-scen-main">${esc(s.name || s.id)}${s.temporary ? '<span class="pw-scen-temp">temporary</span>' : ''}${s.description ? ` · ${esc(s.description)}` : ''}</span>
-              <span class="pw-scen-actions">
-                <button class="pw-scen-btn" onclick='previewScenarioFromPlan(${jsArg(layer.type)},${jsArg(layer.runner || 'ui')},${jsArg(s.module || 'general')},${jsArg(s.id || s.name || 'scenario')},${jsArg(s.name || s.id || 'Scenario')},${jsArg(s.description || layer.reason || '')})'>Preview</button>
-                <button class="pw-scen-btn danger" onclick='removeScenarioFromPlan(${jsArg(layer.type)},${jsArg(s.module || 'general')},${jsArg(s.id || s.name || 'scenario')})'>Remove</button>
-              </span>
+	          ${scenarios.map(s => {
+	            const key = scenarioKey(layer.type, s);
+	            const state = planScenarioStates[key] || 'pending';
+	            const canPreview = getSavedPreviewSteps(s).length > 0;
+	            return `<div class="pw-scen ${state === 'running' ? 'active' : ''}" data-scenario-key="${esc(key)}">
+	              <span class="pw-scen-main">${esc(s.name || s.id)}${s.temporary ? '<span class="pw-scen-temp">temporary</span>' : ''}${s.description ? ` · ${esc(s.description)}` : ''}</span>
+	              <span class="pw-scen-actions">
+	                ${canPreview ? `<button class="pw-scen-btn" onclick='previewScenarioFromPlan(${jsArg(layer.type)},${jsArg(layer.runner || 'ui')},${jsArg(s.module || 'general')},${jsArg(s.id || s.name || 'scenario')},${jsArg(s.name || s.id || 'Scenario')},${jsArg(s.description || layer.reason || '')})'>Preview</button>` : ''}
+	                ${planCompleted ? '' : `<button class="pw-scen-btn danger" onclick='removeScenarioFromPlan(${jsArg(layer.type)},${jsArg(s.module || 'general')},${jsArg(s.id || s.name || 'scenario')})'>Remove</button>`}
+	              </span>
               <span class="pw-status ${state}">${state}</span>
             </div>`;
           }).join('')}
@@ -1811,6 +2036,10 @@ function updatePlanningFromReport(data) {
   renderPlanningWorkspace(currentPlan);
 }
 
+function planHasRunnableScenarios(plan) {
+  return (plan?.layers || []).some(l => (l.scenarios || []).length);
+}
+
 function resultToPlanState(status, healCount=0) {
   if (healCount > 0) return 'healed';
   if (status === 'success' || status === 'pass') return 'passed';
@@ -1837,25 +2066,35 @@ function findScenarioInCurrentPlan(layerType, module, scenarioId) {
 
 function removeScenarioFromPlan(layerType, module, scenarioId) {
   if (!currentPlan) return;
+  if (planCompleted) {
+    toast('Completed plans are read-only. Use Run again or Preview.');
+    return;
+  }
   ws.send(JSON.stringify({
     type: 'edit_plan',
     data: { action: 'remove_scenario', layerType, module, scenarioId },
   }));
-  addLog(`Removing ${scenarioId} from the current plan.`, 'phase');
 }
 
 function addScenarioToPlan(layerType, runner, module) {
   if (!currentPlan) return;
+  if (planCompleted) {
+    toast('Completed plans are read-only. Use Run again or Preview.');
+    return;
+  }
   const label = window.prompt('Scenario to add');
   if (!label?.trim()) return;
   ws.send(JSON.stringify({
     type: 'edit_plan',
     data: { action: 'add_scenario', layerType, runner, module, label: label.trim() },
   }));
-  addLog(`Adding ${label.trim()} to the current plan.`, 'phase');
 }
 
 function markLayerSkipped(layerType) {
+  if (planCompleted) {
+    toast('Completed plans are read-only. Use Run again or Preview.');
+    return;
+  }
   skippedPlanLayers.add(layerType);
   planLayerStates[layerType] = 'skipped';
   if (currentPlan) renderPlanningWorkspace(currentPlan);
@@ -1895,7 +2134,7 @@ function runPlan(layerIndex) {
   planCompleted = false;
   document.getElementById('pw-run-all').textContent = 'Run plan';
   renderPlanningWorkspace(currentPlan);
-  addLog(`User started ${layerIndex == null ? 'the full visual plan' : 'one layer from the visual plan'}.`, 'phase');
+  addLog(`Executing ${layerIndex == null ? 'the full visual plan' : 'one layer from the visual plan'}.`, 'phase');
   ws.send(JSON.stringify({ type: 'run_plan', data: { plan: runnablePlan, layerIndex } }));
 }
 
@@ -1910,7 +2149,6 @@ function setAgentState(state) {
   else updateChatPlaceholder(lastReportData?.summary?.failed > 0 ? 'failed' : 'idle');
 }
 function resetExec() {
-  addLog('Starting a new execution activity.', 'phase');
   resetApiConsole();
   previewedScenarioKey = null;
   document.getElementById('plan-section').style.display='none';

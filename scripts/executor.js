@@ -59,18 +59,21 @@ export async function runSteps(steps, { browser, baseUrl, onStep, onLog, onFail 
 
       try {
         // ── Action normalization — map LLM variants to valid executor actions ──
-        const ACTION_MAP = {
-          'navigateto':        'navigate',
-          'goto':              'navigate',
-          'fillfield':         'fill',
-          'inputtext':         'type',
-          'entertext':         'type',
-          'setvalue':          'type',
-          'clickbutton':       'click',
-          'clickelement':      'click',
-          'tapbutton':         'click',
-          'selectoption':      'select',
-          'chooseoption':      'select',
+	        const ACTION_MAP = {
+	          'navigateto':        'navigate',
+	          'goto':              'navigate',
+	          'pagegoto':          'navigate',
+	          'fillfield':         'fill',
+	          'pagefill':          'fill',
+	          'inputtext':         'type',
+	          'entertext':         'type',
+	          'setvalue':          'type',
+	          'clickbutton':       'click',
+	          'clickelement':      'click',
+	          'tapbutton':         'click',
+	          'pageclick':         'click',
+	          'selectoption':      'select',
+	          'chooseoption':      'select',
           'assertelementvisible': 'expect',
           'assertvisible':     'expect',
           'assertelement':     'expect',
@@ -78,16 +81,18 @@ export async function runSteps(steps, { browser, baseUrl, onStep, onLog, onFail 
           'verifyelement':     'expect',
           'verifyvisible':     'expect',
           'checkvisible':      'expect',
-          'verifytext':        'assertText',
+	          'expecttext':        'assertText',
+	          'verifytext':        'assertText',
+	          'checktext':         'assertText',
           'assertcontains':    'assertText',
           'interactwith':      'type',
           'waitfor':           'wait',
           'pause':             'wait',
           'verifyurl':         'expectUrl',
-          'checkurl':          'expectUrl',
-          'asserturl':         'expectUrl',
-        };
-        const rawAction = step.action.toLowerCase().replace(/[_\s-]/g, '');
+	          'checkurl':          'expectUrl',
+	          'asserturl':         'expectUrl',
+	        };
+	        const rawAction = step.action.toLowerCase().replace(/^page\./, '').replace(/^locator\./, '').replace(/[^a-z0-9]/g, '');
         const normalizedAction = ACTION_MAP[rawAction] || step.action;
         // Patch step in-place so error messages show the normalized action
         if (normalizedAction !== step.action) {
@@ -142,6 +147,7 @@ export async function runSteps(steps, { browser, baseUrl, onStep, onLog, onFail 
             await page.waitForLoadState('networkidle', { timeout: 10000 });
             break;
           case 'asserttext': {
+            await page.waitForTimeout(500); // allow time for text to update
             await page.waitForSelector(step.selector, { state: 'visible' });
             const content = await page.textContent(step.selector);
             if (!content.includes(step.value)) {

@@ -73,9 +73,28 @@ export function speakResultQuestion(userInput, lastRun) {
   const healed = rows.filter(r => r.healCount > 0);
   const passed = rows.filter(r => isPassed(r.result?.status));
 
+  if (/\b(auto[-\s]?heal|heal|healed|repair|repaired|change|changed|fix|fixed)\b/.test(lower)) {
+    if (!healed.length) {
+      return `The last run did not use auto-heal. It completed without a repaired step, so there is no selector change to explain.`;
+    }
+    const lines = healed.slice(0, 4).map(r => {
+      const meta = r.healMeta || {};
+      const failedStep = meta.failedStep || {};
+      const fixedStep = meta.fixedStep || {};
+      const before = failedStep.selector || failedStep.value || failedStep.action || 'the original step';
+      const after = fixedStep.selector || fixedStep.value || fixedStep.action || 'the repaired step';
+      const classification = meta.classification?.reason || 'The original step did not match the live page.';
+      return `- **${r.scenario?.name || 'Scenario'}**: auto-heal changed step ${(meta.failedIndex ?? 0) + 1} from \`${before}\` to \`${after}\`. ${classification}`;
+    });
+    return `Auto-heal was used because the planned step looked like an automation mismatch, not a product failure.\n${lines.join('\n')}\nAfter retrying with the repaired step, the scenario passed and the repaired plan was saved for future runs.`;
+  }
+
   if (/\bwhy|fail|failed|what failed|explain\b/.test(lower)) {
     if (!failed.length) {
-      return `The last run did not fail. It finished with ${passed.length} passed, ${s.skipped || 0} skipped, and ${healed.length} healed.`;
+      if (healed.length) {
+        return `The last run did not end as a product failure. It first hit an automation mismatch, auto-heal repaired the step, then the scenario passed on retry. Ask “what did auto-heal change?” for the exact repaired selector.`;
+      }
+      return `The last run did not fail. The scenario completed normally, so there is no failure to diagnose.`;
     }
     const lines = failed.slice(0, 4).map(r => {
       const firstFailedStep = (r.result?.results || []).find(x => isFailed(x.status));
@@ -88,7 +107,16 @@ export function speakResultQuestion(userInput, lastRun) {
     return `Here’s what failed in the last run:\n${lines.join('\n')}`;
   }
 
-  return `Last run summary: **${s.total || rows.length} total**, ${s.passed || passed.length} passed, ${s.failed || failed.length} failed, ${s.skipped || 0} skipped, and ${s.healed || healed.length} healed.`;
+  if (!rows.length) return `The last run completed, but no scenario details were captured.`;
+
+  const scenarioNames = rows.map(r => `**${r.scenario?.name || 'Scenario'}**`).join(', ');
+  if (failed.length) {
+    return `The run exercised ${scenarioNames}. It started the planned steps, stopped at the first failing behavior, and kept the failure details for review. The failure appears in the report drawer and run notes.`;
+  }
+  if (healed.length) {
+    return `The run exercised ${scenarioNames}. It generated or reused the browser steps, hit an automation mismatch, repaired the step with the live page context, retried the scenario, and then passed. The repaired steps are now reusable for the next run.`;
+  }
+  return `The run exercised ${scenarioNames}. It prepared the steps, opened the target page, completed the planned interactions, and confirmed the expected result without needing repair.`;
 }
 
 function humanLayer(type) {

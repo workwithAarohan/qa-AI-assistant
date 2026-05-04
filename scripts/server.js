@@ -1,5 +1,5 @@
 /**
- * QA Sentinel v2 — server-v2.js
+ * QA Assistant v2 — server-v2.js
  * Three-panel architecture: Chat | Dashboard | Execution+Report
  */
 import express from 'express';
@@ -15,7 +15,7 @@ dotenv.config();
 import { think, planFeature, generateAllScenarioSteps, fixSteps, recordOutcome, recordHeal, recordFailure } from './agent.js';
 import { runSteps } from './executor.js';
 import { validatePlan } from './validator.js';
-import { saveToMemory, findSimilarPlan, listMemory, repairMemory } from './memory.js';
+import { saveToMemory, findSimilarPlan, listMemory, repairMemory, deleteFromMemory } from './memory.js';
 import { loadAllDocs } from './context.js';
 import { captureBrowserContext } from './browser-context.js';
 import { classifyFailure, DECISION_META } from './failure-classifier.js';
@@ -47,6 +47,15 @@ function loadApps() {
 function getApp(id) { return loadApps().find(a => a.id === id) || loadApps()[0]; }
 
 // ── Module loading ────────────────────────────────────────────────────────────
+function memoryPreviewSteps(plan) {
+  return (plan?.steps || []).map(step => ({
+    action: step.action,
+    selector: step.selector || '',
+    value: step.value || '',
+    target: step.target || '',
+  }));
+}
+
 function loadModulesForApp(app) {
   try {
     const docs = loadAllDocs(app.docsDir);
@@ -57,8 +66,16 @@ function loadModulesForApp(app) {
       const scenarios = secM
         ? secM[1].trim().split('\n').map(l => { const m = l.match(/[-*]\s*([a-z_]+):\s*(.+)/i); return m ? { id: m[1].trim().toLowerCase(), name: m[1].trim().replace(/_/g,' '), description: m[2].trim(), module: doc.name } : null; }).filter(Boolean)
         : [];
-      const cachedCount = scenarios.filter(s => !!findSimilarPlan(doc.name, s.id)).length;
-      return { id: doc.name, name: doc.name.charAt(0).toUpperCase() + doc.name.slice(1), description: descM?.[1]?.trim()?.split('\n')[0] || '', url: urlM?.[1] || '', scenarios, cachedCount };
+      const hydratedScenarios = scenarios.map(s => {
+        const cachedPlan = findSimilarPlan(app.id, doc.name, s.id);
+        return {
+          ...s,
+          cached: !!cachedPlan,
+          memorySteps: cachedPlan ? memoryPreviewSteps(cachedPlan) : null,
+        };
+      });
+      const cachedCount = hydratedScenarios.filter(s => s.cached).length;
+      return { id: doc.name, name: doc.name.charAt(0).toUpperCase() + doc.name.slice(1), description: descM?.[1]?.trim()?.split('\n')[0] || '', url: urlM?.[1] || '', scenarios: hydratedScenarios, cachedCount };
     });
   } catch { return []; }
 }
@@ -67,8 +84,50 @@ function loadModulesForApp(app) {
 const connState = new WeakMap();
 const sessionState = new Map();
 function getState(ws) {
-  if (!connState.has(ws)) connState.set(ws, { currentApp: loadApps()[0], lastRun: null, currentPlan: null, history: [], temporaryScenarioPlans: {}, pendingScenarioSaves: [] });
+  if (!connState.has(ws)) {
+    const firstApp = loadApps()[0];
+    connState.set(ws, { currentAppId: firstApp.id, workspaces: {} });
+  }
   return connState.get(ws);
+}
+
+function createWorkspace() {
+  return {
+    lastRun: null,
+    currentPlan: null,
+    history: [],
+    temporaryScenarioPlans: {},
+    pendingScenarioSaves: [],
+  };
+}
+
+function getCurrentApp(st) {
+  return getApp(st.currentAppId || loadApps()[0]?.id);
+}
+
+function getWorkspace(st, appId = st.currentAppId) {
+  const id = appId || loadApps()[0]?.id || 'testapp';
+  if (!st.workspaces) st.workspaces = {};
+  if (!st.workspaces[id]) st.workspaces[id] = createWorkspace();
+  return st.workspaces[id];
+}
+
+function getActiveContext(st) {
+  const app = getCurrentApp(st);
+  const workspace = getWorkspace(st, app.id);
+  workspace.currentApp = app;
+  return { app, workspace };
+}
+
+function sendWorkspaceState(ws, st, app = getCurrentApp(st)) {
+  const workspace = getWorkspace(st, app.id);
+  send(ws, 'workspace_state', {
+    appId: app.id,
+    history: workspace.history || [],
+    currentPlan: workspace.currentPlan || null,
+    lastRun: workspace.lastRun || null,
+    pendingScenarioSaves: workspace.pendingScenarioSaves || [],
+  });
 }
 
 // Add a turn to conversation history — keep last 5 only
@@ -92,18 +151,16 @@ app.get('/profile',   (_, r) => r.sendFile(path.join(ROOT, 'public', 'profile.ht
 // REST API
 app.get('/api/apps',           (_, res) => res.json(loadApps()));
 app.get('/api/modules/:appId', (req, res) => { try { res.json(loadModulesForApp(getApp(req.params.appId))); } catch(e) { res.status(500).json({error:e.message}); }});
-app.get('/api/memory',         (_, res) => { try { res.json({plans:listMemory()}); } catch(e) { res.status(500).json({error:e.message}); }});
+app.get('/api/memory',         (req, res) => { try { res.json({plans:listMemory(req.query.appId || null)}); } catch(e) { res.status(500).json({error:e.message}); }});
 app.delete('/api/memory/:mod/:scen', (req, res) => {
   try {
-    const mp = path.join(process.cwd(), 'memory.json');
-    const mem = fs.existsSync(mp) ? JSON.parse(fs.readFileSync(mp,'utf8')) : {};
+    const appId = req.query.appId || loadApps()[0]?.id || 'testapp';
     const key = `${req.params.mod}__${req.params.scen}`;
-    const deleted = !!mem[key]; delete mem[key];
-    fs.writeFileSync(mp, JSON.stringify(mem,null,2));
-    res.json({deleted,key});
+    const deleted = deleteFromMemory(appId, req.params.mod, req.params.scen);
+    res.json({deleted,key,appId});
   } catch(e) { res.status(500).json({error:e.message}); }
 });
-app.post('/api/memory/repair', (_, res) => { try { res.json(repairMemory()); } catch(e) { res.status(500).json({error:e.message}); }});
+app.post('/api/memory/repair', (req, res) => { try { res.json(repairMemory(req.query.appId || null)); } catch(e) { res.status(500).json({error:e.message}); }});
 
 // ── DataApp mock API ──────────────────────────────────────────────────────────
 app.use('/api/dataapp', mockApiRouter);
@@ -593,7 +650,8 @@ async function runSpecialistSuite(ws, runnerId, scenarios, runApp, type = 'runne
 
   const results = [];
   let stepOffset = 0;
-  for (const scenario of filtered) {
+  for (let i = 0; i < filtered.length; i++) {
+    const scenario = filtered[i];
     phase(ws, `── [${runnerId.toUpperCase()}] ${scenario.module}/${scenario.name} ──`);
     send(ws, 'scenario_start', scenario);
     try {
@@ -608,6 +666,9 @@ async function runSpecialistSuite(ws, runnerId, scenarios, runApp, type = 'runne
     } catch (e) {
       log(ws, `${scenario.name}: ${e.message}`, 'error');
       results.push({ scenario, result: { status: 'fail', steps: [], error: e.message }, healCount: 0, healMeta: null });
+    }
+    if (runnerId === 'api' && i < filtered.length - 1) {
+      await requestApiConsoleCloseBeforeContinue(ws, scenario, filtered.length - i - 1);
     }
     await new Promise(r => setTimeout(r, 300));
   }
@@ -625,18 +686,57 @@ function waitForHealAnswer(ws, ms = 1_800_000) {
   });
 }
 
+function waitForApiConsoleClosed(ws, ms = 1_800_000) {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => { ws.off('message', h); reject(new Error('Timeout')); }, ms);
+    function h(raw) {
+      try {
+        const m = JSON.parse(raw);
+        if (m.type === 'api_console_closed') {
+          clearTimeout(t);
+          ws.off('message', h);
+          resolve(m.data || {});
+        }
+      } catch {}
+    }
+    ws.on('message', h);
+  });
+}
+
+async function requestApiConsoleCloseBeforeContinue(ws, scenario, remaining) {
+  send(ws, 'api_console_continue_required', {
+    scenario,
+    remaining,
+    text: `Close the API console to continue ${remaining} remaining API scenario${remaining === 1 ? '' : 's'}.`,
+  });
+  log(ws, `Waiting for API console to close before continuing ${remaining} remaining scenario${remaining === 1 ? '' : 's'}.`, 'info');
+  try {
+    await waitForApiConsoleClosed(ws);
+  } catch {
+    log(ws, 'API console close wait timed out. Continuing the run.', 'warn');
+  }
+}
+
 function injectUrl(plan, baseUrl) {
   if (!baseUrl || !plan?.steps) return plan;
   let origin = baseUrl;
   try { origin = new URL(baseUrl).origin; } catch {}
+  const navActions = new Set(['navigate', 'goto', 'navigateto']);
   return {
     ...plan,
     steps: plan.steps.map(s => {
-      if (s.action !== 'navigate' || !s.value || s.value.startsWith('http')) return s;
-      const path = s.value.startsWith('/') ? s.value : '/' + s.value;
-      return { ...s, value: origin + path };
+      const action = String(s.action || '').toLowerCase().replace(/[_\s-]/g, '');
+      const value = s.value || s.url || s.target || s.href;
+      if (!navActions.has(action) || !value || String(value).startsWith('http')) return s;
+      const path = String(value).startsWith('/') ? String(value) : '/' + String(value);
+      return { ...s, action: 'navigate', value: origin + path };
     }),
   };
+}
+
+function moduleUrlFromDoc(docContent, fallbackUrl) {
+  const urlM = String(docContent || '').match(/##\s*URL\s*\n(https?:\/\/[^\s]+)/i);
+  return urlM?.[1] || fallbackUrl;
 }
 
 // ── Live DOM ──────────────────────────────────────────────────────────────────
@@ -709,7 +809,7 @@ async function getPlan(scenario, app, ws = null, options = {}) {
   }
 
   // 1. Memory cache — fast path
-  const cached = allowMemorySave ? findSimilarPlan(scenario.module, scenario.id) : null;
+  const cached = allowMemorySave ? findSimilarPlan(app.id, scenario.module, scenario.id) : null;
   if (cached) {
     logGen(`Cache hit: ${scenario.module}/${scenario.id} (${cached.steps?.length} steps)`, 'success');
     return cached;
@@ -721,22 +821,27 @@ async function getPlan(scenario, app, ws = null, options = {}) {
 
   const docs    = loadAllDocs(app.docsDir);
   const docCtx  = docs.find(d => d.name === scenario.module)?.content || '';
+  const scenarioBaseUrl = moduleUrlFromDoc(docCtx, app.baseUrl);
 
   if (ws) send(ws, 'log', { text: 'Capturing live browser DOM...', level: 'info' });
   const browserCtx = await captureBrowserContext(app.baseUrl).catch(() => '');
 
   if (ws) send(ws, 'log', { text: 'Asking LLM to generate test steps...', level: 'info' });
 
-  const batch = await generateAllScenarioSteps([scenario], docCtx, browserCtx);
+  const batch = await generateAllScenarioSteps([scenario], docCtx, browserCtx, scenarioBaseUrl);
   const plan  = batch[0];
 
   if (!plan || !plan.steps?.length) {
     throw new Error(`LLM returned empty plan for "${scenario.name}". Check your docs or try again.`);
   }
 
+  plan.module = scenario.module || plan.module;
+  plan.scenario = scenario.id || plan.scenario || plan.id;
+  plan.id = scenario.id || plan.id || plan.scenario;
+
   validatePlan(plan);
   if (allowMemorySave) {
-    saveToMemory(plan);
+    saveToMemory(app.id, plan);
     logGen(`Generated & cached: ${plan.module}/${plan.scenario} (${plan.steps.length} steps)`, 'success');
   } else {
     logGen(`Generated temporary plan: ${plan.module}/${plan.scenario} (${plan.steps.length} steps)`, 'info');
@@ -807,7 +912,7 @@ async function executeScenario(ws, plan, scenario, baseUrl, browser, appId = 'de
       healCount++;
       if (result.status === 'success') {
         log(ws, 'Heal succeeded ✓', 'success');
-        if (allowMemorySave) saveToMemory(fixedPlan);
+        if (allowMemorySave) saveToMemory(appId, fixedPlan);
         healMeta = { failedStep: failedSR?.step??null, failedIndex: fi, fixedStep: fixedPlan.steps[fi]??null, diff, classification: clf };
         // Record heal outcome in learning memory
         if (failedSR?.step?.selector && fixedPlan.steps[fi]?.selector) {
@@ -823,7 +928,7 @@ async function executeScenario(ws, plan, scenario, baseUrl, browser, appId = 'de
     result._classification = clf;
   } else {
     if (allowMemorySave) {
-      saveToMemory(finalPlan);
+      saveToMemory(appId, finalPlan);
       log(ws, `Cached: "${finalPlan.module}__${finalPlan.scenario}"`, 'success');
     } else {
       log(ws, `Temporary scenario kept in this session: "${finalPlan.module}__${finalPlan.scenario}"`, 'info');
@@ -835,30 +940,36 @@ async function executeScenario(ws, plan, scenario, baseUrl, browser, appId = 'de
 
 // ── WebSocket ─────────────────────────────────────────────────────────────────
 wss.on('connection', ws => {
-  const st = getState(ws);
+  const rootState = getState(ws);
+  const { app: initialApp } = getActiveContext(rootState);
   console.log('Client connected');
   try {
     send(ws, 'apps', loadApps());
-    send(ws, 'modules', loadModulesForApp(st.currentApp));
+    send(ws, 'modules', loadModulesForApp(initialApp));
+    sendWorkspaceState(ws, rootState, initialApp);
     send(ws, 'agent_state', 'idle');
   } catch {}
 
   ws.on('message', async raw => {
     let msg; try { msg = JSON.parse(raw); } catch { return; }
     const { type, data } = msg;
-    const st = getState(ws);
+    const rootState = getState(ws);
+    let { app: currentApp, workspace: st } = getActiveContext(rootState);
 
     if (type === 'session_init') {
       const sessionId = String(data?.sessionId || '').slice(0, 80);
       if (sessionId) {
-        const existing = sessionState.get(sessionId) || st;
+        const existing = sessionState.get(sessionId) || rootState;
         existing.sessionId = sessionId;
+        if (!existing.currentAppId) existing.currentAppId = loadApps()[0]?.id;
+        if (!existing.workspaces) existing.workspaces = {};
         connState.set(ws, existing);
         sessionState.set(sessionId, existing);
+        const { app, workspace } = getActiveContext(existing);
         send(ws, 'apps', loadApps());
-        send(ws, 'modules', loadModulesForApp(existing.currentApp || loadApps()[0]));
-        send(ws, 'conversation_history', existing.history || []);
-        log(ws, `Session restored with ${(existing.history || []).length} remembered turns.`, 'info');
+        send(ws, 'modules', loadModulesForApp(app));
+        send(ws, 'conversation_history', workspace.history || []);
+        sendWorkspaceState(ws, existing, app);
       }
       return;
     }
@@ -866,7 +977,15 @@ wss.on('connection', ws => {
     // Switch app
     if (type === 'set_app') {
       const newApp = getApp(data);
-      if (newApp) { st.currentApp = newApp; st.lastRun = null; st.currentPlan = null; st.history = []; st.temporaryScenarioPlans = {}; st.pendingScenarioSaves = []; send(ws,'modules',loadModulesForApp(newApp)); send(ws,'chat_reply',{text:`Switched to **${newApp.name}**. Session reset — ready to test.`,intent:'system'}); }
+      if (newApp) {
+        rootState.currentAppId = newApp.id;
+        st = getWorkspace(rootState, newApp.id);
+        st.currentApp = newApp;
+        send(ws, 'modules', loadModulesForApp(newApp));
+        send(ws, 'conversation_history', st.history || []);
+        sendWorkspaceState(ws, rootState, newApp);
+        send(ws, 'chat_reply', { text:`Switched to **${newApp.name}** workspace. This app has its own chat, plan, report, and memory.`, intent:'system' });
+      }
       return;
     }
 
@@ -919,7 +1038,7 @@ wss.on('connection', ws => {
         const saved = [];
         for (const pending of st.pendingScenarioSaves) {
           appendScenarioToDocs(st.currentApp.docsDir, pending.scenario);
-          saveToMemory({
+          saveToMemory(st.currentApp.id, {
             ...pending.plan,
             module: pending.scenario.module,
             scenario: pending.scenario.id,
@@ -1173,6 +1292,8 @@ Return ONLY valid JSON:
 
       const allResults = [];
       let totalHealed = 0;
+      const totalPlannedScenarios = layers.reduce((n, l) => n + ((l.scenarios || []).length), 0);
+      let completedPlannedScenarios = 0;
 
       for (const layer of layers) {
         planProgress(ws, { layer: layer.type, status: 'running' });
@@ -1181,7 +1302,8 @@ Return ONLY valid JSON:
         let layerFailed = false;
         let layerHealed = false;
 
-        for (const scenario of layer.scenarios) {
+        for (let scenarioIndex = 0; scenarioIndex < layer.scenarios.length; scenarioIndex++) {
+          const scenario = layer.scenarios[scenarioIndex];
           // Tag scenario with its runner
           const scenarioWithRunner = { ...scenario, runner: layer.runner };
           const allowMemorySave = !scenarioWithRunner.temporary;
@@ -1230,6 +1352,10 @@ Return ONLY valid JSON:
               planProgress(ws, { layer: layer.type, scenario: scenarioWithRunner, status: 'failed' });
             }
           }
+          completedPlannedScenarios++;
+          if (layer.runner === 'api' && completedPlannedScenarios < totalPlannedScenarios) {
+            await requestApiConsoleCloseBeforeContinue(ws, scenarioWithRunner, totalPlannedScenarios - completedPlannedScenarios);
+          }
           await new Promise(r => setTimeout(r, 300));
         }
         planProgress(ws, { layer: layer.type, status: layerFailed ? 'failed' : layerHealed ? 'healed' : 'passed' });
@@ -1246,6 +1372,7 @@ Return ONLY valid JSON:
       send(ws, 'report', rpt);
       st.lastRun = rpt;
       maybePromptTemporaryScenarioSave(ws, st, rpt);
+      send(ws, 'modules', loadModulesForApp(runApp));
       send(ws, 'agent_state', 'idle');
       return;
     }
@@ -1295,7 +1422,7 @@ Return ONLY valid JSON:
         browser = await chromium.launch({ headless: false });
         const { result, healCount, healMeta } = await executeScenario(ws, plan, scenario, runApp.baseUrl, browser, runApp.id);
         const rpt = { status:result.status, healCount, scenarios:[{scenario,result,healCount,healMeta}], summary:{total:1,passed:(result.status==='success'&&!healCount)?1:0,failed:result.status==='failed'?1:0,skipped:0,healed:healCount} };
-        send(ws,'report',rpt); st.lastRun = rpt;
+        send(ws,'report',rpt); st.lastRun = rpt; send(ws, 'modules', loadModulesForApp(runApp));
         recordOutcome(runApp.id, scenarioName||scenarioId, 'EXECUTE', [scenario]);
       } catch(e) { log(ws,e.message,'error'); send(ws,'execution_error',e.message); }
       finally { if(browser) await browser.close(); send(ws,'agent_state','idle'); }
@@ -1329,7 +1456,7 @@ Return ONLY valid JSON:
       } finally { if(browser) await browser.close(); }
       const passed=results.filter(r=>r.result.status==='success'&&!r.healCount).length, failed=results.filter(r=>r.result.status==='failed').length, skipped=results.filter(r=>r.result.status==='skipped').length;
       const rpt={status:failed===0?'success':'failed',healCount:healed,scenarios:results,summary:{total:results.length,passed,failed,skipped,healed}};
-      send(ws,'report',rpt); st.lastRun=rpt; send(ws,'agent_state','idle'); return;
+      send(ws,'report',rpt); st.lastRun=rpt; send(ws, 'modules', loadModulesForApp(runApp)); send(ws,'agent_state','idle'); return;
     }
 
     // Run regression
@@ -1358,7 +1485,7 @@ Return ONLY valid JSON:
       } finally{if(browser)await browser.close();}
       const passed=results.filter(r=>r.result.status==='success'&&!r.healCount).length,failed=results.filter(r=>r.result.status==='failed').length,skipped=results.filter(r=>r.result.status==='skipped').length;
       const rpt={type:'regression',status:failed===0?'success':'failed',healCount:healed,scenarios:results,summary:{total:results.length,passed,failed,skipped,healed}};
-      send(ws,'report',rpt); st.lastRun=rpt; send(ws,'agent_state','idle'); return;
+      send(ws,'report',rpt); st.lastRun=rpt; send(ws, 'modules', loadModulesForApp(runApp)); send(ws,'agent_state','idle'); return;
     }
   });
 
@@ -1366,7 +1493,7 @@ Return ONLY valid JSON:
 });
 
 server.listen(4000, () => {
-  console.log('QA Sentinel v2:  http://localhost:4000');
+  console.log('QA Assistant v2:  http://localhost:4000');
   console.log('TestApp:         http://localhost:4000/testapp');
   try { const r=repairMemory(); console.log(`[Memory] ${r.total} plans, ${r.changed} repaired.`); } catch {}
 });

@@ -121,6 +121,18 @@
   "dataapp": {
     "examples": [
       {
+        "input": "sort column",
+        "intent": "EXECUTE",
+        "scenarios": [
+          {
+            "id": "sort_column",
+            "name": "sort column",
+            "module": "dataapp-tables"
+          }
+        ],
+        "confirmedAt": "2026-05-04T09:15:59.779Z"
+      },
+      {
         "input": "invalid email",
         "intent": "EXECUTE",
         "scenarios": [
@@ -181,7 +193,14 @@
         "confirmedAt": "2026-04-30T01:09:10.612Z"
       }
     ],
-    "heals": [],
+    "heals": [
+      {
+        "from": "#row-count",
+        "to": "#row-count",
+        "module": "dataapp-tables",
+        "succeededAt": "2026-05-04T07:32:25.327Z"
+      }
+    ],
     "failures": []
   }
 }

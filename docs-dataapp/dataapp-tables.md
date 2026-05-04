@@ -34,5 +34,5 @@ Note: this module is DOM-driven. The agent discovers selectors via live browser 
 - table_loads: Navigate to /tables — verify #data-table is visible and #row-count is not zero
 - filter_by_text: Navigate to /tables, type a search term into #filter-input — verify #row-count decreases
 - sort_column: Navigate to /tables, click a [data-sort] column header — verify table re-renders
-- pagination: Navigate to /tables, click #page-next — verify #page-info changes to "Page 2"
+- pagination: Navigate to /tables, click #page-next — verify #page-info changes to Page 2
 - export_csv: Navigate to /tables, click #export-btn — verify file download initiates

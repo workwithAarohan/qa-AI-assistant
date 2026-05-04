@@ -1,5 +1,5 @@
 /**
- * agent.js — QA Sentinel Smart Agent
+ * agent.js — QA Assistant Smart Agent
  *
  * Exports:
  *   think()                  — single LLM call that reasons about user intent
@@ -550,6 +550,11 @@ const COMMON_PATTERNS = {
     { action:'click', selector:'#export-btn, button:has-text("Export"), a:has-text("Export")' },
     { action:'wait', value:'1000' },
   ],
+  table_loads:   (s, url) => [
+    { action:'navigate', value: url },
+    { action:'expect', selector:'#data-table' },
+    { action:'expect', selector:'#row-count' },
+  ],
   valid_submit:  (s, url) => [
     { action:'navigate', value: url },
     { action:'type', selector:'input[type="text"]:first-of-type, #field-name', value:'Test User' },
@@ -575,9 +580,72 @@ function getFallbackSteps(scenario, baseUrl) {
   if (id.includes('filter') || id.includes('search')) return COMMON_PATTERNS.filter(scenario, baseUrl);
   if (id.includes('paginat') || id.includes('page'))  return COMMON_PATTERNS.pagination(scenario, baseUrl);
   if (id.includes('export') || id.includes('csv'))    return COMMON_PATTERNS.export(scenario, baseUrl);
+  if (id.includes('table') || String(scenario.module || '').includes('table')) return COMMON_PATTERNS.table_loads(scenario, baseUrl);
   if (id.includes('valid_submit') || id.includes('valid submit')) return COMMON_PATTERNS.valid_submit(scenario, baseUrl);
   if (id.includes('empty') || id.includes('blank'))  return COMMON_PATTERNS.empty_submit(scenario, baseUrl);
   return COMMON_PATTERNS.default(scenario, baseUrl);
+}
+
+function normalizeGeneratedAction(action) {
+  const raw = String(action || '').trim().toLowerCase();
+  const compact = raw.replace(/^page\./, '').replace(/^locator\./, '').replace(/[^a-z0-9]/g, '');
+  const actionMap = {
+    navigate: 'navigate',
+    goto: 'navigate',
+    pagegoto: 'navigate',
+    navigateto: 'navigate',
+    fill: 'fill',
+    fillfield: 'fill',
+    type: 'type',
+    inputtext: 'type',
+    entertext: 'type',
+    setvalue: 'type',
+    click: 'click',
+    clickbutton: 'click',
+    clickelement: 'click',
+    tapbutton: 'click',
+    expect: 'expect',
+    verify: 'expect',
+    assert: 'expect',
+    assertelementvisible: 'expect',
+    assertvisible: 'expect',
+    assertelement: 'expect',
+    verifyelement: 'expect',
+    verifyvisible: 'expect',
+    checkvisible: 'expect',
+    asserttext: 'assertText',
+    expecttext: 'assertText',
+    verifytext: 'assertText',
+    checktext: 'assertText',
+    assertcontains: 'assertText',
+    wait: 'wait',
+    waitfor: 'wait',
+    pause: 'wait',
+    waitfornavigation: 'waitForNavigation',
+    press: 'press',
+    select: 'select',
+    selectoption: 'select',
+    chooseoption: 'select',
+    expecturl: 'expectUrl',
+    verifyurl: 'expectUrl',
+    checkurl: 'expectUrl',
+    asserturl: 'expectUrl',
+  };
+  return actionMap[compact] || action;
+}
+
+function normalizeGeneratedStep(step = {}) {
+  const normalizedAction = normalizeGeneratedAction(step.action);
+  const action = String(normalizedAction || '').toLowerCase().replace(/[_\s-]/g, '');
+  const navActions = new Set(['navigate', 'goto', 'navigateto']);
+  const urlValue = step.value || step.url || step.target || step.href;
+  if (navActions.has(action)) {
+    return { ...step, action: 'navigate', value: urlValue };
+  }
+  if (['expecturl', 'verifyurl', 'checkurl', 'asserturl'].includes(action) && !step.value && urlValue) {
+    return { ...step, action: normalizedAction, value: urlValue };
+  }
+  return { ...step, action: normalizedAction };
 }
 
 export async function generateAllScenarioSteps(scenarios, docContext = '', browserContext = '', baseUrl = '') {
@@ -604,10 +672,15 @@ ${scenarioList}
 
 Base URL: ${baseUrl || 'http://localhost:4000'}
 
-## Rules
-- ALWAYS generate steps — never return empty steps array
-- Minimum 3 steps per scenario: navigate → interact → assert
-- Use selectors from documentation when available
+	## Rules
+	- ALWAYS generate steps — never return empty steps array
+	- Minimum 3 steps per scenario: navigate → interact → assert
+	- Use ONLY these action strings: "navigate", "click", "type", "fill", "expect", "assertText", "expectUrl", "wait", "waitForNavigation", "press", "select"
+	- Never output Playwright API names or invented aliases as actions. Do NOT use "page.goto", "page.click", "locator.click", "getByRole", "getByText", "expectText", "verifyText", or "checkText" as action values.
+	- For navigation, output exactly: { "action": "navigate", "value": "<absolute-or-relative-url>" }
+	- For clicks/assertions/typing, put CSS or Playwright text selectors in "selector"; do not put selectors in "action".
+	- To check that an element contains text, output exactly: { "action": "assertText", "selector": "<selector>", "value": "<expected text>" }
+	- Use selectors from documentation when available
 - Use element ids from DOM snapshot when docs missing
 - When both missing: use getByText(), getByRole(), or common patterns below
 - Fallback selectors: th:has-text("Column"), input[placeholder*="hint"], button:has-text("Action")
@@ -635,10 +708,11 @@ Base URL: ${baseUrl || 'http://localhost:4000'}
         console.warn(`[generateAllScenarioSteps] Empty steps for ${plan.id} — applying fallback`);
         plan.steps = getFallbackSteps(scenario, baseUrl);
       }
-      // Ensure required fields
-      plan.module   = plan.module   || scenario?.module   || 'general';
-      plan.scenario = plan.scenario || plan.id || scenario?.id || 'unknown';
-      plan.id       = plan.id       || plan.scenario;
+      plan.steps = (plan.steps || []).map(normalizeGeneratedStep);
+      // Keep generated steps tied to the documented scenario, even if the LLM invents display names.
+      plan.module   = scenario?.module || plan.module || 'general';
+      plan.scenario = scenario?.id || plan.scenario || plan.id || 'unknown';
+      plan.id       = scenario?.id || plan.id || plan.scenario;
       return plan;
     });
 

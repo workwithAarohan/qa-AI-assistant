@@ -2,7 +2,7 @@
  * runners/ui-runner.js
  *
  * UI test runner — wraps executor.js (Playwright) into the unified Runner interface.
- * This is what the existing QA Sentinel uses for all browser automation tests.
+ * This is what the existing QA Assistant uses for all browser automation tests.
  *
  * Unified RunResult shape (all runners return this):
  * {
@@ -71,7 +71,8 @@ export async function run(scenario, config = {}) {
 }
 
 async function executeStep(page, step, baseUrl) {
-  switch (step.action.toLowerCase()) {
+  const action = String(step.action || '').toLowerCase().replace(/^page\./, '').replace(/^locator\./, '').replace(/[^a-z0-9]/g, '');
+  switch (action) {
     case 'navigate':
     case 'goto': {
       const url = step.value.startsWith('http') ? step.value : `${baseUrl}${step.value}`;
@@ -97,7 +98,8 @@ async function executeStep(page, step, baseUrl) {
       await page.waitForURL(url => url.toString().toLowerCase().includes(expected.toLowerCase()), { timeout: 7000 });
       break;
     }
-    case 'asserttext': {
+    case 'asserttext':
+    case 'expecttext': {
       await page.waitForSelector(step.selector, { state: 'visible' });
       const content = await page.textContent(step.selector);
       if (!content?.includes(step.value)) throw new Error(`Expected "${step.value}" in "${content?.slice(0,60)}"`);
